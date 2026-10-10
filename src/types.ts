@@ -11,7 +11,6 @@ export interface User {
   id: string;
   displayName: string;
   leetcodeUsername: string;
-  intraId: string;
   avatarUrl: string;
   allTimeSolved: number;
   easySolved: number;
@@ -32,9 +31,9 @@ export interface User {
   history: HistoryRecord[];
   isPinned?: boolean;
   // Present only on the currently-authenticated user's own record (see
-  // /api/auth/session and /api/enroll) — never trust a client-supplied
-  // value for this, it's always derived server-side from ADMIN_* lists in
-  // auth.ts.
+  // /api/auth/session, /api/auth/login and /api/auth/register/verify) —
+  // never trust a client-supplied value for this, it's always derived
+  // server-side from the admin list in auth.ts.
   isAdmin?: boolean;
 }
 

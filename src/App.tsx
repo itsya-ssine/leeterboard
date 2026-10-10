@@ -2,14 +2,10 @@ import React, { useState, useEffect } from "react";
 import {
   Search,
   RefreshCw,
-  UserPlus,
   Trash2,
   Flame,
-  Check,
-  AlertTriangle,
   ArrowUpRight,
   Pin,
-  X,
   LogIn,
   LogOut,
   Trophy,
@@ -52,7 +48,7 @@ const HOT_STREAK_THRESHOLD = 12;
 // Polling cadence while the tab is visible. Hidden tabs don't poll at all.
 const POLL_INTERVAL_MS = 15_000;
 
-// A cadet whose last successful LeetCode fetch is older than this gets a
+// A member whose last successful LeetCode fetch is older than this gets a
 // "stale" badge. The server syncs every 30 minutes, so a full day without an
 // update means their fetches are failing, not that nobody has synced.
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -98,8 +94,8 @@ function NavLinks({ page, className = "" }: { page: Page; className?: string }) 
 }
 
 // Single source of truth for ordering, used for both the absolute ranks and
-// the displayed list. Contest mode puts rated cadets first (highest rating
-// first) and unrated cadets after them, ordered by problems solved.
+// the displayed list. Contest mode puts rated members first (highest rating
+// first) and unrated members after them, ordered by problems solved.
 function compareUsers(sortBy: SortKey) {
   return (a: User, b: User): number => {
     if (sortBy === "rating") {
@@ -229,7 +225,7 @@ function HotStreak({ className = "size-3.5" }: { className?: string }) {
 
 /* ---------- Sparkline (profile modal) ---------- */
 
-// Cumulative solved count over the last `days` days, from the cadet's own
+// Cumulative solved count over the last `days` days, from the member's own
 // history snapshots (the server keeps up to 60).
 function ActivitySparkline({ history, days = 30 }: { history: HistoryRecord[]; days?: number }) {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
@@ -445,7 +441,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
 /* ---------- App ---------- */
 
 export default function App() {
-  const { status: authStatus, user: currentUser, pendingIntra, logout, completeEnrollment } = useAuth();
+  const { status: authStatus, user: currentUser, logout } = useAuth();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [lastSyncAll, setLastSyncAll] = useState<string>("");
@@ -466,44 +462,6 @@ export default function App() {
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
-
-  // Enroll (finish-signup) form state — the 42 identity itself comes from
-  // pendingIntra above, verified server-side; the cadet only ever types
-  // their LeetCode username here.
-  const [leetcodeUsername, setLeetcodeUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [formSuccess, setFormSuccess] = useState<string | null>(null);
-  const [isEnrollOpen, setIsEnrollOpen] = useState(false);
-  const [authBanner, setAuthBanner] = useState<string | null>(null);
-
-  // Pick up ?enroll=1 / ?authError=... left by the 42 OAuth redirect, then
-  // scrub them from the URL so refreshing the page doesn't replay them.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const authError = params.get("authError");
-    const enroll = params.get("enroll");
-    if (authError) {
-      setAuthBanner(authError);
-    }
-    if (authError || enroll) {
-      params.delete("authError");
-      params.delete("enroll");
-      const rest = params.toString();
-      window.history.replaceState({}, "", rest ? `?${rest}` : window.location.pathname);
-    }
-  }, []);
-
-  // Once the server confirms we're in the "signed in with 42, not enrolled
-  // yet" state, pop the enroll modal open automatically.
-  useEffect(() => {
-    if (authStatus === "pending") {
-      setFormError(null);
-      setFormSuccess(null);
-      setIsEnrollOpen(true);
-    }
-  }, [authStatus]);
 
   // Trend analysis state
   const [trendData, setTrendData] = useState<any>(null);
@@ -574,7 +532,7 @@ export default function App() {
     window.history.replaceState(window.history.state, "", next);
   }, [sortBy, searchQuery]);
 
-  // Pinned cadets survive a refresh.
+  // Pinned members survive a refresh.
   useEffect(() => {
     try {
       window.localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(pinnedUsers));
@@ -582,41 +540,6 @@ export default function App() {
       // Storage unavailable — pins still work for this session.
     }
   }, [pinnedUsers]);
-
-  // Handle cadet onboarding — the 42 identity is already verified (this
-  // form only ever renders once authStatus === "pending"), so all we send
-  // is the LeetCode username.
-  const handleAddCadet = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-    setFormSuccess(null);
-
-    if (!leetcodeUsername.trim()) {
-      setFormError("LeetCode Username is required.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const result = await completeEnrollment(leetcodeUsername.trim(), displayName.trim());
-      setFormSuccess(`Cadet @${result.displayName} enrolled — fetched ${result.allTimeSolved} solved problems from LeetCode.`);
-      setLeetcodeUsername("");
-      setDisplayName("");
-      await loadData();
-      // pendingIntra is now cleared (enrollment is done), so leaving the
-      // modal open would otherwise fall back into the "sign in with 42
-      // first" empty state. Give the person a moment to read the success
-      // message, then close it.
-      setTimeout(() => {
-        setIsEnrollOpen(false);
-        setFormSuccess(null);
-      }, 1800);
-    } catch (err: any) {
-      setFormError(err.message || "An unexpected error occurred.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   // Handle batch refresh / sync — admin only (button is hidden for
   // everyone else, and the server enforces this too).
@@ -637,7 +560,7 @@ export default function App() {
 
   // Handle remove user
   const handleRemoveUser = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to remove Cadet ${name} from the board?`)) {
+    if (!confirm(`Are you sure you want to remove Member ${name} from the board?`)) {
       return;
     }
 
@@ -647,7 +570,7 @@ export default function App() {
         await loadData();
       }
     } catch (err) {
-      console.error("Error removing cadet:", err);
+      console.error("Error removing member:", err);
     }
   };
 
@@ -665,8 +588,7 @@ export default function App() {
     const q = searchQuery.toLowerCase();
     return (
       u.displayName.toLowerCase().includes(q) ||
-      u.leetcodeUsername.toLowerCase().includes(q) ||
-      u.intraId.toLowerCase().includes(q)
+      u.leetcodeUsername.toLowerCase().includes(q)
     );
   });
 
@@ -689,7 +611,7 @@ export default function App() {
     return compareUsers(sortBy)(a, b);
   });
 
-  // The rank to display for a cadet. In contest mode, unrated cadets have no
+  // The rank to display for a member. In contest mode, unrated members have no
   // position in that ranking, so they get a dash instead of a misleading #N.
   const displayRank = (u: User): number | null =>
     sortBy === "rating" && u.contestRating == null ? null : userRanks[u.id] || u.rank;
@@ -701,7 +623,7 @@ export default function App() {
   const topSolverWeeklyCount = trendData?.topSolverThisWeekCount || 0;
   const groupWeeklyVelocity = users.reduce((acc, u) => acc + u.weeklyProgress, 0);
 
-  // Stats page: the three cadets who solved the most this week (ties broken
+  // Stats page: the three members who solved the most this week (ties broken
   // by total solved), independent of the leaderboard's sort or search.
   const topWeekly = [...users].sort(compareUsers("weekly")).slice(0, 3);
 
@@ -719,26 +641,26 @@ export default function App() {
 
   // Freshness. If the whole board hasn't synced in a day, the sync job is
   // the problem, so we flag that once in the header instead of badging every
-  // row. Otherwise a stale row means that one cadet's LeetCode fetch is
+  // row. Otherwise a stale row means that one member's LeetCode fetch is
   // failing.
   const now = Date.now();
   const boardStale = isStale(lastSyncAll, now);
 
   const stats = [
     {
-      label: "Cadets on the board",
+      label: "Members on the board",
       value: String(users.length),
-      hint: "Enrolled"
+      hint: "Registered"
     },
     {
       label: "Problems solved",
       value: totalSolvedAggregate.toLocaleString(),
-      hint: `${averageSolved} per cadet on average`
+      hint: `${averageSolved} per member on average`
     },
     {
       label: "Solved this week",
       value: `+${groupWeeklyVelocity}`,
-      hint: "Across all cadets",
+      hint: "Across all members",
       accent: true
     },
     {
@@ -789,24 +711,10 @@ export default function App() {
                   <span className="hidden sm:inline">Log out</span>
                 </button>
               </>
-            ) : authStatus === "pending" && pendingIntra ? (
-              <button
-                onClick={() => {
-                  setFormError(null);
-                  setFormSuccess(null);
-                  setIsEnrollOpen(true);
-                }}
-                className={btnPrimary}
-                id="open-enroll-btn"
-              >
-                <UserPlus className="size-4" />
-                Finish enrollment
-                <span className="hidden sm:inline">(@{pendingIntra.intraId})</span>
-              </button>
             ) : (
-              <button onClick={() => setIsLoginOpen(true)} className={btnPrimary} id="open-enroll-btn">
+              <button onClick={() => setIsLoginOpen(true)} className={btnPrimary} id="open-login-btn">
                 <LogIn className="size-4" />
-                Log in with 42
+                Log in
               </button>
             )}
           </div>
@@ -845,24 +753,6 @@ export default function App() {
             )}
           </div>
         </div>
-
-        {/* 42 OAuth error banner (e.g. denied / expired login attempt) */}
-        {authBanner && (
-          <div
-            role="alert"
-            className="mb-6 flex items-start gap-2 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300 ring-1 ring-rose-400/20"
-          >
-            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            <span>{authBanner}</span>
-            <button
-              onClick={() => setAuthBanner(null)}
-              className="ml-auto cursor-pointer text-rose-300/70 transition-colors hover:text-rose-200"
-              aria-label="Dismiss"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-        )}
 
         {/* ======== Stats page ======== */}
         {page === "stats" && (
@@ -955,8 +845,8 @@ export default function App() {
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-mist-500" />
               <input
                 type="text"
-                placeholder="Search by name, LeetCode or 42 login"
-                aria-label="Search cadets"
+                placeholder="Search by name or LeetCode username"
+                aria-label="Search members"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`${inputCls} pl-9`}
@@ -997,7 +887,7 @@ export default function App() {
           {/* Column labels */}
           <div className="hidden grid-cols-12 gap-x-4 border-b border-line px-5 py-2.5 text-xs font-medium text-mist-500 md:grid">
             <div className="col-span-1">Rank</div>
-            <div className="col-span-3">Cadet</div>
+            <div className="col-span-3">Member</div>
             <div className="col-span-4">
               {sortBy === "weekly" ? "Solved this week" : "Solved by difficulty"}
             </div>
@@ -1031,12 +921,12 @@ export default function App() {
                       <Search className="size-4" />
                     </div>
                     <p className="font-medium text-white">
-                      {searchQuery ? "No cadets match your search" : "No cadets on the board yet"}
+                      {searchQuery ? "No members match your search" : "No members on the board yet"}
                     </p>
                     <p className="mt-1 text-sm text-mist-500">
                       {searchQuery
-                        ? "Try a different name, LeetCode username or 42 login."
-                        : "Log in with 42 to add yourself."}
+                        ? "Try a different name or LeetCode username."
+                        : "Sign up to add yourself."}
                     </p>
                   </motion.div>
                 ) : (
@@ -1059,7 +949,7 @@ export default function App() {
                             ? "bg-teal-400/[0.06] shadow-[inset_2px_0_0_0_var(--color-teal-400)]"
                             : "bg-ink-900 hover:bg-ink-800/60"
                         }`}
-                        id={`cadet-row-${user.id}`}
+                        id={`member-row-${user.id}`}
                       >
                         {/* Rank */}
                         <div
@@ -1068,22 +958,22 @@ export default function App() {
                           {actualRank ?? "–"}
                         </div>
 
-                        {/* Cadet — opens the full profile */}
+                        {/* Member — opens the full profile */}
                         <button
                           type="button"
                           onClick={() => setSelectedUser(user)}
                           title="View full profile"
-                          className={`group/cadet flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left md:col-span-3 ${focusRing}`}
+                          className={`group/member flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left md:col-span-3 ${focusRing}`}
                         >
                           <img
                             src={user.avatarUrl}
                             alt=""
-                            className="size-10 shrink-0 rounded-full object-cover ring-1 ring-line-strong transition group-hover/cadet:ring-teal-400/70"
+                            className="size-10 shrink-0 rounded-full object-cover ring-1 ring-line-strong transition group-hover/member:ring-teal-400/70"
                             referrerPolicy="no-referrer"
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="truncate font-medium text-white transition-colors group-hover/cadet:text-teal-300">
+                              <span className="truncate font-medium text-white transition-colors group-hover/member:text-teal-300">
                                 {user.displayName}
                               </span>
                               {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
@@ -1102,7 +992,7 @@ export default function App() {
                         </button>
 
                         {/* Progress — weekly bar when sorted by week, difficulty split otherwise.
-                            Drops below the cadet on small screens. */}
+                            Drops below the member on small screens. */}
                         <div className="order-last col-span-3 md:order-none md:col-span-4 md:pr-4">
                           {sortBy === "weekly" ? (
                             <div className="flex w-full items-center gap-3">
@@ -1162,7 +1052,7 @@ export default function App() {
                             }}
                             aria-pressed={isPinned}
                             aria-label={isPinned ? `Unpin ${user.displayName}` : `Pin ${user.displayName} to the top`}
-                            title={isPinned ? "Unpin cadet" : "Pin cadet to the top"}
+                            title={isPinned ? "Unpin member" : "Pin member to the top"}
                             className={`grid size-8 cursor-pointer place-items-center rounded-lg transition-colors hover:bg-white/5 ${focusRing} ${
                               isPinned ? "text-teal-300" : "text-mist-500 hover:text-white"
                             }`}
@@ -1179,7 +1069,7 @@ export default function App() {
                                 handleRemoveUser(user.id, user.displayName);
                               }}
                               aria-label={`Remove ${user.displayName}`}
-                              title="Remove cadet"
+                              title="Remove member"
                               className={`grid size-8 cursor-pointer place-items-center rounded-lg text-mist-500 transition-colors hover:bg-rose-500/10 hover:text-rose-300 ${focusRing}`}
                             >
                               <Trash2 className="size-3.5" />
@@ -1197,9 +1087,9 @@ export default function App() {
 
         )}
 
-        <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+        <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} onAuthenticated={loadData} />
 
-        {/* ---------- Cadet profile ---------- */}
+        {/* ---------- Member profile ---------- */}
         <AnimatePresence>
           {selectedUser && (
             <Modal
@@ -1232,21 +1122,12 @@ export default function App() {
               </div>
 
               {/* Profile links */}
-              <div className="mb-5 grid grid-cols-2 gap-2">
+              <div className="mb-5">
                 <a
-                  href={`https://profile.intra.42.fr/users/${selectedUser.intraId}`}
+                  href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`${btnSecondary} min-w-0`}
-                >
-                  <span className="truncate">42: {selectedUser.intraId}</span>
-                  <ArrowUpRight className="size-3.5 shrink-0 text-teal-300" />
-                </a>
-                <a
-                  href={`https://leetcode.com/${selectedUser.leetcodeUsername}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`${btnSecondary} min-w-0`}
+                  className={`${btnSecondary} w-full min-w-0`}
                 >
                   <span className="truncate">LeetCode: {selectedUser.leetcodeUsername}</span>
                   <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
@@ -1322,131 +1203,12 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* ---------- Enrollment ---------- */}
-        <AnimatePresence>
-          {isEnrollOpen && (
-            <Modal onClose={() => setIsEnrollOpen(false)} label="Finish enrollment" id="enroll-modal">
-              <h3 className="pr-8 text-lg font-semibold tracking-tight text-white">Finish enrollment</h3>
-              <p className="mt-1 text-sm text-mist-400">
-                Add your LeetCode username to appear on the board.
-              </p>
-
-              {pendingIntra ? (
-                <div className="mt-5 flex items-center gap-3 rounded-lg bg-ink-950 p-3 ring-1 ring-line">
-                  {pendingIntra.avatarUrl && (
-                    <img
-                      src={pendingIntra.avatarUrl}
-                      alt=""
-                      className="size-9 rounded-full object-cover ring-1 ring-line-strong"
-                    />
-                  )}
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-white">@{pendingIntra.intraId}</div>
-                    <div className="flex items-center gap-1 text-xs text-teal-300">
-                      <Check className="size-3" />
-                      Verified by 42
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-5 rounded-lg bg-ink-950 p-3 text-sm text-mist-400 ring-1 ring-line">
-                  Log in with 42 first. 42 confirms your identity, so you don't type it here.
-                </p>
-              )}
-
-              <form onSubmit={handleAddCadet} className="mt-5 flex flex-col gap-4">
-                <div>
-                  <label htmlFor="leetcode-username" className="mb-1.5 block text-sm font-medium text-mist-400">
-                    LeetCode username
-                  </label>
-                  <input
-                    id="leetcode-username"
-                    type="text"
-                    placeholder="jsmith"
-                    value={leetcodeUsername}
-                    onChange={(e) => setLeetcodeUsername(e.target.value)}
-                    className={inputCls}
-                    required
-                    disabled={!pendingIntra}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="display-name" className="mb-1.5 block text-sm font-medium text-mist-400">
-                    Display name <span className="font-normal text-mist-500">(optional)</span>
-                  </label>
-                  <input
-                    id="display-name"
-                    type="text"
-                    placeholder="CodeSlayer"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    className={inputCls}
-                    disabled={!pendingIntra}
-                  />
-                </div>
-
-                {!pendingIntra && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEnrollOpen(false);
-                      setIsLoginOpen(true);
-                    }}
-                    className={`${btnSecondary} h-10 w-full`}
-                  >
-                    <LogIn className="size-4" />
-                    Log in with 42
-                  </button>
-                )}
-
-                {formError && (
-                  <div
-                    role="alert"
-                    className="flex items-start gap-2 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300 ring-1 ring-rose-400/20"
-                  >
-                    <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                    <span>{formError}</span>
-                  </div>
-                )}
-
-                {formSuccess && (
-                  <div
-                    role="status"
-                    className="flex items-start gap-2 rounded-lg bg-teal-400/10 p-3 text-sm text-teal-200 ring-1 ring-teal-300/20"
-                  >
-                    <Check className="mt-0.5 size-4 shrink-0" />
-                    <span>{formSuccess}</span>
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !pendingIntra}
-                  className={`${btnPrimary} h-10 w-full`}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <RefreshCw className="size-4 animate-spin" />
-                      Fetching your profile…
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus className="size-4" />
-                      Join the board
-                    </>
-                  )}
-                </button>
-              </form>
-            </Modal>
-          )}
-        </AnimatePresence>
       </main>
 
       {/* ---------- Footer ---------- */}
       <footer className="border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-mist-500 md:px-8">
-          Internal use only · 1337 School Management System
+          Leader1337 · Weekly LeetCode leaderboard
         </div>
       </footer>
     </div>

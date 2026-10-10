@@ -1,26 +1,61 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { User } from "./types.js";
 
-export interface IntraProfile {
-  intraId: string;
-  displayName: string;
-  avatarUrl?: string;
-}
+export type SessionStatus = "loading" | "guest" | "authenticated";
 
-export type SessionStatus = "loading" | "guest" | "pending" | "authenticated";
+// Returned when a sign-up is started: the code the person must paste into
+// their LeetCode profile summary to prove the account is theirs.
+export interface RegistrationChallenge {
+  code: string;
+  // "create": new account · "claim": existing board entry that has no
+  // password yet · "reset": existing account, setting a new password.
+  purpose: "create" | "claim" | "reset";
+  leetcodeUsername: string;
+  expiresInMinutes: number;
+}
 
 interface AuthContextValue {
   status: SessionStatus;
   user: User | null;
-  // Populated only when status === "pending": the 42 identity that was
-  // just verified, waiting on a LeetCode username to finish enrollment.
-  pendingIntra: IntraProfile | null;
-  // Authentication itself is a redirect to the server, which bounces the
-  // browser to 42 and back — there's nothing to submit from the client.
-  loginWithIntra: () => void;
+  login: (leetcodeUsername: string, password: string) => Promise<User>;
+  startRegistration: (leetcodeUsername: string, password: string, displayName?: string) => Promise<RegistrationChallenge>;
+  verifyRegistration: () => Promise<User>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
-  completeEnrollment: (leetcodeUsername: string, displayName?: string) => Promise<User>;
+}
+
+// Thrown for any non-2xx response; `expired` is set when the server says the
+// sign-up in progress is gone and has to be started again.
+export class AuthError extends Error {
+  expired: boolean;
+  constructor(message: string, expired = false) {
+    super(message);
+    this.name = "AuthError";
+    this.expired = expired;
+  }
+}
+
+async function postJson<T>(url: string, body: unknown = {}): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    throw new AuthError("Couldn't reach the server. Check your connection and try again.");
+  }
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    // Non-JSON body (e.g. a proxy error page) — fall through to the generic message.
+  }
+  if (!res.ok) {
+    throw new AuthError(data?.error || "Something went wrong. Please try again.", Boolean(data?.expired));
+  }
+  return data as T;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -28,7 +63,6 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
-  const [pendingIntra, setPendingIntra] = useState<IntraProfile | null>(null);
 
   const refreshSession = useCallback(async () => {
     try {
@@ -36,20 +70,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (data.status === "authenticated") {
         setUser(data.user);
-        setPendingIntra(null);
         setStatus("authenticated");
-      } else if (data.status === "pending") {
-        setUser(null);
-        setPendingIntra(data.intra);
-        setStatus("pending");
       } else {
         setUser(null);
-        setPendingIntra(null);
         setStatus("guest");
       }
     } catch {
       setUser(null);
-      setPendingIntra(null);
       setStatus("guest");
     }
   }, []);
@@ -58,39 +85,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshSession();
   }, [refreshSession]);
 
-  // Authentication happens entirely on the server via 42's OAuth flow —
-  // this just sends the browser there. The server sets a session cookie
-  // and redirects back to "/" (or "/?enroll=1" for first-time cadets).
-  const loginWithIntra = useCallback(() => {
-    window.location.href = "/api/auth/42/login";
+  const login = useCallback(async (leetcodeUsername: string, password: string) => {
+    const data = await postJson<User>("/api/auth/login", { leetcodeUsername, password });
+    setUser(data);
+    setStatus("authenticated");
+    return data;
+  }, []);
+
+  const startRegistration = useCallback(
+    (leetcodeUsername: string, password: string, displayName?: string) =>
+      postJson<RegistrationChallenge>("/api/auth/register", { leetcodeUsername, password, displayName }),
+    []
+  );
+
+  const verifyRegistration = useCallback(async () => {
+    const data = await postJson<User>("/api/auth/register/verify");
+    setUser(data);
+    setStatus("authenticated");
+    return data;
   }, []);
 
   const logout = useCallback(async () => {
-    await fetch("/api/logout", { method: "POST" });
-    setUser(null);
-    setPendingIntra(null);
-    setStatus("guest");
-  }, []);
-
-  const completeEnrollment = useCallback(async (leetcodeUsername: string, displayName?: string) => {
-    const res = await fetch("/api/enroll", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leetcodeUsername, displayName })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || "Enrollment failed.");
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } finally {
+      setUser(null);
+      setStatus("guest");
     }
-    setUser(data);
-    setPendingIntra(null);
-    setStatus("authenticated");
-    return data as User;
   }, []);
 
   return (
     <AuthContext.Provider
-      value={{ status, user, pendingIntra, loginWithIntra, logout, refreshSession, completeEnrollment }}
+      value={{ status, user, login, startRegistration, verifyRegistration, logout, refreshSession }}
     >
       {children}
     </AuthContext.Provider>

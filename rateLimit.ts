@@ -11,24 +11,35 @@ export const apiLimiter = rateLimit({
   message: { error: "Too many requests from this IP. Please slow down and try again shortly." }
 });
 
-// The 42 OAuth handshake (login redirect + callback). No legitimate user
-// needs to hit this more than a handful of times in 15 minutes.
-export const authLimiter = rateLimit({
+// Password logins. Only failed attempts count, so normal use never hits it.
+// Each account also locks itself after repeated failures (see server.ts), which
+// keeps working across serverless instances where this in-memory counter
+// doesn't.
+export const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many login attempts. Please wait a few minutes and try again." }
 });
 
-// Finishing enrollment creates a DB row and calls out to LeetCode —
-// worth its own, stricter budget than general API traffic.
-export const enrollLimiter = rateLimit({
+// Starting a sign-up hashes a password and calls out to LeetCode.
+export const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 10,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many enrollment attempts. Please try again later." }
+  message: { error: "Too many sign-up attempts. Please try again later." }
+});
+
+// "Verify my profile" re-reads the person's LeetCode summary each time.
+export const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many verification attempts. Please wait a few minutes and try again." }
 });
 
 // Refresh routes call out to LeetCode's (itself rate-limited) API on the

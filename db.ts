@@ -12,6 +12,14 @@ export const client: Client = authToken
   ? createClient({ url, authToken })
   : createClient({ url });
 
+async function columnExists(table: string, column: string): Promise<boolean> {
+  const res = await client.execute({
+    sql: `SELECT 1 FROM pragma_table_info(?) WHERE name = ?`,
+    args: [table, column]
+  });
+  return res.rows.length > 0;
+}
+
 export async function initDb(): Promise<void> {
   await client.batch(
     [
@@ -19,7 +27,6 @@ export async function initDb(): Promise<void> {
         id TEXT PRIMARY KEY,
         display_name TEXT NOT NULL,
         leetcode_username TEXT NOT NULL,
-        intra_id TEXT NOT NULL,
         avatar_url TEXT,
         all_time_solved INTEGER NOT NULL DEFAULT 0,
         easy_solved INTEGER NOT NULL DEFAULT 0,
@@ -33,43 +40,73 @@ export async function initDb(): Promise<void> {
         contests_attended INTEGER NOT NULL DEFAULT 0,
         current_streak INTEGER,
         longest_streak INTEGER,
-        password_hash TEXT NOT NULL DEFAULT ''
+        password_hash TEXT NOT NULL DEFAULT '',
+        failed_logins INTEGER NOT NULL DEFAULT 0,
+        locked_until TEXT
       )`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_leetcode ON users(leetcode_username)`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_intra ON users(intra_id)`,
       `CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY,
         value TEXT
+      )`,
+      // A sign-up that has been started but not yet proven: the chosen
+      // password (already hashed) waits here until the person shows they own
+      // the LeetCode account. The browser only ever holds the random `id`.
+      `CREATE TABLE IF NOT EXISTS pending_registrations (
+        id TEXT PRIMARY KEY,
+        leetcode_username TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        code TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT NOT NULL
       )`
     ],
     "write"
   );
 
-  // password_hash is a leftover from the old password-based signup flow.
-  // Authentication is now entirely via 42 OAuth (see intra.ts/auth.ts), so
-  // nothing writes to this column anymore — it's kept only so DBs created
-  // before this change don't need a manual migration.
-  try {
-    await client.execute(`ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''`);
-  } catch {
-    // Column already exists — fine, ignore.
-  }
-
-  // Contest rating columns, added after the first release. Same idempotent
-  // pattern: databases created before this change get them here, fresh ones
-  // already have them from CREATE TABLE above. Existing rows start unrated
-  // (NULL) and are filled in by the next sync.
+  // ---- Migrations for databases created by earlier versions ----
+  // Every step is idempotent: databases that already have the column simply
+  // hit the catch and carry on. Existing rows keep all their stats/history.
   for (const ddl of [
+    `ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''`,
     `ALTER TABLE users ADD COLUMN contest_rating INTEGER`,
     `ALTER TABLE users ADD COLUMN contests_attended INTEGER NOT NULL DEFAULT 0`,
-    // LeetCode streaks. NULL = never fetched; filled in by the next sync.
     `ALTER TABLE users ADD COLUMN current_streak INTEGER`,
-    `ALTER TABLE users ADD COLUMN longest_streak INTEGER`
+    `ALTER TABLE users ADD COLUMN longest_streak INTEGER`,
+    // Brute-force protection (see recordFailedLogin).
+    `ALTER TABLE users ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE users ADD COLUMN locked_until TEXT`
   ]) {
     try {
       await client.execute(ddl);
     } catch {
       // Column already exists — fine, ignore.
+    }
+  }
+
+  // Case-insensitive uniqueness, so "Alice" and "alice" can't both register.
+  // Skipped (with a warning) if old data already contains such a clash.
+  try {
+    await client.execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_leetcode_lower ON users(lower(leetcode_username))`
+    );
+  } catch (err: any) {
+    console.warn(`[DB] Couldn't create case-insensitive username index: ${err.message}`);
+  }
+
+  // The old 42 (Intra) login column is no longer used. SQLite can't relax its
+  // NOT NULL constraint, so it has to go for new users to be insertable. The
+  // unique index on it must be dropped first.
+  if (await columnExists("users", "intra_id")) {
+    await client.execute(`DROP INDEX IF EXISTS idx_users_intra`);
+    try {
+      await client.execute(`ALTER TABLE users DROP COLUMN intra_id`);
+    } catch (err: any) {
+      // Another cold-started instance may have dropped it a moment ago.
+      if (await columnExists("users", "intra_id")) {
+        throw new Error(`Couldn't remove the legacy intra_id column: ${err.message}`);
+      }
     }
   }
 }
@@ -79,7 +116,6 @@ function rowToUser(row: Record<string, unknown>): User {
     id: row.id as string,
     displayName: row.display_name as string,
     leetcodeUsername: row.leetcode_username as string,
-    intraId: row.intra_id as string,
     avatarUrl: (row.avatar_url as string) || "",
     allTimeSolved: Number(row.all_time_solved),
     easySolved: Number(row.easy_solved),
@@ -99,6 +135,32 @@ function rowToUser(row: Record<string, unknown>): User {
   };
 }
 
+// Credential fields. These are deliberately NOT part of the User type, so
+// they can never be serialised into an API response by accident.
+export interface UserAuth {
+  // "" for accounts that existed before passwords did (they claim their
+  // account by proving ownership of the LeetCode profile).
+  passwordHash: string;
+  failedLogins: number;
+  lockedUntil: string | null;
+}
+
+export interface UserWithAuth {
+  user: User;
+  auth: UserAuth;
+}
+
+function rowToUserWithAuth(row: Record<string, unknown>): UserWithAuth {
+  return {
+    user: rowToUser(row),
+    auth: {
+      passwordHash: (row.password_hash as string) || "",
+      failedLogins: Number(row.failed_logins ?? 0),
+      lockedUntil: (row.locked_until as string) || null
+    }
+  };
+}
+
 export async function listUsers(): Promise<User[]> {
   const res = await client.execute("SELECT * FROM users");
   return res.rows.map((r) => rowToUser(r as unknown as Record<string, unknown>));
@@ -109,39 +171,33 @@ export async function getUserById(id: string): Promise<User | null> {
   return res.rows.length ? rowToUser(res.rows[0] as unknown as Record<string, unknown>) : null;
 }
 
-// Looks up a cadet by their 42 (Intra) login — this is how the OAuth
-// callback decides whether someone who just signed in with 42 already has
-// an account (log them in) or still needs to enroll (issue a pending
-// session instead).
-export async function getUserByIntraId(intraId: string): Promise<User | null> {
-  const res = await client.execute({
-    sql: "SELECT * FROM users WHERE lower(intra_id) = lower(?)",
-    args: [intraId]
-  });
-  return res.rows.length ? rowToUser(res.rows[0] as unknown as Record<string, unknown>) : null;
+export async function getUserAuthById(id: string): Promise<UserWithAuth | null> {
+  const res = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
+  return res.rows.length ? rowToUserWithAuth(res.rows[0] as unknown as Record<string, unknown>) : null;
 }
 
-export async function findDuplicate(leetcodeUsername: string, intraId: string): Promise<boolean> {
+// LeetCode usernames are matched case-insensitively, the same way
+// leetcode.com treats them.
+export async function getUserAuthByUsername(leetcodeUsername: string): Promise<UserWithAuth | null> {
   const res = await client.execute({
-    sql: "SELECT id FROM users WHERE lower(leetcode_username) = lower(?) OR lower(intra_id) = lower(?)",
-    args: [leetcodeUsername, intraId]
+    sql: "SELECT * FROM users WHERE lower(leetcode_username) = lower(?)",
+    args: [leetcodeUsername]
   });
-  return res.rows.length > 0;
+  return res.rows.length ? rowToUserWithAuth(res.rows[0] as unknown as Record<string, unknown>) : null;
 }
 
-export async function insertUser(user: User): Promise<void> {
+export async function insertUser(user: User, passwordHash: string): Promise<void> {
   await client.execute({
     sql: `INSERT INTO users
-      (id, display_name, leetcode_username, intra_id, avatar_url, all_time_solved,
+      (id, display_name, leetcode_username, avatar_url, all_time_solved,
        easy_solved, medium_solved, hard_solved, weekly_progress, monthly_progress,
        last_updated, history, contest_rating, contests_attended,
-       current_streak, longest_streak)
+       current_streak, longest_streak, password_hash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       user.id,
       user.displayName,
       user.leetcodeUsername,
-      user.intraId,
       user.avatarUrl,
       user.allTimeSolved,
       user.easySolved,
@@ -154,7 +210,8 @@ export async function insertUser(user: User): Promise<void> {
       user.contestRating,
       user.contestsAttended,
       user.currentStreak,
-      user.longestStreak
+      user.longestStreak,
+      passwordHash
     ]
   });
 }
@@ -190,6 +247,89 @@ export async function updateUser(user: User): Promise<void> {
 export async function deleteUserById(id: string): Promise<boolean> {
   const res = await client.execute({ sql: "DELETE FROM users WHERE id = ?", args: [id] });
   return (res.rowsAffected ?? 0) > 0;
+}
+
+/* ---------- Credentials + login throttling ---------- */
+
+// Setting a password also clears any lockout: whoever can prove they own the
+// LeetCode account is allowed back in.
+export async function setPasswordHash(id: string, passwordHash: string): Promise<void> {
+  await client.execute({
+    sql: "UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL WHERE id = ?",
+    args: [passwordHash, id]
+  });
+}
+
+// One atomic statement: bump the counter and, once it reaches `maxFailures`,
+// lock the account until `lockedUntilIso`. Kept in the database (not memory)
+// so it still works when the app runs as many short-lived serverless
+// instances.
+export async function recordFailedLogin(id: string, maxFailures: number, lockedUntilIso: string): Promise<void> {
+  await client.execute({
+    sql: `UPDATE users SET
+            failed_logins = failed_logins + 1,
+            locked_until = CASE WHEN failed_logins + 1 >= ? THEN ? ELSE locked_until END
+          WHERE id = ?`,
+    args: [maxFailures, lockedUntilIso, id]
+  });
+}
+
+export async function clearFailedLogins(id: string): Promise<void> {
+  await client.execute({
+    sql: "UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?",
+    args: [id]
+  });
+}
+
+/* ---------- Pending registrations ---------- */
+
+export interface PendingRegistration {
+  id: string;
+  leetcodeUsername: string;
+  displayName: string;
+  passwordHash: string;
+  code: string;
+  attempts: number;
+  expiresAt: string;
+}
+
+export async function createPendingRegistration(p: Omit<PendingRegistration, "attempts">): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO pending_registrations
+      (id, leetcode_username, display_name, password_hash, code, attempts, expires_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?)`,
+    args: [p.id, p.leetcodeUsername, p.displayName, p.passwordHash, p.code, p.expiresAt]
+  });
+}
+
+export async function getPendingRegistration(id: string): Promise<PendingRegistration | null> {
+  const res = await client.execute({ sql: "SELECT * FROM pending_registrations WHERE id = ?", args: [id] });
+  if (!res.rows.length) return null;
+  const r = res.rows[0] as unknown as Record<string, unknown>;
+  return {
+    id: r.id as string,
+    leetcodeUsername: r.leetcode_username as string,
+    displayName: r.display_name as string,
+    passwordHash: r.password_hash as string,
+    code: r.code as string,
+    attempts: Number(r.attempts),
+    expiresAt: r.expires_at as string
+  };
+}
+
+export async function bumpPendingAttempts(id: string): Promise<void> {
+  await client.execute({
+    sql: "UPDATE pending_registrations SET attempts = attempts + 1 WHERE id = ?",
+    args: [id]
+  });
+}
+
+export async function deletePendingRegistration(id: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_registrations WHERE id = ?", args: [id] });
+}
+
+export async function purgeExpiredRegistrations(nowIso: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_registrations WHERE expires_at < ?", args: [nowIso] });
 }
 
 export async function getMeta(key: string): Promise<string | null> {
