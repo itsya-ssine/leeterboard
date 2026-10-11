@@ -20,6 +20,9 @@ import { HistoryRecord, User } from "./types.js";
 import { useAuth } from "./AuthContext.js";
 import LoginModal from "./LoginModal.js";
 import AccountModal from "./AccountModal.js";
+import Podium from "./Podium.js";
+import RankMovement from "./RankMovement.js";
+import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
 import { computeBadges } from "./achievements.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
@@ -647,6 +650,19 @@ export default function App() {
   // row. Otherwise a stale row means that one member's LeetCode fetch is
   // failing.
   const now = Date.now();
+
+  // How far each member has climbed or dropped since a week ago, for the
+  // ranking currently selected (see movement.ts).
+  const movements = computeMovements(users, sortBy, compareUsers(sortBy), now);
+
+  // Podium: the top three of the selected ranking. Hidden while searching,
+  // with fewer than three eligible members, and in weekly mode before anyone
+  // has solved anything this week (a podium of zeros says nothing).
+  const podiumLeaders = rankedUsers.filter((u) => sortBy !== "rating" || u.contestRating != null).slice(0, 3);
+  const showPodium =
+    !searchQuery &&
+    podiumLeaders.length === 3 &&
+    (sortBy !== "weekly" || podiumLeaders[0].weeklyProgress > 0);
   const boardStale = isStale(lastSyncAll, now);
 
   const stats = [
@@ -897,6 +913,10 @@ export default function App() {
             </div>
           </div>
 
+          {!loading && showPodium && (
+            <Podium leaders={podiumLeaders} sortBy={sortBy} onSelect={setSelectedUser} />
+          )}
+
           {/* Column labels */}
           <div className="hidden grid-cols-12 gap-x-4 border-b border-line px-5 py-2.5 text-xs font-medium text-mist-500 md:grid">
             <div className="col-span-1">Rank</div>
@@ -965,10 +985,13 @@ export default function App() {
                         id={`member-row-${user.id}`}
                       >
                         {/* Rank */}
-                        <div
-                          className={`text-lg font-semibold tabular-nums md:col-span-1 ${rankColor(actualRank ?? 0)}`}
-                        >
-                          {actualRank ?? "–"}
+                        <div className="flex flex-col items-start gap-1 md:col-span-1">
+                          <span
+                            className={`text-lg font-semibold leading-none tabular-nums ${rankColor(actualRank ?? 0)}`}
+                          >
+                            {actualRank ?? "–"}
+                          </span>
+                          <RankMovement movement={movements[user.id]} />
                         </div>
 
                         {/* Member — opens the full profile */}

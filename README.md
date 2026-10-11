@@ -5,6 +5,8 @@ A weekly LeetCode leaderboard. Members sign up with their LeetCode username, and
 ## Features
 
 - **Leaderboard** ranked by weekly progress, all-time solved, or contest rating, with search and pinned members
+- **Top-3 podium** for whichever ranking is selected
+- **Rank movement arrows** showing how many places each member has climbed or dropped since last week, with a NEW tag for members who just joined
 - **Stats page** with group trends, an activity heatmap and achievement badges
 - **Automatic data** pulled from LeetCode: easy/medium/hard counts, streaks, contest rating and avatar
 - **Freshness indicators** that flag members whose data has stopped updating
