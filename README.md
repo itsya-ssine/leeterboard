@@ -85,6 +85,10 @@ Logged-in members open **Account** in the header to:
 - Sessions are signed HTTP-only cookies. Resetting a password signs out all older sessions.
 - Request bodies are size-limited, usernames are validated, and responses carry standard security headers.
 
+## Sync health (admins)
+
+Admins get a **Sync health** page (`#/admin`) in the navbar. It shows each member's last successful sync and last attempt, who is failing to sync and for how long, and the last error. A member whose LeetCode account was removed or renamed is flagged as "Account not found" (LeetCode confirmed the username doesn't exist), which is different from LeetCode simply not answering. From there an admin can retry a sync or remove the member. The data comes from a `sync_status` table that every sync attempt writes to, served through the admin-only `GET /api/admin/sync-status`.
+
 ## Data syncing
 
 On a server that stays running, all members are refreshed every 30 minutes. On Vercel there is no background job, so the board syncs itself when someone visits: if it was last synced more than 30 minutes ago, the page asks the server to refresh the stale members (a few at a time, within a short time budget, continuing on the next visit if needed). An admin can still force a full refresh with the **Sync all** button, and any visitor can refresh a single member.

@@ -49,3 +49,32 @@ export interface LeaderboardStats {
   topSolverThisWeekCount: number;
   weeklyVelocity: number;
 }
+
+// Outcome of the most recent attempt to fetch a member's LeetCode stats.
+//   ok          - the fetch worked
+//   unavailable - LeetCode didn't answer (timeout, rate limit, outage); we
+//                 don't know anything about the account
+//   not_found   - LeetCode positively says the username doesn't exist, which
+//                 means the account was removed or renamed
+export type SyncState = "ok" | "unavailable" | "not_found";
+
+// One member as the admin dashboard sees them. "unknown" means no attempt has
+// been recorded yet (e.g. the member predates sync tracking).
+export interface AdminSyncMember {
+  id: string;
+  displayName: string;
+  leetcodeUsername: string;
+  avatarUrl: string;
+  lastUpdated: string; // last *successful* fetch
+  lastAttempt: string | null;
+  state: SyncState | "unknown";
+  error: string | null;
+  failures: number; // consecutive failed attempts
+  failingSince: string | null;
+}
+
+export interface AdminSyncReport {
+  generatedAt: string;
+  lastSyncAll: string;
+  members: AdminSyncMember[];
+}

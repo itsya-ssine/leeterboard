@@ -1,5 +1,5 @@
 import { createClient, type Client } from "@libsql/client";
-import { User } from "./src/types.js";
+import { User, SyncState } from "./src/types.js";
 
 // If TURSO_DATABASE_URL is set, connect to a real Turso cloud database.
 // Otherwise fall back to a local SQLite file (no signup needed) so the
@@ -60,6 +60,17 @@ export async function initDb(): Promise<void> {
         code TEXT NOT NULL,
         attempts INTEGER NOT NULL DEFAULT 0,
         expires_at TEXT NOT NULL
+      )`,
+      // The result of the latest sync attempt per member, for the admin
+      // dashboard. Separate from users so none of it can leak into the public
+      // API, and so a member's row carries no sync noise.
+      `CREATE TABLE IF NOT EXISTS sync_status (
+        user_id TEXT PRIMARY KEY,
+        last_attempt TEXT NOT NULL,
+        state TEXT NOT NULL,
+        error TEXT,
+        failures INTEGER NOT NULL DEFAULT 0,
+        failing_since TEXT
       )`
     ],
     "write"
@@ -261,8 +272,71 @@ export async function updateDisplayName(id: string, displayName: string): Promis
 }
 
 export async function deleteUserById(id: string): Promise<boolean> {
+  await client.execute({ sql: "DELETE FROM sync_status WHERE user_id = ?", args: [id] });
   const res = await client.execute({ sql: "DELETE FROM users WHERE id = ?", args: [id] });
   return (res.rowsAffected ?? 0) > 0;
+}
+
+/* ---------- Sync status (admin dashboard) ---------- */
+
+export interface SyncStatusRow {
+  userId: string;
+  lastAttempt: string;
+  state: SyncState;
+  error: string | null;
+  failures: number;
+  failingSince: string | null;
+}
+
+export type SyncResult = { ok: true } | { ok: false; state: Exclude<SyncState, "ok">; error: string };
+
+const MAX_ERROR_LENGTH = 300;
+
+// Notes the outcome of one sync attempt. A success clears the failure streak;
+// a failure extends it and remembers when it began. This is bookkeeping only,
+// so it never throws: a problem here must not break the sync it describes.
+export async function recordSyncResult(userId: string, result: SyncResult): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    if (!("error" in result)) {
+      await client.execute({
+        sql: `INSERT INTO sync_status (user_id, last_attempt, state, error, failures, failing_since)
+              VALUES (?, ?, 'ok', NULL, 0, NULL)
+              ON CONFLICT(user_id) DO UPDATE SET
+                last_attempt = excluded.last_attempt, state = 'ok',
+                error = NULL, failures = 0, failing_since = NULL`,
+        args: [userId, now]
+      });
+    } else {
+      await client.execute({
+        sql: `INSERT INTO sync_status (user_id, last_attempt, state, error, failures, failing_since)
+              VALUES (?, ?, ?, ?, 1, ?)
+              ON CONFLICT(user_id) DO UPDATE SET
+                last_attempt = excluded.last_attempt, state = excluded.state,
+                error = excluded.error, failures = sync_status.failures + 1,
+                failing_since = COALESCE(sync_status.failing_since, excluded.failing_since)`,
+        args: [userId, now, result.state, result.error.slice(0, MAX_ERROR_LENGTH), now]
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[Sync status] Couldn't record result for ${userId}: ${err.message}`);
+  }
+}
+
+export async function listSyncStatus(): Promise<Map<string, SyncStatusRow>> {
+  const res = await client.execute("SELECT * FROM sync_status");
+  const map = new Map<string, SyncStatusRow>();
+  for (const r of res.rows as unknown as Record<string, unknown>[]) {
+    map.set(r.user_id as string, {
+      userId: r.user_id as string,
+      lastAttempt: r.last_attempt as string,
+      state: r.state as SyncState,
+      error: (r.error as string) || null,
+      failures: Number(r.failures ?? 0),
+      failingSince: (r.failing_since as string) || null
+    });
+  }
+  return map;
 }
 
 /* ---------- Credentials + login throttling ---------- */

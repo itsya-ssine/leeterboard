@@ -12,7 +12,8 @@ import {
   Trophy,
   Clock,
   Activity,
-  ListOrdered
+  ListOrdered,
+  ShieldCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -28,6 +29,7 @@ import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
 import { computeBadges, computeGroupAwards, type GroupAwards } from "./achievements.js";
 import WinnerBanner from "./WinnerBanner.js";
+import AdminDashboard from "./AdminDashboard.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
 
@@ -68,13 +70,15 @@ type SortKey = "weekly" | "allTime" | "rating";
 
 /* ---------- Pages + navbar ---------- */
 
-// Two pages share one app shell. They are switched with the URL hash
-// (#/ = leaderboard, #/stats = stats) so no server rewrite is needed: a plain
-// static host or Vercel serves "/" for both.
-type Page = "leaderboard" | "stats";
+// The pages share one app shell. They are switched with the URL hash
+// (#/ = leaderboard, #/stats = stats, #/admin = sync health for admins) so no
+// server rewrite is needed: a plain static host or Vercel serves "/" for all.
+type Page = "leaderboard" | "stats" | "admin";
 
 function readPage(): Page {
-  return window.location.hash.startsWith("#/stats") ? "stats" : "leaderboard";
+  const hash = window.location.hash;
+  if (hash.startsWith("#/admin")) return "admin";
+  return hash.startsWith("#/stats") ? "stats" : "leaderboard";
 }
 
 const NAV_ITEMS = [
@@ -82,10 +86,15 @@ const NAV_ITEMS = [
   { page: "stats", href: "#/stats", label: "Stats", Icon: Activity }
 ] as const;
 
-function NavLinks({ page, className = "" }: { page: Page; className?: string }) {
+// Only shown to admins; the page itself is also gated, and the API behind it
+// checks admin rights on every request.
+const ADMIN_NAV_ITEM = { page: "admin", href: "#/admin", label: "Sync health", Icon: ShieldCheck } as const;
+
+function NavLinks({ page, isAdmin = false, className = "" }: { page: Page; isAdmin?: boolean; className?: string }) {
+  const items = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
   return (
     <nav aria-label="Main" className={`items-center gap-1 ${className}`}>
-      {NAV_ITEMS.map(({ page: p, href, label, Icon }) => (
+      {items.map(({ page: p, href, label, Icon }) => (
         <a
           key={p}
           href={href}
@@ -743,7 +752,7 @@ export default function App() {
               </span>
               <span className="text-base font-semibold tracking-tight text-strong">Leeterboard</span>
             </a>
-            <NavLinks page={page} className="hidden md:flex" />
+            <NavLinks page={page} isAdmin={!!currentUser?.isAdmin} className="hidden md:flex" />
           </div>
 
           <div className="flex items-center gap-2">
@@ -793,7 +802,7 @@ export default function App() {
         </div>
       </header>
       <div className="border-b border-line md:hidden">
-        <NavLinks page={page} className="mx-auto flex max-w-6xl px-4 py-2" />
+        <NavLinks page={page} isAdmin={!!currentUser?.isAdmin} className="mx-auto flex max-w-6xl px-4 py-2" />
       </div>
 
       <main className="mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
@@ -801,12 +810,14 @@ export default function App() {
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">
-              {page === "stats" ? "Roster stats" : "Weekly LeetCode sprint"}
+              {page === "admin" ? "Sync health" : page === "stats" ? "Roster stats" : "Weekly LeetCode sprint"}
             </h1>
             <p className="mt-2 max-w-xl text-base text-mist-400">
-              {page === "stats"
-                ? "tachou makaynch f top 3."
-                : "9raa wziid 9ra."}
+              {page === "admin"
+                ? "Who failed to sync, when everyone was last updated, and which LeetCode accounts have gone missing."
+                : page === "stats"
+                  ? "tachou makaynch f top 3."
+                  : "9raa wziid 9ra."}
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-mist-400">
@@ -825,6 +836,18 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {/* ======== Admin page ======== */}
+        {page === "admin" &&
+          (currentUser?.isAdmin ? (
+            <AdminDashboard onChanged={loadData} />
+          ) : authStatus === "loading" ? (
+            <p className="py-10 text-center text-sm text-mist-500">Checking your access…</p>
+          ) : (
+            <p className="rounded-xl bg-ink-900 px-5 py-10 text-center text-sm text-mist-400 ring-1 ring-line">
+              This page is for admins. Sign in with an admin account to see it.
+            </p>
+          ))}
 
         {/* ======== Stats page ======== */}
         {page === "stats" && (

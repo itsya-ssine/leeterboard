@@ -3,7 +3,7 @@ import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import path from "path";
 import "dotenv/config";
-import { User, HistoryRecord } from "./src/types.js";
+import { User, HistoryRecord, AdminSyncMember, AdminSyncReport } from "./src/types.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -26,6 +26,8 @@ import {
   purgeExpiredRegistrations,
   getMeta,
   setMeta,
+  recordSyncResult,
+  listSyncStatus,
   type UserWithAuth
 } from "./db.js";
 import {
@@ -80,7 +82,12 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  if (req.path.startsWith("/api/auth") || req.path.startsWith("/api/account") || req.path === "/api/logout") {
+  if (
+    req.path.startsWith("/api/auth") ||
+    req.path.startsWith("/api/account") ||
+    req.path.startsWith("/api/admin") ||
+    req.path === "/api/logout"
+  ) {
     res.setHeader("Cache-Control", "no-store");
   }
   next();
@@ -1181,8 +1188,10 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
     } catch (err: any) {
       // Keep the user's existing stats untouched — don't fabricate anything.
       if (err instanceof LeetCodeUserNotFoundError) {
+        await recordSyncResult(user.id, { ok: false, state: "not_found", error: err.message });
         return res.status(404).json({ error: err.message, user });
       }
+      await recordSyncResult(user.id, { ok: false, state: "unavailable", error: err.message });
       return res.status(503).json({ error: err.message, user });
     }
 
@@ -1241,6 +1250,7 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
     }
 
     await updateUser(user);
+    await recordSyncResult(user.id, { ok: true });
 
     res.json(user);
   } catch (error: any) {
@@ -1350,10 +1360,17 @@ async function syncAllUsers(
       }
 
       await updateUser(user);
+      await recordSyncResult(user.id, { ok: true });
     } catch (err: any) {
       // Leave this user's stats untouched for this cycle rather than
-      // guessing — the next sync will pick them up again.
+      // guessing — the next sync will pick them up again. The failure is
+      // recorded so the admin dashboard can show who is stuck and why.
       console.warn(`[Sync All] Skipping ${user.leetcodeUsername}: ${err.message}`);
+      await recordSyncResult(user.id, {
+        ok: false,
+        state: err instanceof LeetCodeUserNotFoundError ? "not_found" : "unavailable",
+        error: err.message
+      });
     }
   }
 
@@ -1400,6 +1417,45 @@ app.post("/api/sync-if-stale", refreshLimiter, async (req, res) => {
     } finally {
       await setMeta("autoSyncLockUntil", new Date(0).toISOString()).catch(() => {});
     }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET sync health for every member — admin only. Combines each member's last
+// successful fetch (users.last_updated) with the outcome of the latest attempt
+// (sync_status), so a member whose LeetCode account was removed or renamed
+// shows up as "not_found" instead of just quietly going stale.
+app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
+  try {
+    const [users, statuses, lastSyncAll] = await Promise.all([
+      listUsers(),
+      listSyncStatus(),
+      getMeta("lastSyncAll")
+    ]);
+
+    const members: AdminSyncMember[] = users.map((u) => {
+      const s = statuses.get(u.id);
+      return {
+        id: u.id,
+        displayName: u.displayName,
+        leetcodeUsername: u.leetcodeUsername,
+        avatarUrl: u.avatarUrl,
+        lastUpdated: u.lastUpdated,
+        lastAttempt: s?.lastAttempt ?? null,
+        state: s?.state ?? "unknown",
+        error: s?.error ?? null,
+        failures: s?.failures ?? 0,
+        failingSince: s?.failingSince ?? null
+      };
+    });
+
+    const report: AdminSyncReport = {
+      generatedAt: new Date().toISOString(),
+      lastSyncAll: lastSyncAll || "",
+      members
+    };
+    res.json(report);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
