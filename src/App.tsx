@@ -8,6 +8,7 @@ import {
   Pin,
   LogIn,
   LogOut,
+  Settings,
   Trophy,
   Clock,
   Activity,
@@ -18,6 +19,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { HistoryRecord, User } from "./types.js";
 import { useAuth } from "./AuthContext.js";
 import LoginModal from "./LoginModal.js";
+import AccountModal from "./AccountModal.js";
 import Modal from "./Modal.js";
 import { computeBadges } from "./achievements.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
@@ -443,6 +445,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
 export default function App() {
   const { status: authStatus, user: currentUser, logout } = useAuth();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [lastSyncAll, setLastSyncAll] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>(() => readUrlState().q);
@@ -706,6 +709,16 @@ export default function App() {
                 <span className="hidden text-sm text-mist-400 md:inline">
                   Signed in as <span className="font-medium text-white">@{currentUser.leetcodeUsername}</span>
                 </span>
+                <button
+                  onClick={() => setIsAccountOpen(true)}
+                  className={btnSecondary}
+                  id="open-account-btn"
+                  aria-label="Account settings"
+                  title={`Account settings (@${currentUser.leetcodeUsername})`}
+                >
+                  <Settings className="size-4" />
+                  <span className="hidden sm:inline">Account</span>
+                </button>
                 <button onClick={() => logout()} className={btnSecondary}>
                   <LogOut className="size-4" />
                   <span className="hidden sm:inline">Log out</span>
@@ -1088,6 +1101,7 @@ export default function App() {
         )}
 
         <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} onAuthenticated={loadData} />
+        <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} onChanged={loadData} />
 
         {/* ---------- Member profile ---------- */}
         <AnimatePresence>

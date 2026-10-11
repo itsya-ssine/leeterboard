@@ -8,6 +8,7 @@ A weekly LeetCode leaderboard. Members sign up with their LeetCode username, and
 - **Stats page** with group trends, an activity heatmap and achievement badges
 - **Automatic data** pulled from LeetCode: easy/medium/hard counts, streaks, contest rating and avatar
 - **Freshness indicators** that flag members whose data has stopped updating
+- **Account settings** to change your display name or password, or delete your account
 - **Admin tools** to sync everyone at once and remove members
 
 ## Tech stack
@@ -63,10 +64,18 @@ Signing up proves ownership of the LeetCode account:
 
 You can remove the code from your profile afterwards. The same steps reset a forgotten password and claim a leaderboard entry that has no password yet. Existing stats and history are kept in both cases.
 
+## Account settings
+
+Logged-in members open **Account** in the header to:
+
+- **Change their display name.** The avatar is not editable: it always comes from the member's LeetCode profile and refreshes automatically.
+- **Change their password.** This needs the current password, keeps the current device signed in, and signs out every other device.
+- **Delete their account.** This needs the password and permanently removes the member's stats and history. Signing up again starts from zero.
+
 ## Security
 
 - Passwords are hashed with scrypt and a unique salt per password.
-- An account locks for 15 minutes after 5 failed logins, and login attempts are rate limited per IP.
+- An account locks for 15 minutes after 5 failed password attempts, whether at login or when confirming a password change or deletion. Attempts are also rate limited per IP.
 - Unknown usernames and wrong passwords return the same error.
 - Sessions are signed HTTP-only cookies. Resetting a password signs out all older sessions.
 - Request bodies are size-limited, usernames are validated, and responses carry standard security headers.
@@ -103,5 +112,8 @@ On a server that stays running, all members are refreshed every 30 minutes. On V
 | POST | `/api/auth/login` | Public | Log in |
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |
+| PATCH | `/api/account/profile` | Member | Change the display name |
+| POST | `/api/account/password` | Member | Change the password (needs the current one) |
+| POST | `/api/account/delete` | Member | Delete the account (needs the password) |
 | POST | `/api/refresh-all` | Admin | Refresh every member |
 | DELETE | `/api/users/:id` | Admin | Remove a member |

@@ -22,6 +22,9 @@ interface AuthContextValue {
   verifyRegistration: () => Promise<User>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
+  updateDisplayName: (displayName: string) => Promise<User>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
 }
 
 // Thrown for any non-2xx response; `expired` is set when the server says the
@@ -35,11 +38,11 @@ export class AuthError extends Error {
   }
 }
 
-async function postJson<T>(url: string, body: unknown = {}): Promise<T> {
+async function requestJson<T>(method: string, url: string, body: unknown = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(url, {
-      method: "POST",
+      method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body)
     });
@@ -57,6 +60,8 @@ async function postJson<T>(url: string, body: unknown = {}): Promise<T> {
   }
   return data as T;
 }
+
+const postJson = <T,>(url: string, body: unknown = {}) => requestJson<T>("POST", url, body);
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -105,6 +110,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
+  const updateDisplayName = useCallback(async (displayName: string) => {
+    const data = await requestJson<User>("PATCH", "/api/account/profile", { displayName });
+    setUser(data);
+    return data;
+  }, []);
+
+  // The server keeps this device signed in with a fresh cookie and signs out
+  // every other session.
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    await postJson("/api/account/password", { currentPassword, newPassword });
+  }, []);
+
+  const deleteAccount = useCallback(async (password: string) => {
+    await postJson("/api/account/delete", { password });
+    setUser(null);
+    setStatus("guest");
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await fetch("/api/logout", { method: "POST" });
@@ -116,7 +139,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ status, user, login, startRegistration, verifyRegistration, logout, refreshSession }}
+      value={{
+        status,
+        user,
+        login,
+        startRegistration,
+        verifyRegistration,
+        logout,
+        refreshSession,
+        updateDisplayName,
+        changePassword,
+        deleteAccount
+      }}
     >
       {children}
     </AuthContext.Provider>

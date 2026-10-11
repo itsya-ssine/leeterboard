@@ -52,3 +52,12 @@ export const refreshLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many refresh requests. Please wait a minute and try again." }
 });
+
+// Account settings: password checks, profile edits and account deletion.
+export const accountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many account requests. Please wait a few minutes and try again." }
+});

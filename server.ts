@@ -13,6 +13,8 @@ import {
   insertUser,
   updateUser,
   deleteUserById,
+  updateDisplayName,
+  getUserAuthById,
   setPasswordHash,
   recordFailedLogin,
   clearFailedLogins,
@@ -22,13 +24,15 @@ import {
   deletePendingRegistration,
   purgeExpiredRegistrations,
   getMeta,
-  setMeta
+  setMeta,
+  type UserWithAuth
 } from "./db.js";
 import {
   setSessionCookie,
   clearSessionCookie,
   readSession,
   resolveSession,
+  requireAuth,
   requireAdmin,
   isAdminUser,
   hashPassword,
@@ -38,7 +42,7 @@ import {
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH
 } from "./auth.js";
-import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, refreshLimiter } from "./rateLimit.js";
+import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -75,7 +79,7 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  if (req.path.startsWith("/api/auth") || req.path === "/api/logout") {
+  if (req.path.startsWith("/api/auth") || req.path.startsWith("/api/account") || req.path === "/api/logout") {
     res.setHeader("Cache-Control", "no-store");
   }
   next();
@@ -999,6 +1003,108 @@ app.get("/api/auth/session", async (req, res) => {
     res.json({ status: "authenticated", user: { ...resolved.user, isAdmin: resolved.isAdmin } });
   } catch (error: any) {
     console.error(`[Auth] session check failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+/* ---------- Account settings (signed-in members) ---------- */
+
+// Re-checks the member's current password for sensitive actions (changing
+// the password, deleting the account), so a stolen session alone isn't
+// enough. Wrong guesses count toward the same lockout as the login form.
+async function checkCurrentPassword(
+  userId: string,
+  password: unknown
+): Promise<{ record: UserWithAuth | null; status: number; error: string }> {
+  const fail = (status: number, error: string) => ({ record: null, status, error });
+
+  if (typeof password !== "string" || !password) return fail(400, "Enter your current password.");
+  const record = await getUserAuthById(userId);
+  if (!record) return fail(401, "You must be logged in to do that.");
+
+  if (!isPasswordHash(record.auth.passwordHash)) {
+    return fail(
+      409,
+      "This account has no password yet. Log out, then use Sign up to verify your LeetCode profile and set one."
+    );
+  }
+
+  if (record.auth.lockedUntil) {
+    const until = Date.parse(record.auth.lockedUntil);
+    if (until > Date.now()) {
+      const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
+      return fail(429, `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`);
+    }
+    await clearFailedLogins(userId); // lock has expired
+  }
+
+  if (password.length > MAX_PASSWORD_LENGTH || !(await verifyPassword(password, record.auth.passwordHash))) {
+    await recordFailedLogin(userId, MAX_FAILED_LOGINS, new Date(Date.now() + LOCKOUT_MS).toISOString());
+    return fail(401, "Current password is incorrect.");
+  }
+
+  if (record.auth.failedLogins > 0) await clearFailedLogins(userId);
+  return { record, status: 200, error: "" };
+}
+
+// PATCH — change the display name. The avatar is not editable: it always
+// comes from the member's LeetCode account.
+app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const cleaned = cleanDisplayName(req.body?.displayName, "");
+    if (!cleaned) return res.status(400).json({ error: "Display name can't be empty." });
+
+    await updateDisplayName(id, cleaned);
+    const updated = await getUserById(id);
+    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    res.json({ ...updated, isAdmin: isAdminUser(updated) });
+  } catch (error: any) {
+    console.error(`[Account] profile update failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — change password. Needs the current one; signs out every other
+// session and keeps this one signed in with a fresh cookie.
+app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id, leetcodeUsername } = (req as any).user as { id: string; leetcodeUsername: string };
+    const { currentPassword, newPassword } = req.body ?? {};
+
+    const check = await checkCurrentPassword(id, currentPassword);
+    if (!check.record) return res.status(check.status).json({ error: check.error });
+
+    const passwordError = validatePassword(newPassword, leetcodeUsername);
+    if (passwordError) return res.status(400).json({ error: passwordError });
+    if (newPassword === currentPassword) {
+      return res.status(400).json({ error: "Your new password must be different from the current one." });
+    }
+
+    const newHash = await hashPassword(newPassword as string);
+    await setPasswordHash(id, newHash);
+    setSessionCookie(res, check.record.user, newHash);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error(`[Account] password change failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — delete the member's own account for good (stats and history
+// included). Needs the password. POST rather than DELETE so the body always
+// survives proxies.
+app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const check = await checkCurrentPassword(id, req.body?.password);
+    if (!check.record) return res.status(check.status).json({ error: check.error });
+
+    await deleteUserById(id);
+    clearSessionCookie(res);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error(`[Account] delete failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });

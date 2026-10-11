@@ -216,16 +216,19 @@ export async function insertUser(user: User, passwordHash: string): Promise<void
   });
 }
 
+// Used by syncing. It deliberately never writes display_name, so a sync that
+// read the row a moment before a member renamed themselves can't overwrite
+// the new name. The avatar always comes from LeetCode and is refreshed here.
 export async function updateUser(user: User): Promise<void> {
   await client.execute({
     sql: `UPDATE users SET
-      display_name = ?, avatar_url = ?, all_time_solved = ?, easy_solved = ?,
+      avatar_url = ?,
+      all_time_solved = ?, easy_solved = ?,
       medium_solved = ?, hard_solved = ?, weekly_progress = ?, monthly_progress = ?,
       last_updated = ?, history = ?, contest_rating = ?, contests_attended = ?,
       current_streak = ?, longest_streak = ?
       WHERE id = ?`,
     args: [
-      user.displayName,
       user.avatarUrl,
       user.allTimeSolved,
       user.easySolved,
@@ -241,6 +244,14 @@ export async function updateUser(user: User): Promise<void> {
       user.longestStreak,
       user.id
     ]
+  });
+}
+
+// Member-initiated rename. The avatar is not editable: it comes from LeetCode.
+export async function updateDisplayName(id: string, displayName: string): Promise<void> {
+  await client.execute({
+    sql: "UPDATE users SET display_name = ? WHERE id = ?",
+    args: [displayName, id]
   });
 }
 
