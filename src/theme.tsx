@@ -85,6 +85,7 @@ export function chartColors(theme: Theme) {
   return theme === "light"
     ? {
         accent: "#0f766e",
+        accentB: "#b45309",
         grid: "rgba(15,23,42,0.08)",
         tick: "#596275",
         cursor: "rgba(15,23,42,0.2)",
@@ -95,6 +96,7 @@ export function chartColors(theme: Theme) {
       }
     : {
         accent: "#2dd4bf",
+        accentB: "#fbbf24",
         grid: "rgba(255,255,255,0.06)",
         tick: "#7d8799",
         cursor: "rgba(255,255,255,0.18)",

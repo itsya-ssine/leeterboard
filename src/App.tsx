@@ -13,7 +13,8 @@ import {
   Clock,
   Activity,
   ListOrdered,
-  ShieldCheck
+  ShieldCheck,
+  Swords
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -30,6 +31,7 @@ import Modal from "./Modal.js";
 import { computeBadges, computeGroupAwards, type GroupAwards } from "./achievements.js";
 import WinnerBanner from "./WinnerBanner.js";
 import AdminDashboard from "./AdminDashboard.js";
+import ComparePage from "./ComparePage.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
 
@@ -71,19 +73,22 @@ type SortKey = "weekly" | "allTime" | "rating";
 /* ---------- Pages + navbar ---------- */
 
 // The pages share one app shell. They are switched with the URL hash
-// (#/ = leaderboard, #/stats = stats, #/admin = sync health for admins) so no
-// server rewrite is needed: a plain static host or Vercel serves "/" for all.
-type Page = "leaderboard" | "stats" | "admin";
+// (#/ = leaderboard, #/stats = stats, #/compare/<a>/<b> = head to head,
+// #/admin = sync health for admins) so no server rewrite is needed: a plain
+// static host or Vercel serves "/" for all.
+type Page = "leaderboard" | "stats" | "compare" | "admin";
 
 function readPage(): Page {
   const hash = window.location.hash;
   if (hash.startsWith("#/admin")) return "admin";
+  if (hash.startsWith("#/compare")) return "compare";
   return hash.startsWith("#/stats") ? "stats" : "leaderboard";
 }
 
 const NAV_ITEMS = [
   { page: "leaderboard", href: "#/", label: "Leaderboard", Icon: ListOrdered },
-  { page: "stats", href: "#/stats", label: "Stats", Icon: Activity }
+  { page: "stats", href: "#/stats", label: "Stats", Icon: Activity },
+  { page: "compare", href: "#/compare", label: "Compare", Icon: Swords }
 ] as const;
 
 // Only shown to admins; the page itself is also gated, and the API behind it
@@ -810,12 +815,20 @@ export default function App() {
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">
-              {page === "admin" ? "Sync health" : page === "stats" ? "Roster stats" : "Weekly LeetCode sprint"}
+              {page === "admin"
+                ? "Sync health"
+                : page === "compare"
+                  ? "Head to head"
+                  : page === "stats"
+                    ? "Roster stats"
+                    : "Weekly LeetCode sprint"}
             </h1>
             <p className="mt-2 max-w-xl text-base text-mist-400">
               {page === "admin"
                 ? "Who failed to sync, when everyone was last updated, and which LeetCode accounts have gone missing."
-                : page === "stats"
+                : page === "compare"
+                  ? "Pick two members and see who is ahead, stat by stat and over time."
+                  : page === "stats"
                   ? "tachou makaynch f top 3."
                   : "9raa wziid 9ra."}
             </p>
@@ -836,6 +849,9 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {/* ======== Compare page ======== */}
+        {page === "compare" && !loading && <ComparePage users={users} />}
 
         {/* ======== Admin page ======== */}
         {page === "admin" &&
@@ -1228,15 +1244,23 @@ export default function App() {
               </div>
 
               {/* Profile links */}
-              <div className="mb-5">
+              <div className="mb-5 flex gap-2">
                 <a
                   href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`${btnSecondary} w-full min-w-0`}
+                  className={`${btnSecondary} min-w-0 flex-1`}
                 >
                   <span className="truncate">LeetCode: {selectedUser.leetcodeUsername}</span>
                   <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
+                </a>
+                <a
+                  href={`#/compare/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                  onClick={() => setSelectedUser(null)}
+                  className={`${btnSecondary} shrink-0`}
+                >
+                  <Swords className="size-3.5 shrink-0" aria-hidden="true" />
+                  Compare
                 </a>
               </div>
 
