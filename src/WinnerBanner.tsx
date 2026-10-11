@@ -1,24 +1,24 @@
 import React, { useState } from "react";
 import { ChevronDown, Trophy } from "lucide-react";
 import type { User } from "./types.js";
-import { lastWeekStart, addDays, type WeeklyWinner } from "./winners.js";
+import { lastWeekStart, addDays, tallyWinners, type WeeklyWinner } from "./winners.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
-// How many past winners the hall of fame lists (the banner itself shows the
-// latest one).
-const HALL_OF_FAME_SIZE = 5;
+// How many members the hall of fame lists.
+const HALL_OF_FAME_SIZE = 10;
 
 const fmt = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 
 const weekRange = (weekStart: string) => `${fmt(weekStart)} – ${fmt(addDays(weekStart, 6))}`;
 
-const problems = (n: number) => `${n} ${n === 1 ? "problem" : "problems"}`;
+const weeks = (n: number) => `${n} ${n === 1 ? "week" : "weeks"}`;
 
-// Last finished week's top solver, with a short hall of fame of the winners
-// before them. Winners whose account no longer exists are skipped.
+// Last finished week's top solver, plus a hall of fame listing each member who
+// has ever won once, with how many weeks they were the top solver. Winners
+// whose account no longer exists are skipped.
 export default function WinnerBanner({
   winners,
   users,
@@ -39,11 +39,13 @@ export default function WinnerBanner({
   });
   if (resolved.length === 0) return null;
 
-  const [latest, ...earlier] = resolved;
-  const hallOfFame = earlier.slice(0, HALL_OF_FAME_SIZE);
+  const latest = resolved[0];
 
-  const wins = new Map<string, number>();
-  for (const w of resolved) wins.set(w.userId, (wins.get(w.userId) ?? 0) + 1);
+  const tally = tallyWinners(resolved);
+  const wins = new Map(tally.map((t) => [t.userId, t.wins]));
+  const hallOfFame = tally.slice(0, HALL_OF_FAME_SIZE).map((t) => ({ ...t, user: byId.get(t.userId)! }));
+  // With a single winning week the hall of fame would just repeat the banner.
+  const hasHallOfFame = resolved.length >= 2;
 
   const isLastWeek = latest.weekStart === lastWeekStart(nowMs);
   const heading = isLastWeek ? "Last week's top solver" : "Latest weekly winner";
@@ -95,7 +97,7 @@ export default function WinnerBanner({
           </span>
         </button>
 
-        {hallOfFame.length > 0 && (
+        {hasHallOfFame && (
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
@@ -109,37 +111,29 @@ export default function WinnerBanner({
         )}
       </div>
 
-      {open && hallOfFame.length > 0 && (
-        <ol id="hall-of-fame" aria-label="Past weekly winners" className="divide-y divide-line border-t border-amber-300/20 bg-ink-900">
-          {hallOfFame.map((w) => {
-            const count = wins.get(w.userId) ?? 1;
-            return (
-              <li key={w.weekStart}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(w.user)}
-                  title="View full profile"
-                  className={`group/past flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ink-800/60 md:px-5 ${focusRing}`}
-                >
-                  <span className="w-28 shrink-0 text-sm tabular-nums text-mist-500">{weekRange(w.weekStart)}</span>
-                  <img
-                    src={w.user.avatarUrl}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                    className="size-7 shrink-0 rounded-full object-cover ring-1 ring-line-strong"
-                  />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-strong transition-colors group-hover/past:text-teal-300">
-                    {w.user.displayName}
-                    {count > 1 && <span className="ml-1.5 text-xs font-semibold tabular-nums text-amber-300">×{count}</span>}
-                  </span>
-                  <span className="shrink-0 text-sm tabular-nums text-mist-400">
-                    +{w.gained}
-                    <span className="sr-only"> {problems(w.gained)} solved</span>
-                  </span>
-                </button>
-              </li>
-            );
-          })}
+      {open && hasHallOfFame && (
+        <ol id="hall-of-fame" aria-label="Hall of fame: weeks as top solver" className="divide-y divide-line border-t border-amber-300/20 bg-ink-900">
+          {hallOfFame.map((t) => (
+            <li key={t.userId}>
+              <button
+                type="button"
+                onClick={() => onSelect(t.user)}
+                title="View full profile"
+                className={`group/past flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ink-800/60 md:px-5 ${focusRing}`}
+              >
+                <img
+                  src={t.user.avatarUrl}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  className="size-7 shrink-0 rounded-full object-cover ring-1 ring-line-strong"
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-strong transition-colors group-hover/past:text-teal-300">
+                  {t.user.displayName}
+                </span>
+                <span className="shrink-0 text-sm tabular-nums text-amber-300">{weeks(t.wins)}</span>
+              </button>
+            </li>
+          ))}
         </ol>
       )}
     </section>

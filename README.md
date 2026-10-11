@@ -8,7 +8,7 @@ A weekly LeetCode leaderboard. Members sign up with their LeetCode username, and
 - **Top-3 podium** for whichever ranking is selected
 - **Rank movement arrows** (▲/▼) next to each name showing how many places a member has climbed or dropped since last week, with a NEW tag for members who just joined
 - **Light and dark themes** with a toggle in the header; your choice is remembered, and it follows your system setting until you pick one
-- **Weekly winner banner** showing last week's top solver, with a hall of fame of past winners. Weeks run Monday to Sunday (UTC) and are scored from the daily snapshots; winners are archived, so the hall of fame outlasts the 60 days of stored history
+- **Weekly winner banner** showing last week's top solver, with a hall of fame listing each past winner once, with the number of weeks they were the top solver. Weeks run Monday to Sunday (UTC) and are scored from the daily snapshots; winners are archived, so the hall of fame outlasts the 60 days of stored history
 - **Stats page** with group trends, an activity heatmap and achievement badges
 - **Badges** for solved counts, streaks, a first Hard, a first contest and contest-rating tiers (1500+, 1700+, Knight, Guardian), plus two awarded across the board: **Most improved** (biggest jump in monthly solving pace) and **First on the board** (earliest member still here)
 - **Automatic data** pulled from LeetCode: easy/medium/hard counts, streaks, contest rating and avatar

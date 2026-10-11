@@ -95,6 +95,29 @@ export function computeWeeklyWinners(users: User[], nowMs: number, weeks = LOOKB
   return winners;
 }
 
+export interface WinnerTally {
+  userId: string;
+  wins: number; // number of weeks they were the top solver
+  lastWin: string; // Monday of their most recent winning week
+}
+
+// One entry per member who has ever won a week, with how many weeks they won.
+// Most wins first; ties go to whoever won most recently.
+export function tallyWinners(winners: WeeklyWinner[]): WinnerTally[] {
+  const byUser = new Map<string, WinnerTally>();
+  for (const w of winners) {
+    const t = byUser.get(w.userId);
+    if (!t) byUser.set(w.userId, { userId: w.userId, wins: 1, lastWin: w.weekStart });
+    else {
+      t.wins += 1;
+      if (w.weekStart > t.lastWin) t.lastWin = w.weekStart;
+    }
+  }
+  return [...byUser.values()].sort(
+    (a, b) => b.wins - a.wins || b.lastWin.localeCompare(a.lastWin) || a.userId.localeCompare(b.userId)
+  );
+}
+
 // History only keeps ~60 daily snapshots, so winners are archived once they're
 // known and the archive is what the hall of fame reads from. For a week that is
 // already archived the stored entry wins: later recomputation (with older
