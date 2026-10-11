@@ -14,11 +14,12 @@ import {
   Activity,
   ListOrdered,
   ShieldCheck,
-  Swords
+  Swords,
+  UserRound
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { HistoryRecord, User } from "./types.js";
+import { User } from "./types.js";
 import { useAuth } from "./AuthContext.js";
 import LoginModal from "./LoginModal.js";
 import AccountModal from "./AccountModal.js";
@@ -28,12 +29,12 @@ import ThemeToggle from "./ThemeToggle.js";
 import { chartColors, useTheme } from "./theme.js";
 import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
-import { computeBadges, computeGroupAwards, type GroupAwards } from "./achievements.js";
 import WinnerBanner from "./WinnerBanner.js";
 import AdminDashboard from "./AdminDashboard.js";
 import ComparePage from "./ComparePage.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
+import ProfilePage from "./ProfilePage.js";
 
 /* ---------- Shared style tokens ---------- */
 
@@ -74,15 +75,28 @@ type SortKey = "weekly" | "allTime" | "rating";
 
 // The pages share one app shell. They are switched with the URL hash
 // (#/ = leaderboard, #/stats = stats, #/compare/<a>/<b> = head to head,
-// #/admin = sync health for admins) so no server rewrite is needed: a plain
+// #/u/<username> = member profile, #/admin = sync health for admins) so no
+// server rewrite is needed: a plain
 // static host or Vercel serves "/" for all.
-type Page = "leaderboard" | "stats" | "compare" | "admin";
+type Page = "leaderboard" | "stats" | "compare" | "profile" | "admin";
 
 function readPage(): Page {
   const hash = window.location.hash;
   if (hash.startsWith("#/admin")) return "admin";
   if (hash.startsWith("#/compare")) return "compare";
+  if (hash.startsWith("#/u/")) return "profile";
   return hash.startsWith("#/stats") ? "stats" : "leaderboard";
+}
+
+// #/u/<username> → the username, or null when the hash isn't a profile link.
+function readProfileName(): string | null {
+  const match = /^#\/u\/([^/?#]+)/.exec(window.location.hash);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 const NAV_ITEMS = [
@@ -246,126 +260,6 @@ function HotStreak({ className = "size-3.5" }: { className?: string }) {
   );
 }
 
-/* ---------- Sparkline (profile modal) ---------- */
-
-// Cumulative solved count over the last `days` days, from the member's own
-// history snapshots (the server keeps up to 60).
-function ActivitySparkline({ history, days = 30 }: { history: HistoryRecord[]; days?: number }) {
-  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-  const points = [...(history || [])]
-    .filter((h) => h.date >= cutoff)
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  if (points.length < 2) {
-    return (
-      <p className="text-sm text-mist-500">Not enough history yet. Check back after a couple of syncs.</p>
-    );
-  }
-
-  const W = 300;
-  const H = 64;
-  const PAD = 4;
-  const values = points.map((p) => p.solvedCount);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const x = (i: number) => PAD + (i / (points.length - 1)) * (W - PAD * 2);
-  const y = (v: number) => (max === min ? H / 2 : H - PAD - ((v - min) / (max - min)) * (H - PAD * 2));
-
-  const line = points
-    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)} ${y(p.solvedCount).toFixed(1)}`)
-    .join(" ");
-  const area = `${line} L${x(points.length - 1).toFixed(1)} ${H} L${x(0).toFixed(1)} ${H} Z`;
-  const gained = values[values.length - 1] - values[0];
-  const last = points[points.length - 1];
-
-  return (
-    <div>
-      <div className="mb-3 flex items-baseline justify-between text-sm">
-        <span className="font-medium text-mist-400">Last {days} days</span>
-        <span className="font-semibold tabular-nums text-teal-300">+{gained} solved</span>
-      </div>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="h-16 w-full text-teal-300"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={`Solved count rose from ${values[0]} to ${values[values.length - 1]} over the last ${days} days`}
-      >
-        <path d={area} fill="currentColor" fillOpacity={0.12} />
-        <path
-          d={line}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          vectorEffect="non-scaling-stroke"
-        />
-        <circle cx={x(points.length - 1)} cy={y(last.solvedCount)} r={3} fill="currentColor" />
-      </svg>
-      <div className="mt-2 flex justify-between text-xs tabular-nums text-mist-500">
-        <span>{shortDate(points[0].date)}</span>
-        <span>{shortDate(last.date)}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ---------- Streaks + badges (profile modal) ---------- */
-
-// Daily-submission streaks (LeetCode's own numbers, stored by the server at
-// sync time) and milestone badges. A null streak means it hasn't been fetched
-// yet, which is shown as a dash rather than a misleading 0.
-function StreaksAndBadges({ user, awards }: { user: User; awards: GroupAwards }) {
-  const current = user.currentStreak;
-  const longest = user.longestStreak;
-  const badges = computeBadges(user, awards);
-  const earned = badges.filter((b) => b.earned).length;
-
-  return (
-    <div>
-      <div className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line">
-        <div className="bg-ink-900 p-3">
-          <div className="flex items-center gap-1.5 text-xl font-semibold tabular-nums text-strong">
-            <Flame className={`size-4 ${(current ?? 0) > 0 ? "text-amber-400" : "text-mist-500"}`} />
-            {current ?? "–"}
-          </div>
-          <div className="mt-0.5 text-xs text-mist-500">Current streak (days)</div>
-        </div>
-        <div className="bg-ink-900 p-3">
-          <div className="text-xl font-semibold tabular-nums text-strong">{longest ?? "–"}</div>
-          <div className="mt-0.5 text-xs text-mist-500">Longest streak (days)</div>
-        </div>
-      </div>
-
-      <div className="mb-2 flex items-baseline justify-between text-sm">
-        <span className="font-medium text-mist-400">Badges</span>
-        <span className="tabular-nums text-mist-500">
-          {earned}/{badges.length}
-        </span>
-      </div>
-      <ul className="flex flex-wrap gap-2">
-        {badges.map((b) => (
-          <li
-            key={b.id}
-            title={b.earned ? b.description : `${b.description}${b.progress ? ` (${b.progress})` : ""}`}
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-              b.earned
-                ? "bg-teal-400/10 text-teal-300 ring-teal-400/30"
-                : "bg-tint text-mist-500 ring-line"
-            }`}
-          >
-            {b.earned ? <Trophy className="size-3" /> : <Clock className="size-3" />}
-            <span>{b.label}</span>
-            {!b.earned && b.progress && <span className="tabular-nums text-mist-500">{b.progress}</span>}
-            <span className="sr-only">{b.earned ? "(earned)" : "(locked)"}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 /* ---------- Group growth chart ---------- */
 
 interface TrendPoint {
@@ -479,11 +373,14 @@ export default function App() {
   const [pinnedUsers, setPinnedUsers] = useState<string[]>(readPinned);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [page, setPage] = useState<Page>(readPage);
+  const [profileName, setProfileName] = useState<string | null>(readProfileName);
 
   // Follow the hash (nav clicks, back/forward) and start each page at the top.
   useEffect(() => {
     const onHashChange = () => {
       setPage(readPage());
+      setProfileName(readProfileName());
+      setSelectedUser(null);
       window.scrollTo(0, 0);
     };
     window.addEventListener("hashchange", onHashChange);
@@ -707,9 +604,6 @@ export default function App() {
   // ranking currently selected (see movement.ts).
   const movements = computeMovements(users, sortBy, compareUsers(sortBy), now);
 
-  // Badges that depend on the whole board (most improved, first to join).
-  const awards = computeGroupAwards(users, now);
-
   // Podium: the top three of the selected ranking. Hidden while searching,
   // with fewer than three eligible members, and in weekly mode before anyone
   // has solved anything this week (a podium of zeros says nothing).
@@ -811,7 +705,8 @@ export default function App() {
       </div>
 
       <main className="mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
-        {/* ---------- Intro ---------- */}
+        {/* ---------- Intro (the profile page has its own header) ---------- */}
+        {page !== "profile" && (
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">
@@ -849,6 +744,19 @@ export default function App() {
             )}
           </div>
         </div>
+        )}
+
+        {/* ======== Profile page ======== */}
+        {page === "profile" &&
+          (loading ? (
+            <div className="space-y-4" aria-busy="true">
+              <span className="sr-only">Loading profile</span>
+              <div className="h-56 animate-pulse rounded-2xl bg-ink-900 ring-1 ring-line" />
+              <div className="h-32 animate-pulse rounded-xl bg-ink-900 ring-1 ring-line" />
+            </div>
+          ) : (
+            <ProfilePage users={users} winners={winners} username={profileName} lastSyncAll={lastSyncAll} />
+          ))}
 
         {/* ======== Compare page ======== */}
         {page === "compare" && !loading && <ComparePage users={users} />}
@@ -1211,7 +1119,9 @@ export default function App() {
         <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} onAuthenticated={loadData} />
         <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} onChanged={loadData} />
 
-        {/* ---------- Member profile ---------- */}
+        {/* ---------- Member card ---------- */}
+        {/* A short summary that opens when a member is clicked; the full
+            profile lives on its own page (#/u/<username>). */}
         <AnimatePresence>
           {selectedUser && (
             <Modal
@@ -1234,6 +1144,7 @@ export default function App() {
                     </h3>
                     {selectedUser.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak className="size-4" />}
                   </div>
+                  <div className="truncate text-sm text-mist-500">@{selectedUser.leetcodeUsername}</div>
                   <div className="mt-0.5 text-sm text-mist-400">
                     {sortBy === "rating" ? "Contest rank" : "Rank"}{" "}
                     <span className={`font-semibold tabular-nums ${rankColor(displayRank(selectedUser) ?? 0)}`}>
@@ -1243,29 +1154,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Profile links */}
-              <div className="mb-5 flex gap-2">
-                <a
-                  href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`${btnSecondary} min-w-0 flex-1`}
-                >
-                  <span className="truncate">LeetCode: {selectedUser.leetcodeUsername}</span>
-                  <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
-                </a>
-                <a
-                  href={`#/compare/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
-                  onClick={() => setSelectedUser(null)}
-                  className={`${btnSecondary} shrink-0`}
-                >
-                  <Swords className="size-3.5 shrink-0" aria-hidden="true" />
-                  Compare
-                </a>
-              </div>
-
               {/* Progress figures */}
-              <div className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
+              <div className="mb-4 grid grid-cols-3 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
                 <div className="bg-ink-950 p-3.5">
                   <div className="text-2xl font-semibold tabular-nums text-strong">{selectedUser.allTimeSolved}</div>
                   <div className="mt-0.5 text-xs text-mist-500">All time</div>
@@ -1280,26 +1170,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Contest rating */}
-              <div className="mb-5 flex items-center justify-between gap-3 rounded-xl bg-ink-950 p-3.5 ring-1 ring-line">
-                <div className="text-sm text-mist-500">Contest rating</div>
-                {selectedUser.contestRating != null ? (
-                  <div className="text-right">
-                    <span className="text-2xl font-semibold tabular-nums text-strong">
-                      {selectedUser.contestRating.toLocaleString()}
-                    </span>
-                    <span className="ml-2 text-xs text-mist-500">
-                      {selectedUser.contestsAttended} {selectedUser.contestsAttended === 1 ? "contest" : "contests"}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-sm text-mist-500">Unrated</span>
-                )}
-              </div>
-
               {/* Difficulty breakdown */}
               <div className="rounded-xl bg-ink-950 p-4 ring-1 ring-line">
-                <div className="mb-3 text-sm font-medium text-mist-400">Solved by difficulty</div>
                 <DifficultyBar
                   easy={selectedUser.easySolved}
                   medium={selectedUser.mediumSolved}
@@ -1308,26 +1180,60 @@ export default function App() {
                 />
               </div>
 
-              {/* Recent solves */}
-              <div className="mt-3 rounded-xl bg-ink-950 p-4 ring-1 ring-line">
-                <ActivitySparkline history={selectedUser.history} days={30} />
-              </div>
-
-              {/* Streaks and badges */}
-              <div className="mt-3 rounded-xl bg-ink-950 p-4 ring-1 ring-line">
-                <StreaksAndBadges user={selectedUser} awards={awards} />
-              </div>
-
-              <div className="mt-5 flex items-center justify-between gap-3 border-t border-line pt-4 text-sm text-mist-500">
-                <span>Last synced</span>
-                <span
-                  className={!boardStale && isStale(selectedUser.lastUpdated, now) ? "text-amber-300" : "text-mist-100"}
-                >
-                  {selectedUser.lastUpdated ? new Date(selectedUser.lastUpdated).toLocaleString() : "Never"}
-                  {selectedUser.lastUpdated && isStale(selectedUser.lastUpdated, now) && (
-                    <> ({formatAge(selectedUser.lastUpdated, now)})</>
+              {/* One-line extras */}
+              <div className="mt-3 flex items-center justify-between gap-3 text-sm text-mist-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <Flame
+                    className={`size-4 ${(selectedUser.currentStreak ?? 0) > 0 ? "text-amber-400" : "text-mist-500"}`}
+                    aria-hidden="true"
+                  />
+                  <span className="font-semibold tabular-nums text-strong">{selectedUser.currentStreak ?? "–"}</span>
+                  day streak
+                </span>
+                <span>
+                  {selectedUser.contestRating != null ? (
+                    <>
+                      Rated{" "}
+                      <span className="font-semibold tabular-nums text-strong">
+                        {selectedUser.contestRating.toLocaleString()}
+                      </span>
+                    </>
+                  ) : (
+                    "Unrated"
                   )}
                 </span>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-5 flex flex-col gap-2 border-t border-line pt-4">
+                <a
+                  href={`#/u/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                  onClick={() => setSelectedUser(null)}
+                  className={`${btnPrimary} w-full`}
+                  id="view-full-profile-btn"
+                >
+                  <UserRound className="size-4" aria-hidden="true" />
+                  View full profile
+                </a>
+                <div className="flex gap-2">
+                  <a
+                    href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${btnSecondary} min-w-0 flex-1`}
+                  >
+                    <span className="truncate">LeetCode</span>
+                    <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
+                  </a>
+                  <a
+                    href={`#/compare/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                    onClick={() => setSelectedUser(null)}
+                    className={`${btnSecondary} min-w-0 flex-1`}
+                  >
+                    <Swords className="size-3.5 shrink-0" aria-hidden="true" />
+                    Compare
+                  </a>
+                </div>
               </div>
             </Modal>
           )}
