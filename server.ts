@@ -784,7 +784,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     const storedUsername = existing ? existing.user.leetcodeUsername : lookup.username;
 
     const registrationId = crypto.randomBytes(32).toString("hex");
-    const code = `leader1337-${crypto.randomBytes(6).toString("hex")}`;
+    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
     const now = Date.now();
 
     await purgeExpiredRegistrations(new Date(now).toISOString());

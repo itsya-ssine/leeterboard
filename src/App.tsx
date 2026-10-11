@@ -53,7 +53,7 @@ const POLL_INTERVAL_MS = 15_000;
 // update means their fetches are failing, not that nobody has synced.
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
-const PINNED_STORAGE_KEY = "leader1337:pinned";
+const PINNED_STORAGE_KEY = "leeterboard:pinned";
 
 type SortKey = "weekly" | "allTime" | "rating";
 
@@ -677,11 +677,11 @@ export default function App() {
       <header className="border-b border-line">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
           <div className="flex items-center gap-6">
-            <a href="#/" className={`flex items-center gap-2.5 rounded-lg ${focusRing}`} aria-label="Leader1337 home">
+            <a href="#/" className={`flex items-center gap-2.5 rounded-lg ${focusRing}`} aria-label="Leeterboard home">
               <span className="grid size-8 place-items-center rounded-lg bg-teal-400 text-ink-950">
                 <Trophy className="size-4" strokeWidth={2.25} />
               </span>
-              <span className="text-base font-semibold tracking-tight text-white">Leader1337</span>
+              <span className="text-base font-semibold tracking-tight text-white">Leeterboard</span>
             </a>
             <NavLinks page={page} className="hidden md:flex" />
           </div>
@@ -1208,7 +1208,7 @@ export default function App() {
       {/* ---------- Footer ---------- */}
       <footer className="border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-mist-500 md:px-8">
-          Leader1337 · Weekly LeetCode leaderboard
+          Leeterboard · Weekly LeetCode leaderboard
         </div>
       </footer>
     </div>
