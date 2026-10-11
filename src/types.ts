@@ -29,6 +29,10 @@ export interface User {
   longestStreak: number | null;
   lastUpdated: string;
   history: HistoryRecord[];
+  // 1 = the earliest member still on the board, 2 = the next to join, and so
+  // on. Set by listUsers() from insertion order; absent on records loaded any
+  // other way.
+  joinOrder?: number;
   isPinned?: boolean;
   // Present only on the currently-authenticated user's own record (see
   // /api/auth/session, /api/auth/login and /api/auth/register/verify) —

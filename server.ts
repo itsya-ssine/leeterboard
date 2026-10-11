@@ -4,6 +4,7 @@ import crypto from "crypto";
 import path from "path";
 import "dotenv/config";
 import { User, HistoryRecord } from "./src/types.js";
+import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
   initDb,
@@ -578,13 +579,40 @@ function computeProgressFromHistory(
 
 // REST API Endpoints
 
+// Weekly winners. History only keeps ~60 daily snapshots, so each finished
+// week's winner is worked out once from it and then archived in the meta
+// table; the hall of fame reads from that archive and so outlives the history.
+const WINNERS_META_KEY = "weeklyWinners";
+
+async function resolveWinners(users: User[]): Promise<WeeklyWinner[]> {
+  // Nothing to compare (or a read that came back empty by mistake): don't
+  // touch the stored archive.
+  if (users.length === 0) return [];
+  try {
+    const stored = parseWinnerArchive(await getMeta(WINNERS_META_KEY));
+    const merged = mergeWinnerArchive(stored, computeWeeklyWinners(users, Date.now()));
+    // Members who left the board take their wins with them.
+    const ids = new Set(users.map((u) => u.id));
+    const kept = merged.filter((w) => ids.has(w.userId));
+    if (JSON.stringify(kept) !== JSON.stringify(stored)) {
+      await setMeta(WINNERS_META_KEY, JSON.stringify(kept));
+    }
+    return kept;
+  } catch (err: any) {
+    // The board is still useful without the banner.
+    console.warn(`[Winners] Couldn't resolve weekly winners: ${err.message}`);
+    return [];
+  }
+}
+
 // GET all users (with automatic ranking update)
 app.get("/api/users", async (req, res) => {
   try {
     const users = await listUsers();
     sortAndRankUsers(users);
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
-    res.json({ users, lastSyncAll });
+    const winners = await resolveWinners(users);
+    res.json({ users, lastSyncAll, winners });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

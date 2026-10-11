@@ -162,8 +162,13 @@ function rowToUserWithAuth(row: Record<string, unknown>): UserWithAuth {
 }
 
 export async function listUsers(): Promise<User[]> {
-  const res = await client.execute("SELECT * FROM users");
-  return res.rows.map((r) => rowToUser(r as unknown as Record<string, unknown>));
+  // rowid grows with every insert, so ordering by it gives join order — which
+  // is what the "First on the board" badge is based on.
+  const res = await client.execute("SELECT * FROM users ORDER BY rowid");
+  return res.rows.map((r, i) => ({
+    ...rowToUser(r as unknown as Record<string, unknown>),
+    joinOrder: i + 1
+  }));
 }
 
 export async function getUserById(id: string): Promise<User | null> {

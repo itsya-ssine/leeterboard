@@ -26,7 +26,9 @@ import ThemeToggle from "./ThemeToggle.js";
 import { chartColors, useTheme } from "./theme.js";
 import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
-import { computeBadges } from "./achievements.js";
+import { computeBadges, computeGroupAwards, type GroupAwards } from "./achievements.js";
+import WinnerBanner from "./WinnerBanner.js";
+import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
 
 /* ---------- Shared style tokens ---------- */
@@ -300,10 +302,10 @@ function ActivitySparkline({ history, days = 30 }: { history: HistoryRecord[]; d
 // Daily-submission streaks (LeetCode's own numbers, stored by the server at
 // sync time) and milestone badges. A null streak means it hasn't been fetched
 // yet, which is shown as a dash rather than a misleading 0.
-function StreaksAndBadges({ user }: { user: User }) {
+function StreaksAndBadges({ user, awards }: { user: User; awards: GroupAwards }) {
   const current = user.currentStreak;
   const longest = user.longestStreak;
-  const badges = computeBadges(user);
+  const badges = computeBadges(user, awards);
   const earned = badges.filter((b) => b.earned).length;
 
   return (
@@ -455,6 +457,7 @@ export default function App() {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [lastSyncAll, setLastSyncAll] = useState<string>("");
+  const [winners, setWinners] = useState<WeeklyWinner[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>(() => readUrlState().q);
   const [sortBy, setSortBy] = useState<SortKey>(() => readUrlState().sort);
   const [loading, setLoading] = useState(true);
@@ -483,6 +486,7 @@ export default function App() {
       const usersData = await usersRes.json();
       setUsers(usersData.users || []);
       setLastSyncAll(usersData.lastSyncAll || "");
+      setWinners(usersData.winners || []);
 
       const trendsRes = await fetch("/api/trends");
       const trendsData = await trendsRes.json();
@@ -688,6 +692,9 @@ export default function App() {
   // How far each member has climbed or dropped since a week ago, for the
   // ranking currently selected (see movement.ts).
   const movements = computeMovements(users, sortBy, compareUsers(sortBy), now);
+
+  // Badges that depend on the whole board (most improved, first to join).
+  const awards = computeGroupAwards(users, now);
 
   // Podium: the top three of the selected ranking. Hidden while searching,
   // with fewer than three eligible members, and in weekly mode before anyone
@@ -898,6 +905,9 @@ export default function App() {
         )}
 
         {/* ======== Leaderboard page ======== */}
+        {page === "leaderboard" && !loading && (
+          <WinnerBanner winners={winners} users={users} nowMs={now} onSelect={setSelectedUser} />
+        )}
         {page === "leaderboard" && (
         <section
           id="leaderboard-panel"
@@ -1258,7 +1268,7 @@ export default function App() {
 
               {/* Streaks and badges */}
               <div className="mt-3 rounded-xl bg-ink-950 p-4 ring-1 ring-line">
-                <StreaksAndBadges user={selectedUser} />
+                <StreaksAndBadges user={selectedUser} awards={awards} />
               </div>
 
               <div className="mt-5 flex items-center justify-between gap-3 border-t border-line pt-4 text-sm text-mist-500">
