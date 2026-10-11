@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Search,
   RefreshCw,
@@ -490,9 +490,37 @@ export default function App() {
     }
   };
 
+  // Ask the server to refresh the board if it's stale. On Vercel there is no
+  // background job, so visiting is what triggers the sync. The server decides
+  // whether anything needs doing (fresh boards return immediately) and works
+  // through stale members within a time budget, so a big board may need a few
+  // passes — hence the short loop. Failures are silent: the board just keeps
+  // showing the last synced data.
+  const autoSyncing = useRef(false);
+  const lastAutoSyncAt = useRef(0);
+  const autoSyncIfStale = async () => {
+    if (autoSyncing.current || Date.now() - lastAutoSyncAt.current < 60_000) return;
+    autoSyncing.current = true;
+    lastAutoSyncAt.current = Date.now();
+    try {
+      for (let pass = 0; pass < 3; pass++) {
+        const res = await fetch("/api/sync-if-stale", { method: "POST" });
+        if (!res.ok) break;
+        const data = await res.json();
+        if (data.synced) await loadData();
+        if (!data.synced || !data.partial) break;
+      }
+    } catch (err) {
+      console.warn("Auto-sync skipped:", err);
+    } finally {
+      autoSyncing.current = false;
+    }
+  };
+
   useEffect(() => {
     // Poll for updates so everyone sees new stats without a manual reload —
-    // the server also runs a real background sync every 30 minutes. Polling
+    // the server also runs a real background sync every 30 minutes (or, on
+    // Vercel, syncs when someone visits; see autoSyncIfStale). Polling
     // only runs while the tab is visible: a hidden tab stops hitting
     // /api/users and /api/trends, and catches up with one fetch the moment
     // it becomes visible again.
@@ -509,6 +537,7 @@ export default function App() {
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         loadData();
+        autoSyncIfStale();
         startPolling();
       } else {
         stopPolling();
@@ -516,6 +545,7 @@ export default function App() {
     };
 
     loadData(); // always load once, even if the tab was opened in the background
+    autoSyncIfStale(); // refresh the board if it has gone stale
     if (document.visibilityState === "visible") startPolling();
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {

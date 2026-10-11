@@ -1220,14 +1220,51 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
   }
 });
 
-// Refreshes every tracked user's real stats. Shared by the manual
-// "Force Sync All" route and the periodic background job below — neither
-// one invents numbers; both just call the same real fetch logic.
-async function syncAllUsers(): Promise<{ users: User[]; lastSyncAll: string }> {
-  const users = await listUsers();
-  console.log(`[Sync All] Refreshing ${users.length} users.`);
+// A board synced more recently than this is considered fresh. Matches the
+// 30-minute background interval used on persistent hosts.
+const AUTO_SYNC_STALE_MS = 1000 * 60 * 30;
 
-  for (const user of users) {
+// Time budget for one visit-triggered sync. Serverless functions have a hard
+// execution limit, so a pass stops early and the next visit picks up the
+// members that are still stale.
+const AUTO_SYNC_BUDGET_MS = Number(process.env.SYNC_BUDGET_MS) || 8000;
+
+interface SyncOptions {
+  // Only refresh members not updated within this window, stalest first.
+  onlyStaleMs?: number;
+  // Stop starting new members once this much time has passed.
+  budgetMs?: number;
+}
+
+// Refreshes tracked users' real stats. Shared by the manual "Force Sync All"
+// route, the periodic background job and the visit-triggered sync — none of
+// them invent numbers; all just call the same real fetch logic.
+//
+// `partial` is true when the time budget ran out before every stale member was
+// handled. In that case lastSyncAll is NOT advanced, so the board still reads
+// as stale and the next visit continues where this pass stopped.
+async function syncAllUsers(
+  opts: SyncOptions = {}
+): Promise<{ users: User[]; lastSyncAll: string; partial: boolean }> {
+  const users = await listUsers();
+
+  let queue = users;
+  if (opts.onlyStaleMs !== undefined) {
+    const cutoff = Date.now() - opts.onlyStaleMs;
+    queue = users
+      .filter((u) => !(Date.parse(u.lastUpdated) > cutoff))
+      .sort((a, b) => (Date.parse(a.lastUpdated) || 0) - (Date.parse(b.lastUpdated) || 0));
+  }
+  console.log(`[Sync All] Refreshing ${queue.length} of ${users.length} users.`);
+
+  const startedAt = Date.now();
+  let partial = false;
+
+  for (const user of queue) {
+    if (opts.budgetMs !== undefined && Date.now() - startedAt > opts.budgetMs) {
+      partial = true;
+      break;
+    }
     try {
       const [scraped, contest, streaks] = await Promise.all([
         scrapeLeetCodeProfile(user.leetcodeUsername),
@@ -1292,11 +1329,53 @@ async function syncAllUsers(): Promise<{ users: User[]; lastSyncAll: string }> {
     }
   }
 
-  const lastSyncAll = new Date().toISOString();
-  await setMeta("lastSyncAll", lastSyncAll);
+  let lastSyncAll = (await getMeta("lastSyncAll")) || "";
+  if (!partial) {
+    lastSyncAll = new Date().toISOString();
+    await setMeta("lastSyncAll", lastSyncAll);
+  }
   sortAndRankUsers(users);
-  return { users, lastSyncAll };
+  return { users, lastSyncAll, partial };
 }
+
+// POST sync-if-stale — called by the frontend whenever someone visits. This is
+// what keeps the board fresh on Vercel, where there is no background job. Open
+// to everyone because it only ever does the same real fetches a sync does, and
+// only when the board is actually stale; fresh boards return immediately.
+// A short-lived lock in the database stops simultaneous visitors (possibly on
+// different serverless instances) from all scraping LeetCode at once.
+app.post("/api/sync-if-stale", refreshLimiter, async (req, res) => {
+  try {
+    const lastSyncAll = (await getMeta("lastSyncAll")) || "";
+    const age = Date.now() - Date.parse(lastSyncAll);
+    if (lastSyncAll && Number.isFinite(age) && age < AUTO_SYNC_STALE_MS) {
+      return res.json({ synced: false, partial: false, busy: false, lastSyncAll });
+    }
+
+    const lockUntil = Date.parse((await getMeta("autoSyncLockUntil")) || "");
+    if (Number.isFinite(lockUntil) && lockUntil > Date.now()) {
+      return res.json({ synced: false, partial: false, busy: true, lastSyncAll });
+    }
+    await setMeta("autoSyncLockUntil", new Date(Date.now() + AUTO_SYNC_BUDGET_MS + 20_000).toISOString());
+
+    try {
+      const result = await syncAllUsers({
+        onlyStaleMs: AUTO_SYNC_STALE_MS,
+        budgetMs: AUTO_SYNC_BUDGET_MS
+      });
+      res.json({
+        synced: true,
+        partial: result.partial,
+        busy: false,
+        lastSyncAll: result.lastSyncAll
+      });
+    } finally {
+      await setMeta("autoSyncLockUntil", new Date(0).toISOString()).catch(() => {});
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // POST refresh all users — admin only
 app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
@@ -1401,7 +1480,9 @@ async function startServer() {
 
   // Periodic background sync — only for traditional/persistent hosts. On
   // Vercel, VERCEL is set and this whole function isn't called at all, so
-  // there is no automatic sync there: use the admin "Sync all" button.
+  // there is no background job there: the frontend instead calls
+  // POST /api/sync-if-stale on every visit (and the admin "Sync all" button
+  // still forces a full refresh).
   setInterval(() => {
     syncAllUsers()
       .then(({ users }) => {

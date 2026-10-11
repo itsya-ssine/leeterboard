@@ -84,7 +84,7 @@ Logged-in members open **Account** in the header to:
 
 ## Data syncing
 
-On a server that stays running, all members are refreshed every 30 minutes. On Vercel there is no background job, so an admin refreshes everyone with the **Sync all** button, and any visitor can refresh a single member.
+On a server that stays running, all members are refreshed every 30 minutes. On Vercel there is no background job, so the board syncs itself when someone visits: if it was last synced more than 30 minutes ago, the page asks the server to refresh the stale members (a few at a time, within a short time budget, continuing on the next visit if needed). An admin can still force a full refresh with the **Sync all** button, and any visitor can refresh a single member.
 
 ## Scripts
 
