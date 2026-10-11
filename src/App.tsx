@@ -22,6 +22,8 @@ import LoginModal from "./LoginModal.js";
 import AccountModal from "./AccountModal.js";
 import Podium from "./Podium.js";
 import RankMovement from "./RankMovement.js";
+import ThemeToggle from "./ThemeToggle.js";
+import { chartColors, useTheme } from "./theme.js";
 import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
 import { computeBadges } from "./achievements.js";
@@ -87,7 +89,7 @@ function NavLinks({ page, className = "" }: { page: Page; className?: string }) 
           href={href}
           aria-current={page === p ? "page" : undefined}
           className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${focusRing} ${
-            page === p ? "bg-ink-800 text-white ring-1 ring-line" : "text-mist-400 hover:text-white"
+            page === p ? "bg-ink-800 text-strong ring-1 ring-line" : "text-mist-400 hover:text-strong"
           }`}
         >
           <Icon className="size-4" />
@@ -194,7 +196,7 @@ function DifficultyBar({
       role="img"
       aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}
     >
-      <div className={`flex w-full gap-0.5 overflow-hidden rounded-full bg-white/5 ${lg ? "h-2.5" : "h-1.5"}`}>
+      <div className={`flex w-full gap-0.5 overflow-hidden rounded-full bg-tint ${lg ? "h-2.5" : "h-1.5"}`}>
         {segments.map(
           (s) =>
             s.value > 0 && (
@@ -308,14 +310,14 @@ function StreaksAndBadges({ user }: { user: User }) {
     <div>
       <div className="mb-3 grid grid-cols-2 gap-px overflow-hidden rounded-lg bg-line ring-1 ring-line">
         <div className="bg-ink-900 p-3">
-          <div className="flex items-center gap-1.5 text-xl font-semibold tabular-nums text-white">
+          <div className="flex items-center gap-1.5 text-xl font-semibold tabular-nums text-strong">
             <Flame className={`size-4 ${(current ?? 0) > 0 ? "text-amber-400" : "text-mist-500"}`} />
             {current ?? "–"}
           </div>
           <div className="mt-0.5 text-xs text-mist-500">Current streak (days)</div>
         </div>
         <div className="bg-ink-900 p-3">
-          <div className="text-xl font-semibold tabular-nums text-white">{longest ?? "–"}</div>
+          <div className="text-xl font-semibold tabular-nums text-strong">{longest ?? "–"}</div>
           <div className="mt-0.5 text-xs text-mist-500">Longest streak (days)</div>
         </div>
       </div>
@@ -334,7 +336,7 @@ function StreaksAndBadges({ user }: { user: User }) {
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
               b.earned
                 ? "bg-teal-400/10 text-teal-300 ring-teal-400/30"
-                : "bg-white/5 text-mist-500 ring-line"
+                : "bg-tint text-mist-500 ring-line"
             }`}
           >
             {b.earned ? <Trophy className="size-3" /> : <Clock className="size-3" />}
@@ -360,6 +362,8 @@ function GroupGrowthChart({ trend }: { trend: any }) {
   const series: TrendPoint[] = trend?.historyTrend ?? [];
   const breakdown: { name: string; value: number }[] = trend?.difficultyBreakdown ?? [];
   const pick = (name: string) => breakdown.find((b) => b.name === name)?.value ?? 0;
+  const { theme } = useTheme();
+  const c = chartColors(theme);
 
   return (
     <section
@@ -368,7 +372,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
       className="mb-8 rounded-xl bg-ink-900 p-5 ring-1 ring-line"
     >
       <div className="mb-4">
-        <h2 className="text-base font-semibold tracking-tight text-white">Group growth</h2>
+        <h2 className="text-base font-semibold tracking-tight text-strong">Group growth</h2>
         <p className="mt-0.5 text-sm text-mist-500">Total problems solved by the whole roster over time</p>
       </div>
 
@@ -382,15 +386,15 @@ function GroupGrowthChart({ trend }: { trend: any }) {
             <AreaChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="growthFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#2dd4bf" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#2dd4bf" stopOpacity={0} />
+                  <stop offset="0%" stopColor={c.accent} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={c.accent} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+              <CartesianGrid stroke={c.grid} vertical={false} />
               <XAxis
                 dataKey="date"
                 tickFormatter={shortDate}
-                tick={{ fill: "#7d8799", fontSize: 12 }}
+                tick={{ fill: c.tick, fontSize: 12 }}
                 tickLine={false}
                 axisLine={false}
                 minTickGap={32}
@@ -402,28 +406,28 @@ function GroupGrowthChart({ trend }: { trend: any }) {
                 ]}
                 allowDecimals={false}
                 tickFormatter={(v: number) => v.toLocaleString()}
-                tick={{ fill: "#7d8799", fontSize: 12 }}
+                tick={{ fill: c.tick, fontSize: 12 }}
                 tickLine={false}
                 axisLine={false}
                 width={48}
               />
               <Tooltip
-                cursor={{ stroke: "rgba(255,255,255,0.18)" }}
+                cursor={{ stroke: c.cursor }}
                 contentStyle={{
-                  background: "#171c25",
-                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: c.tooltipBg,
+                  border: `1px solid ${c.tooltipBorder}`,
                   borderRadius: 8,
-                  color: "#e8ebf1",
+                  color: c.tooltipText,
                   fontSize: 13
                 }}
-                labelStyle={{ color: "#a3acbb" }}
+                labelStyle={{ color: c.tooltipLabel }}
                 labelFormatter={(label) => shortDate(String(label))}
                 formatter={(value) => [Number(value).toLocaleString(), "Solved"]}
               />
               <Area
                 type="monotone"
                 dataKey="solved"
-                stroke="#2dd4bf"
+                stroke={c.accent}
                 strokeWidth={2}
                 fill="url(#growthFill)"
                 isAnimationActive={false}
@@ -730,7 +734,7 @@ export default function App() {
               <span className="grid size-8 place-items-center rounded-lg bg-teal-400 text-ink-950">
                 <Trophy className="size-4" strokeWidth={2.25} />
               </span>
-              <span className="text-base font-semibold tracking-tight text-white">Leeterboard</span>
+              <span className="text-base font-semibold tracking-tight text-strong">Leeterboard</span>
             </a>
             <NavLinks page={page} className="hidden md:flex" />
           </div>
@@ -749,11 +753,13 @@ export default function App() {
               </button>
             )}
 
+            <ThemeToggle />
+
             {/* Auth control */}
             {authStatus === "authenticated" && currentUser ? (
               <>
                 <span className="hidden text-sm text-mist-400 md:inline">
-                  Signed in as <span className="font-medium text-white">@{currentUser.leetcodeUsername}</span>
+                  Signed in as <span className="font-medium text-strong">@{currentUser.leetcodeUsername}</span>
                 </span>
                 <button
                   onClick={() => setIsAccountOpen(true)}
@@ -787,7 +793,7 @@ export default function App() {
         {/* ---------- Intro ---------- */}
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-white md:text-4xl">
+            <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">
               {page === "stats" ? "Roster stats" : "Weekly LeetCode sprint"}
             </h1>
             <p className="mt-2 max-w-xl text-base text-mist-400">
@@ -828,7 +834,7 @@ export default function App() {
               <div
                 className={`mt-2 truncate font-semibold tracking-tight tabular-nums ${
                   s.isName ? "text-xl leading-9" : "text-3xl"
-                } ${s.accent ? "text-teal-300" : "text-white"}`}
+                } ${s.accent ? "text-teal-300" : "text-strong"}`}
               >
                 {s.value}
               </div>
@@ -840,7 +846,7 @@ export default function App() {
         {/* ---------- Top solvers this week (weekly progress only) ---------- */}
         {!loading && topWeekly.length > 0 && (
           <section aria-label="Top solvers this week" className="mb-8">
-            <h2 className="mb-3 text-base font-semibold tracking-tight text-white">Top solvers this week</h2>
+            <h2 className="mb-3 text-base font-semibold tracking-tight text-strong">Top solvers this week</h2>
             <div className="grid gap-3 md:grid-cols-3">
               {topWeekly.map((user, i) => (
                 <button
@@ -859,7 +865,7 @@ export default function App() {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate font-semibold text-white">{user.displayName}</span>
+                        <span className="truncate font-semibold text-strong">{user.displayName}</span>
                         {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
                       </div>
                       <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
@@ -933,8 +939,8 @@ export default function App() {
                   id={opt.id}
                   className={`h-8 flex-1 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors sm:flex-none ${focusRing} ${
                     sortBy === opt.key
-                      ? "bg-ink-700 text-white"
-                      : "text-mist-400 hover:text-white"
+                      ? "bg-ink-700 text-strong"
+                      : "text-mist-400 hover:text-strong"
                   }`}
                 >
                   {opt.label}
@@ -944,7 +950,7 @@ export default function App() {
           </div>
 
           {!loading && showPodium && (
-            <Podium leaders={podiumLeaders} sortBy={sortBy} onSelect={setSelectedUser} />
+            <Podium leaders={podiumLeaders} sortBy={sortBy} movements={movements} onSelect={setSelectedUser} />
           )}
 
           {/* Column labels */}
@@ -983,7 +989,7 @@ export default function App() {
                     <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-ink-800 text-mist-500">
                       <Search className="size-4" />
                     </div>
-                    <p className="font-medium text-white">
+                    <p className="font-medium text-strong">
                       {searchQuery ? "No members match your search" : "No members on the board yet"}
                     </p>
                     <p className="mt-1 text-sm text-mist-500">
@@ -1021,7 +1027,6 @@ export default function App() {
                           >
                             {actualRank ?? "–"}
                           </span>
-                          <RankMovement movement={movements[user.id]} />
                         </div>
 
                         {/* Member — opens the full profile */}
@@ -1039,10 +1044,11 @@ export default function App() {
                           />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className="truncate font-medium text-white transition-colors group-hover/member:text-teal-300">
+                              <span className="truncate font-medium text-strong transition-colors group-hover/member:text-teal-300">
                                 {user.displayName}
                               </span>
                               {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
+                              <RankMovement movement={movements[user.id]} />
                             </div>
                             <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
                             {!boardStale && isStale(user.lastUpdated, now) && (
@@ -1062,7 +1068,7 @@ export default function App() {
                         <div className="order-last col-span-3 md:order-none md:col-span-4 md:pr-4">
                           {sortBy === "weekly" ? (
                             <div className="flex w-full items-center gap-3">
-                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-tint">
                                 <div
                                   className="h-full rounded-full bg-teal-400 transition-[width] duration-500"
                                   style={{ width: `${progressPercentage}%` }}
@@ -1090,7 +1096,7 @@ export default function App() {
                             <>
                               <span
                                 className={`text-base font-semibold tabular-nums ${
-                                  sortBy === "rating" ? "text-teal-300" : "text-white"
+                                  sortBy === "rating" ? "text-teal-300" : "text-strong"
                                 }`}
                               >
                                 {user.contestRating.toLocaleString()}
@@ -1106,7 +1112,7 @@ export default function App() {
 
                         {/* Total & controls */}
                         <div className="flex items-center justify-end gap-1 md:col-span-2">
-                          <div className="pr-2 text-xl font-semibold tabular-nums text-white">
+                          <div className="pr-2 text-xl font-semibold tabular-nums text-strong">
                             {user.allTimeSolved}
                           </div>
 
@@ -1119,8 +1125,8 @@ export default function App() {
                             aria-pressed={isPinned}
                             aria-label={isPinned ? `Unpin ${user.displayName}` : `Pin ${user.displayName} to the top`}
                             title={isPinned ? "Unpin member" : "Pin member to the top"}
-                            className={`grid size-8 cursor-pointer place-items-center rounded-lg transition-colors hover:bg-white/5 ${focusRing} ${
-                              isPinned ? "text-teal-300" : "text-mist-500 hover:text-white"
+                            className={`grid size-8 cursor-pointer place-items-center rounded-lg transition-colors hover:bg-tint ${focusRing} ${
+                              isPinned ? "text-teal-300" : "text-mist-500 hover:text-strong"
                             }`}
                           >
                             <Pin className="size-3.5 fill-current" />
@@ -1174,7 +1180,7 @@ export default function App() {
                 />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="truncate text-xl font-semibold tracking-tight text-white">
+                    <h3 className="truncate text-xl font-semibold tracking-tight text-strong">
                       {selectedUser.displayName}
                     </h3>
                     {selectedUser.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak className="size-4" />}
@@ -1204,7 +1210,7 @@ export default function App() {
               {/* Progress figures */}
               <div className="mb-5 grid grid-cols-3 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
                 <div className="bg-ink-950 p-3.5">
-                  <div className="text-2xl font-semibold tabular-nums text-white">{selectedUser.allTimeSolved}</div>
+                  <div className="text-2xl font-semibold tabular-nums text-strong">{selectedUser.allTimeSolved}</div>
                   <div className="mt-0.5 text-xs text-mist-500">All time</div>
                 </div>
                 <div className="bg-ink-950 p-3.5">
@@ -1212,7 +1218,7 @@ export default function App() {
                   <div className="mt-0.5 text-xs text-mist-500">This week</div>
                 </div>
                 <div className="bg-ink-950 p-3.5">
-                  <div className="text-2xl font-semibold tabular-nums text-white">+{selectedUser.monthlyProgress}</div>
+                  <div className="text-2xl font-semibold tabular-nums text-strong">+{selectedUser.monthlyProgress}</div>
                   <div className="mt-0.5 text-xs text-mist-500">This month</div>
                 </div>
               </div>
@@ -1222,7 +1228,7 @@ export default function App() {
                 <div className="text-sm text-mist-500">Contest rating</div>
                 {selectedUser.contestRating != null ? (
                   <div className="text-right">
-                    <span className="text-2xl font-semibold tabular-nums text-white">
+                    <span className="text-2xl font-semibold tabular-nums text-strong">
                       {selectedUser.contestRating.toLocaleString()}
                     </span>
                     <span className="ml-2 text-xs text-mist-500">

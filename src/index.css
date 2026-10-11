@@ -18,6 +18,46 @@
   /* Hairlines */
   --color-line: rgb(255 255 255 / 0.08);
   --color-line-strong: rgb(255 255 255 / 0.18);
+
+  /* Headings / emphasised text, and a faint wash for tracks and hovers */
+  --color-strong: #ffffff;
+  --color-tint: rgb(255 255 255 / 0.05);
+}
+
+/* Light theme. Dark is the default above; the theme provider (src/theme.tsx)
+   and the inline script in index.html set data-theme on <html>. Utilities read
+   these variables at runtime, so redefining them re-skins everything. The
+   accent / status hues are remapped to darker shades so text and fills keep
+   enough contrast on a light surface. */
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --color-ink-950: #f4f6f9;
+  --color-ink-900: #ffffff;
+  --color-ink-800: #eceff4;
+  --color-ink-700: #dde2ea;
+
+  --color-mist-100: #0f172a;
+  --color-mist-400: #475569;
+  --color-mist-500: #596275;
+
+  --color-line: rgb(15 23 42 / 0.1);
+  --color-line-strong: rgb(15 23 42 / 0.2);
+
+  --color-strong: #0b1220;
+  --color-tint: rgb(15 23 42 / 0.05);
+
+  --color-teal-300: #115e59;
+  --color-teal-400: #0f766e;
+  --color-emerald-300: #065f46;
+  --color-emerald-400: #047857;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-orange-300: #c2410c;
+  --color-rose-300: #be123c;
+  --color-rose-400: #e11d48;
+  --color-rose-500: #be123c;
+  --color-slate-300: #475569;
 }
 
 html {
@@ -38,6 +78,11 @@ body {
 ::selection {
   background: rgb(45 212 191 / 0.35);
   color: #fff;
+}
+
+html[data-theme="light"] ::selection {
+  background: rgb(15 118 110 / 0.25);
+  color: inherit;
 }
 
 /* Slim, unobtrusive scrollbars inside modals */

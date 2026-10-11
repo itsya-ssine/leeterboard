@@ -168,7 +168,7 @@ export default function LoginModal({
                 aria-selected={tab === t.key}
                 onClick={() => switchTab(t.key)}
                 className={`h-8 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors ${focusRing} ${
-                  tab === t.key ? "bg-ink-700 text-white" : "text-mist-400 hover:text-white"
+                  tab === t.key ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
                 }`}
               >
                 {t.label}
@@ -316,11 +316,11 @@ export default function LoginModal({
           {tab === "signup" && challenge && (
             <div className="mt-5 flex flex-col gap-4">
               <div>
-                <h3 className="text-lg font-semibold tracking-tight text-white">
+                <h3 className="text-lg font-semibold tracking-tight text-strong">
                   {PURPOSE_COPY[challenge.purpose].title}
                 </h3>
                 <p className="mt-1 text-sm text-mist-400">
-                  Proving that <span className="font-medium text-white">@{challenge.leetcodeUsername}</span> is
+                  Proving that <span className="font-medium text-strong">@{challenge.leetcodeUsername}</span> is
                   yours.
                   {challenge.purpose === "claim" && " This board entry already exists, so your stats and history are kept."}
                   {challenge.purpose === "reset" && " Your stats stay as they are; only the password changes."}

@@ -45,7 +45,7 @@ function Section({
 }) {
   return (
     <section className="border-t border-line pt-5">
-      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-strong">
         {icon}
         {title}
       </h3>
@@ -177,7 +177,7 @@ export default function AccountModal({
     <AnimatePresence>
       {open && (
         <Modal onClose={onClose} label="Account settings" maxWidth="max-w-md" id="account-modal">
-          <h2 className="mr-8 text-lg font-semibold tracking-tight text-white">Account settings</h2>
+          <h2 className="mr-8 text-lg font-semibold tracking-tight text-strong">Account settings</h2>
 
           <div className="mt-4 flex items-center gap-3 rounded-lg bg-ink-950 p-3 ring-1 ring-line">
             <img
@@ -187,7 +187,7 @@ export default function AccountModal({
               className="size-10 shrink-0 rounded-full bg-ink-800 object-cover"
             />
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-white">@{user.leetcodeUsername}</p>
+              <p className="truncate text-sm font-medium text-strong">@{user.leetcodeUsername}</p>
               <p className="text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
             </div>
           </div>

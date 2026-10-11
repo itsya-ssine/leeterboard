@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0a0d12" />
+    <script>
+      // Apply the saved (or system) theme before first paint so there's no
+      // flash of the wrong one. Keep in sync with src/theme.tsx.
+      (function () {
+        var theme = null;
+        try {
+          theme = localStorage.getItem("leeterboard:theme");
+        } catch (e) {}
+        if (theme !== "light" && theme !== "dark") {
+          theme =
+            window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+        }
+        document.documentElement.setAttribute("data-theme", theme);
+        if (theme === "light") {
+          document.querySelector('meta[name="theme-color"]').setAttribute("content", "#f4f6f9");
+        }
+      })();
+    </script>
     <meta
       name="description"
       content="Leeterboard — the weekly LeetCode leaderboard."

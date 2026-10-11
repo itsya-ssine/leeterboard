@@ -68,12 +68,12 @@ export default function ActivityHeatmap({ users }: { users: User[] }) {
     >
       <div className="mb-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
-          <h2 className="text-base font-semibold tracking-tight text-white">Group activity</h2>
+          <h2 className="text-base font-semibold tracking-tight text-strong">Group activity</h2>
           <p className="mt-0.5 text-sm text-mist-500">Problems solved per day by the whole roster, in UTC days</p>
         </div>
         {hasData && (
           <div className="text-sm text-mist-400">
-            <span className="font-semibold tabular-nums text-white">{total.toLocaleString()}</span> solved in the last{" "}
+            <span className="font-semibold tabular-nums text-strong">{total.toLocaleString()}</span> solved in the last{" "}
             {WEEKS} weeks
             {busiest && (
               <>

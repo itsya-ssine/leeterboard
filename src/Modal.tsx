@@ -57,7 +57,7 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", child
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-3 top-3 grid size-8 cursor-pointer place-items-center rounded-lg text-mist-500 transition-colors hover:bg-white/5 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
+          className="absolute right-3 top-3 grid size-8 cursor-pointer place-items-center rounded-lg text-mist-500 transition-colors hover:bg-tint hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
           aria-label="Close dialog"
         >
           <X className="size-4" />

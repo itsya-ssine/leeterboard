@@ -1,7 +1,8 @@
 import React from "react";
 import { Trophy } from "lucide-react";
 import type { User } from "./types.js";
-import type { RankingKey } from "./movement.js";
+import type { Movement, RankingKey } from "./movement.js";
+import RankMovement from "./RankMovement.js";
 
 // Medal styling for places 1–3.
 const PLACES = [
@@ -43,10 +44,12 @@ function metric(user: User, sortBy: RankingKey): { value: string; label: string 
 export default function Podium({
   leaders,
   sortBy,
+  movements,
   onSelect
 }: {
   leaders: User[];
   sortBy: RankingKey;
+  movements?: Record<string, Movement>;
   onSelect: (user: User) => void;
 }) {
   return (
@@ -72,8 +75,11 @@ export default function Podium({
                 referrerPolicy="no-referrer"
                 className={`${style.avatar} shrink-0 rounded-full object-cover ring-2 ${style.avatarRing} transition group-hover/podium:brightness-110`}
               />
-              <span className="mt-1 w-full truncate text-xs font-medium text-white transition-colors group-hover/podium:text-teal-300 sm:text-sm">
-                {user.displayName}
+              <span className="mt-1 flex w-full min-w-0 items-center justify-center gap-1">
+                <span className="truncate text-xs font-medium text-strong transition-colors group-hover/podium:text-teal-300 sm:text-sm">
+                  {user.displayName}
+                </span>
+                <RankMovement movement={movements?.[user.id]} />
               </span>
               <span className="w-full truncate text-xs text-mist-500">@{user.leetcodeUsername}</span>
               <span className={`text-sm font-semibold tabular-nums ${style.text}`}>
