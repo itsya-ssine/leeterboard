@@ -530,15 +530,16 @@ async function fetchStreaks(username: string, knownLongest: number | null): Prom
 // Problems solved in the trailing `days` calendar days (UTC, today included).
 //
 // History holds one snapshot per UTC day (the last sync of that day), and
-// syncs can be sparse. The old version diffed against the newest snapshot at
-// or before "now - days", which on a sparse history could be weeks old — so
-// "this week" counted more than a week. Now the baseline is the total as of
-// the END of the UTC day `days` days ago, linearly interpolated between the
-// two snapshots that bracket it (the current total counts as a snapshot taken
-// now). A gap in history is therefore spread over the days it covers instead
-// of being dumped into the window. If tracking began inside the window, the
-// result is "solved since we started tracking" (never more than the window).
+// syncs can be sparse. The baseline is the total as of the END of the UTC day
+// `days` days ago, linearly interpolated between the two snapshots that
+// bracket it (the current total counts as a snapshot taken now). A gap in
+// history is therefore spread over the days it covers instead of being dumped
+// into the window. If tracking began inside the window, the result is "solved
+// since we started tracking" (never more than the window).
 // Returns null only when there is no history at all.
+//
+// For the weekly counter use computeWeeklyProgressFromHistory(), which resets
+// every Monday instead of rolling over the last 7 days.
 function computeProgressFromHistory(
   history: HistoryRecord[],
   currentTotal: number,
@@ -582,6 +583,23 @@ function computeProgressFromHistory(
   }
 
   return Math.max(0, Math.round(currentTotal - baseline));
+}
+
+// Number of UTC days in the current Monday-to-Sunday week, up to and including
+// today: 1 on Monday, 7 on Sunday.
+function daysIntoWeek(now: number = Date.now()): number {
+  return ((new Date(now).getUTCDay() + 6) % 7) + 1;
+}
+
+// Problems solved so far in the current calendar week (Monday 00:00 UTC to
+// now). The baseline is the total at the end of last Sunday, so the counter
+// starts again from 0 for every member on Monday.
+function computeWeeklyProgressFromHistory(
+  history: HistoryRecord[],
+  currentTotal: number,
+  now: number = Date.now()
+): number | null {
+  return computeProgressFromHistory(history, currentTotal, daysIntoWeek(now), now);
 }
 
 // REST API Endpoints
@@ -1214,7 +1232,7 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
     // Derive weekly/monthly progress from our own history snapshots (taken
     // BEFORE we push today's record below), not from LeetCode's capped
     // recent-submissions endpoint.
-    const weekly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 7);
+    const weekly = computeWeeklyProgressFromHistory(user.history, scraped.allTimeSolved);
     const monthly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 30);
     user.weeklyProgress = weekly ?? user.weeklyProgress;
     user.monthlyProgress = monthly ?? user.monthlyProgress;
@@ -1326,7 +1344,7 @@ async function syncAllUsers(
         user.avatarUrl = scraped.avatarUrl;
       }
 
-      const weekly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 7);
+      const weekly = computeWeeklyProgressFromHistory(user.history, scraped.allTimeSolved);
       const monthly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 30);
       user.weeklyProgress = weekly ?? user.weeklyProgress;
       user.monthlyProgress = monthly ?? user.monthlyProgress;
@@ -1476,31 +1494,37 @@ app.get("/api/trends", async (req, res) => {
   try {
     const users = await listUsers();
 
-    // Aggregate historical solve curves for the group
-    // Gather all historical dates in sorted order
-    const dateMap: { [date: string]: { date: string; solved: number; easy: number; medium: number; hard: number; activeUsers: number } } = {};
+    // Group growth: how many problems the roster has solved SINCE TRACKING
+    // BEGAN, not the sum of everyone's lifetime totals. Each member is measured
+    // against their own first snapshot, so a newly added member contributes 0
+    // on the day they join and only their later solves count.
+    const allDates = new Set<string>();
+    users.forEach(u => u.history.forEach(h => allDates.add(h.date)));
+    const sortedDates = [...allDates].sort();
 
-    users.forEach(u => {
-      u.history.forEach(h => {
-        if (!dateMap[h.date]) {
-          dateMap[h.date] = {
-            date: h.date,
-            solved: 0,
-            easy: 0,
-            medium: 0,
-            hard: 0,
-            activeUsers: 0
-          };
+    const perUser = users
+      .map(u => ({
+        history: [...u.history].sort((a, b) => a.date.localeCompare(b.date))
+      }))
+      .filter(p => p.history.length > 0);
+
+    const trendData = sortedDates.map(date => {
+      let growth = 0;
+      let activeUsers = 0;
+      for (const p of perUser) {
+        const first = p.history[0];
+        if (date < first.date) continue; // not on the board yet
+        // Latest snapshot at or before this date (carries over missed days).
+        let latest = first;
+        for (const h of p.history) {
+          if (h.date <= date) latest = h;
+          else break;
         }
-        dateMap[h.date].solved += h.solvedCount;
-        dateMap[h.date].easy += h.easy;
-        dateMap[h.date].medium += h.medium;
-        dateMap[h.date].hard += h.hard;
-        dateMap[h.date].activeUsers += 1;
-      });
+        growth += Math.max(0, latest.solvedCount - first.solvedCount);
+        activeUsers += 1;
+      }
+      return { date, solved: growth, activeUsers };
     });
-
-    const trendData = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
 
     // Calculate dynamic difficulty totals
     let easyTotal = 0;

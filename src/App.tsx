@@ -283,7 +283,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
     >
       <div className="mb-4">
         <h2 className="text-base font-semibold tracking-tight text-strong">Group growth</h2>
-        <p className="mt-0.5 text-sm text-mist-500">Total problems solved by the whole roster over time</p>
+        <p className="mt-0.5 text-sm text-mist-500">Problems the whole roster has solved since tracking began</p>
       </div>
 
       {series.length < 2 ? (
@@ -310,10 +310,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
                 minTickGap={32}
               />
               <YAxis
-                domain={[
-                  (min: number) => Math.max(0, Math.floor(min * 0.98)),
-                  (max: number) => Math.ceil(max * 1.02)
-                ]}
+                domain={[0, (max: number) => Math.max(5, Math.ceil(max * 1.1))]}
                 allowDecimals={false}
                 tickFormatter={(v: number) => v.toLocaleString()}
                 tick={{ fill: c.tick, fontSize: 12 }}
@@ -332,7 +329,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
                 }}
                 labelStyle={{ color: c.tooltipLabel }}
                 labelFormatter={(label) => shortDate(String(label))}
-                formatter={(value) => [Number(value).toLocaleString(), "Solved"]}
+                formatter={(value) => [`+${Number(value).toLocaleString()}`, "Growth"]}
               />
               <Area
                 type="monotone"
