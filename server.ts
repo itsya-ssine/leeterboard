@@ -534,8 +534,9 @@ async function fetchStreaks(username: string, knownLongest: number | null): Prom
 // `days` days ago, linearly interpolated between the two snapshots that
 // bracket it (the current total counts as a snapshot taken now). A gap in
 // history is therefore spread over the days it covers instead of being dumped
-// into the window. If tracking began inside the window, the result is "solved
-// since we started tracking" (never more than the window).
+// into the window. If the member joined inside the window, the result is
+// "solved since they joined" (never more than the window), measured from the
+// total they had when they joined.
 // Returns null only when there is no history at all.
 //
 // For the weekly counter use computeWeeklyProgressFromHistory(), which resets
@@ -544,7 +545,8 @@ function computeProgressFromHistory(
   history: HistoryRecord[],
   currentTotal: number,
   days: number,
-  now: number = Date.now()
+  now: number = Date.now(),
+  joined?: { date: string; solved: number }
 ): number | null {
   if (!history || history.length === 0) return null;
 
@@ -559,6 +561,14 @@ function computeProgressFromHistory(
     const t = Date.parse(`${r.date}T23:59:59.999Z`);
     if (!Number.isFinite(t) || t > now) continue;
     byDate.set(r.date, { t, count: r.solvedCount });
+  }
+  // The member's total when they joined is the earliest known point, taken at
+  // the start of their joining day. It is what a window that reaches back
+  // before they joined is measured from, so progress is exact from day one
+  // instead of waiting for a second snapshot.
+  if (joined && /^\d{4}-\d{2}-\d{2}$/.test(joined.date)) {
+    const t = Date.parse(`${joined.date}T00:00:00.000Z`);
+    if (Number.isFinite(t) && t <= now) byDate.set(`joined:${joined.date}`, { t, count: joined.solved });
   }
   const points = [...byDate.values()].sort((a, b) => a.t - b.t);
   // The live total is the newest point. Keep it monotonic: a lower live total
@@ -585,6 +595,11 @@ function computeProgressFromHistory(
   return Math.max(0, Math.round(currentTotal - baseline));
 }
 
+// A member's starting point for progress maths (see User.trackingStart).
+function baselineOf(user: User): { date: string; solved: number } {
+  return { date: user.trackingStart, solved: user.baselineSolved };
+}
+
 // Number of UTC days in the current Monday-to-Sunday week, up to and including
 // today: 1 on Monday, 7 on Sunday.
 function daysIntoWeek(now: number = Date.now()): number {
@@ -597,9 +612,10 @@ function daysIntoWeek(now: number = Date.now()): number {
 function computeWeeklyProgressFromHistory(
   history: HistoryRecord[],
   currentTotal: number,
-  now: number = Date.now()
+  now: number = Date.now(),
+  joined?: { date: string; solved: number }
 ): number | null {
-  return computeProgressFromHistory(history, currentTotal, daysIntoWeek(now), now);
+  return computeProgressFromHistory(history, currentTotal, daysIntoWeek(now), now, joined);
 }
 
 // REST API Endpoints
@@ -939,12 +955,16 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
         contestsAttended: contest?.attended ?? 0,
         currentStreak: streaks?.current ?? null,
         longestStreak: streaks?.longest ?? null,
-        // No history yet, so there's no honest way to report a weekly/monthly
-        // delta — start at 0 rather than guessing.
+        // Nothing solved *since joining* yet, so progress starts at 0. The
+        // total they have right now is their baseline: everything solved
+        // before today never counts, everything solved from now on does,
+        // starting with this first (partial) week.
         weeklyProgress: 0,
         monthlyProgress: 0,
         rank: 0,
         lastUpdated: new Date().toISOString(),
+        trackingStart: todayStr,
+        baselineSolved: scraped.allTimeSolved,
         history: [
           {
             date: todayStr,
@@ -1232,8 +1252,8 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
     // Derive weekly/monthly progress from our own history snapshots (taken
     // BEFORE we push today's record below), not from LeetCode's capped
     // recent-submissions endpoint.
-    const weekly = computeWeeklyProgressFromHistory(user.history, scraped.allTimeSolved);
-    const monthly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 30);
+    const weekly = computeWeeklyProgressFromHistory(user.history, scraped.allTimeSolved, Date.now(), baselineOf(user));
+    const monthly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 30, Date.now(), baselineOf(user));
     user.weeklyProgress = weekly ?? user.weeklyProgress;
     user.monthlyProgress = monthly ?? user.monthlyProgress;
 
@@ -1344,8 +1364,8 @@ async function syncAllUsers(
         user.avatarUrl = scraped.avatarUrl;
       }
 
-      const weekly = computeWeeklyProgressFromHistory(user.history, scraped.allTimeSolved);
-      const monthly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 30);
+      const weekly = computeWeeklyProgressFromHistory(user.history, scraped.allTimeSolved, Date.now(), baselineOf(user));
+      const monthly = computeProgressFromHistory(user.history, scraped.allTimeSolved, 30, Date.now(), baselineOf(user));
       user.weeklyProgress = weekly ?? user.weeklyProgress;
       user.monthlyProgress = monthly ?? user.monthlyProgress;
 
@@ -1503,9 +1523,14 @@ app.get("/api/trends", async (req, res) => {
     const sortedDates = [...allDates].sort();
 
     const perUser = users
-      .map(u => ({
-        history: [...u.history].sort((a, b) => a.date.localeCompare(b.date))
-      }))
+      .map(u => {
+        const history = [...u.history].sort((a, b) => a.date.localeCompare(b.date));
+        // Measured from the total they joined with when their first snapshot is
+        // from the joining day; otherwise from their oldest snapshot.
+        const base =
+          history.length > 0 && history[0].date === u.trackingStart ? u.baselineSolved : history[0]?.solvedCount ?? 0;
+        return { history, base };
+      })
       .filter(p => p.history.length > 0);
 
     const trendData = sortedDates.map(date => {
@@ -1520,7 +1545,7 @@ app.get("/api/trends", async (req, res) => {
           if (h.date <= date) latest = h;
           else break;
         }
-        growth += Math.max(0, latest.solvedCount - first.solvedCount);
+        growth += Math.max(0, latest.solvedCount - p.base);
         activeUsers += 1;
       }
       return { date, solved: growth, activeUsers };

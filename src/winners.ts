@@ -56,8 +56,8 @@ function latestBetween(history: User["history"], minDay: string, maxDay: string)
 // Winners of the last few finished weeks, newest first, rebuilt from the daily
 // history snapshots. A member's score for a week is their solved count at the
 // end of it minus their count at the end of the week before, so:
-//  - members who joined mid-week are skipped (their first snapshot already
-//    contains everything they solved before joining);
+//  - members who joined mid-week are scored from the total they had when they
+//    joined (their first week runs from the joining day to Sunday);
 //  - members with no snapshot near either edge are skipped rather than guessed;
 //  - weeks nobody improved in have no winner.
 // Ties go to whoever has solved more overall, then alphabetically.
@@ -73,9 +73,15 @@ export function computeWeeklyWinners(users: User[], nowMs: number, weeks = LOOKB
     for (const user of users) {
       const before = latestBetween(user.history, addDays(weekStart, -EDGE_DAYS), addDays(weekStart, -1));
       const after = latestBetween(user.history, addDays(weekEnd, -(EDGE_DAYS - 1)), weekEnd);
-      if (!before || !after) continue;
+      // A member who joined during this week has no snapshot before it, so
+      // their score is measured from the total they had when they joined: their
+      // first week runs from the joining day to Sunday.
+      const joinedThisWeek =
+        !before && !!user.trackingStart && user.trackingStart >= weekStart && user.trackingStart <= weekEnd;
+      const startCount = before ? before.solvedCount : joinedThisWeek ? user.baselineSolved : null;
+      if (startCount === null || !after) continue;
 
-      const gained = after.solvedCount - before.solvedCount;
+      const gained = after.solvedCount - startCount;
       if (gained <= 0) continue;
 
       if (

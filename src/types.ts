@@ -4,7 +4,7 @@ export interface HistoryRecord {
   easy: number;
   medium: number;
   hard: number;
-  weeklyProgress: number; // problems solved in that week/relative to start
+  weeklyProgress: number; // weekly counter as of that day
 }
 
 export interface User {
@@ -16,7 +16,7 @@ export interface User {
   easySolved: number;
   mediumSolved: number;
   hardSolved: number;
-  weeklyProgress: number; // count solved in last 7 days
+  weeklyProgress: number; // solved so far this calendar week (Monday-Sunday, UTC)
   monthlyProgress: number; // count solved in last 30 days
   rank: number;
   // LeetCode contest rating (rounded). null = unrated: never entered a
@@ -28,6 +28,12 @@ export interface User {
   currentStreak: number | null;
   longestStreak: number | null;
   lastUpdated: string;
+  // The UTC day (YYYY-MM-DD) the member joined the board and their all-time
+  // solved count at that moment. Everything solved before joining is
+  // "baseline"; progress is only ever counted on top of it, starting from the
+  // joining day itself.
+  trackingStart: string;
+  baselineSolved: number;
   history: HistoryRecord[];
   // 1 = the earliest member still on the board, 2 = the next to join, and so
   // on. Set by listUsers() from insertion order; absent on records loaded any
