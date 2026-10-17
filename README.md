@@ -94,6 +94,22 @@ Admins get a **Sync health** page (`#/admin`) in the navbar. It shows each membe
 
 On a server that stays running, all members are refreshed every 30 minutes. On Vercel there is no background job, so the board syncs itself when someone visits: if it was last synced more than 30 minutes ago, the page asks the server to refresh the stale members (a few at a time, within a short time budget, continuing on the next visit if needed). An admin can still force a full refresh with the **Sync all** button, and any visitor can refresh a single member.
 
+## Database
+
+SQLite locally, Turso in production. The full annotated schema is in [`db/schema.sql`](db/schema.sql).
+
+```
+users ──< history        one cumulative snapshot per member per UTC day (newest 60 kept)
+users ── sync_status     latest sync attempt per member (admin dashboard)
+pending_registrations    sign-ups waiting for LeetCode ownership proof
+meta                     key/value store (weekly winners archive, last full sync)
+schema_migrations        applied migrations
+```
+
+Changes to an existing database are versioned migrations in `db.ts` (`MIGRATIONS`). They run automatically on start-up and are idempotent; `npm run db:migrate` runs them on purpose, with a backup of a local database first. For a Turso database, take a snapshot before migrating.
+
+**How progress is counted.** Each member has a `tracking_start` day and a `baseline_solved` total (their all-time count when they signed up). Weeks run Monday to Sunday (UTC) and the weekly counter restarts from 0 every Monday. A member who joins mid-week is counted from their joining day to that Sunday, measured from their baseline, and from then on like everyone else. Group growth is the sum of what each member has solved since they joined, so adding someone never inflates the chart with their past.
+
 ## Scripts
 
 | Command | Description |
@@ -102,6 +118,7 @@ On a server that stays running, all members are refreshed every 30 minutes. On V
 | `npm run build` | Build the frontend and bundle the server into `dist/` |
 | `npm start` | Run the production build |
 | `npm run lint` | Type-check the project |
+| `npm run db:migrate` | Back up the local database, then apply any pending schema migrations |
 | `npm run clean` | Remove build output |
 
 ## Deployment
