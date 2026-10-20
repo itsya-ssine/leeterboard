@@ -5,6 +5,7 @@ import path from "path";
 import "dotenv/config";
 import { User, HistoryRecord, AdminSyncMember, AdminSyncReport } from "./src/types.js";
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
+import notificationRoutes from "./notificationRoutes.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -87,6 +88,7 @@ app.use((req, res, next) => {
     req.path.startsWith("/api/auth") ||
     req.path.startsWith("/api/account") ||
     req.path.startsWith("/api/admin") ||
+    req.path.startsWith("/api/notifications") ||
     req.path === "/api/logout"
   ) {
     res.setHeader("Cache-Control", "no-store");
@@ -1522,6 +1524,10 @@ app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+/* ---------- Notifications ---------- */
+// Members read their own; admins send messages (see notificationRoutes.ts).
+app.use("/api", notificationRoutes);
 
 // POST refresh all users — admin only
 app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {

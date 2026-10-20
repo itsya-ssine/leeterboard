@@ -103,6 +103,7 @@ CREATE TABLE notifications (
   body          TEXT NOT NULL DEFAULT '',
   created_at    TEXT NOT NULL,                     -- ISO timestamp
   read_at       TEXT,                              -- NULL = unread
+  dismissed_at  TEXT,                              -- soft delete: hidden from the member, still counted for admins
   sender_id     TEXT,                              -- admin who sent it (type 'admin')
   broadcast_id  TEXT                               -- shared by every row of one broadcast
 );

@@ -1,5 +1,6 @@
 import { createClient, type Client, type InStatement } from "@libsql/client";
-import { User, HistoryRecord, SyncState, NotificationType } from "./src/types.js";
+import { randomUUID } from "crypto";
+import { User, HistoryRecord, SyncState, NotificationType, AppNotification, NotificationFeed, SentMessage } from "./src/types.js";
 
 // If TURSO_DATABASE_URL is set, connect to a real Turso cloud database.
 // Otherwise fall back to a local SQLite file (no signup needed) so the
@@ -41,7 +42,9 @@ export const HISTORY_LIMIT = 60;
 const NOTIFICATION_DDL = [
   // One row per recipient: a broadcast is a row for every member (sharing a
   // broadcast_id), so each member has their own read state and can dismiss it
-  // independently.
+  // independently. Dismissing is a soft delete (dismissed_at) so an admin's
+  // "sent to N, read by M" numbers don't shrink when members tidy up; rows are
+  // really removed by the 90-day prune.
   `CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -50,6 +53,7 @@ const NOTIFICATION_DDL = [
     body TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     read_at TEXT,
+    dismissed_at TEXT,
     sender_id TEXT,
     broadcast_id TEXT
   )`,
@@ -162,7 +166,8 @@ interface Migration {
 const MIGRATIONS: Migration[] = [
   { version: 1, name: "legacy_columns", up: migrateLegacyColumns },
   { version: 2, name: "history_table", up: migrateHistoryTable },
-  { version: 3, name: "notifications", up: migrateNotifications }
+  { version: 3, name: "notifications", up: migrateNotifications },
+  { version: 4, name: "notification_dismissed", up: migrateNotificationDismissed }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -322,6 +327,20 @@ async function migrateHistoryTable(): Promise<void> {
 // additive: no existing table is touched.
 async function migrateNotifications(): Promise<void> {
   await client.batch(NOTIFICATION_DDL, "write");
+}
+
+// v4 — soft-delete column for notifications. Databases that ran v3 before it
+// existed get the column here; newer ones already have it from the DDL.
+async function migrateNotificationDismissed(): Promise<void> {
+  if (await columnExists("notifications", "dismissed_at")) return;
+  try {
+    await client.execute(`ALTER TABLE notifications ADD COLUMN dismissed_at TEXT`);
+  } catch (err: any) {
+    // Another cold-started instance may have added it a moment ago.
+    if (!(await columnExists("notifications", "dismissed_at"))) {
+      throw new Error(`Couldn't add notifications.dismissed_at: ${err.message}`);
+    }
+  }
 }
 
 /* ---------- Users ---------- */
@@ -630,7 +649,140 @@ export async function grantAwards(userId: string, awards: NewAward[]): Promise<v
   if (statements.length > 0) await client.batch(statements, "write");
 }
 
-// Drops notifications created before the given ISO timestamp.
+function rowToNotification(row: Record<string, unknown>): AppNotification {
+  return {
+    id: row.id as string,
+    type: row.type as NotificationType,
+    title: row.title as string,
+    body: (row.body as string) || "",
+    createdAt: row.created_at as string,
+    read: row.read_at != null
+  };
+}
+
+// The member's newest notifications plus their total unread count (which can
+// be larger than what the list shows). Dismissed ones are never returned.
+export async function listNotifications(userId: string, limit = 50): Promise<NotificationFeed> {
+  const [list, unread] = await client.batch(
+    [
+      {
+        sql: `SELECT id, type, title, body, created_at, read_at FROM notifications
+              WHERE user_id = ? AND dismissed_at IS NULL
+              ORDER BY created_at DESC, id LIMIT ?`,
+        args: [userId, limit]
+      },
+      {
+        sql: `SELECT COUNT(*) AS n FROM notifications
+              WHERE user_id = ? AND dismissed_at IS NULL AND read_at IS NULL`,
+        args: [userId]
+      }
+    ],
+    "read"
+  );
+  return {
+    notifications: list.rows.map((r) => rowToNotification(r as unknown as Record<string, unknown>)),
+    unread: Number(unread.rows[0].n)
+  };
+}
+
+// Marks the given notifications read, or every unread one when `ids` is null.
+// Only ever touches the caller's own rows.
+export async function markNotificationsRead(userId: string, ids: string[] | null): Promise<void> {
+  const now = new Date().toISOString();
+  if (ids === null) {
+    await client.execute({
+      sql: `UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND dismissed_at IS NULL`,
+      args: [now, userId]
+    });
+    return;
+  }
+  if (ids.length === 0) return;
+  await client.batch(
+    ids.map((id) => ({
+      sql: `UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL AND dismissed_at IS NULL`,
+      args: [now, id, userId]
+    })),
+    "write"
+  );
+}
+
+// Removes one notification from the member's list. Dismissing counts as having
+// seen it, so it is also marked read (that is what the admin's read count
+// reflects). Returns false if it doesn't exist, isn't theirs, or is already gone.
+export async function dismissNotification(userId: string, id: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const res = await client.execute({
+    sql: `UPDATE notifications SET dismissed_at = ?, read_at = COALESCE(read_at, ?)
+          WHERE id = ? AND user_id = ? AND dismissed_at IS NULL`,
+    args: [now, now, id, userId]
+  });
+  return (res.rowsAffected ?? 0) > 0;
+}
+
+// Clears every notification the member has already read.
+export async function dismissReadNotifications(userId: string): Promise<void> {
+  await client.execute({
+    sql: `UPDATE notifications SET dismissed_at = ?
+          WHERE user_id = ? AND read_at IS NOT NULL AND dismissed_at IS NULL`,
+    args: [new Date().toISOString(), userId]
+  });
+}
+
+// An admin message to one member, or to every member when `userId` is null.
+// Returns how many members it reached (0 if the member doesn't exist). A
+// broadcast is one row per member sharing a broadcast_id.
+export async function createAdminMessage(opts: {
+  senderId: string;
+  userId: string | null;
+  title: string;
+  body: string;
+}): Promise<number> {
+  const now = new Date().toISOString();
+  const broadcastId = opts.userId === null ? randomUUID() : null;
+  const res = await client.execute({
+    sql: `INSERT INTO notifications (id, user_id, type, title, body, created_at, sender_id, broadcast_id)
+          SELECT lower(hex(randomblob(16))), id, 'admin', ?, ?, ?, ?, ? FROM users
+          ${opts.userId === null ? "" : "WHERE id = ?"}`,
+    args: [opts.title, opts.body, now, opts.senderId, broadcastId, ...(opts.userId === null ? [] : [opts.userId])]
+  });
+  return res.rowsAffected ?? 0;
+}
+
+// The admin messages sent most recently, one entry per message (a broadcast
+// counts once), with how many recipients have read it.
+export async function listSentMessages(limit = 20): Promise<SentMessage[]> {
+  const res = await client.execute({
+    sql: `WITH sent AS (
+            SELECT COALESCE(broadcast_id, id) AS gid,
+                   MIN(title) AS title,
+                   MIN(body) AS body,
+                   MIN(created_at) AS created_at,
+                   COUNT(*) AS recipients,
+                   SUM(CASE WHEN read_at IS NOT NULL THEN 1 ELSE 0 END) AS read_count,
+                   MAX(broadcast_id IS NOT NULL) AS is_broadcast,
+                   MIN(user_id) AS first_user
+              FROM notifications
+             WHERE type = 'admin'
+             GROUP BY gid
+          )
+          SELECT sent.*, u.display_name AS recipient_name
+            FROM sent LEFT JOIN users u ON u.id = sent.first_user
+           ORDER BY sent.created_at DESC, sent.gid
+           LIMIT ?`,
+    args: [limit]
+  });
+  return res.rows.map((r) => ({
+    id: r.gid as string,
+    title: r.title as string,
+    body: (r.body as string) || "",
+    createdAt: r.created_at as string,
+    recipients: Number(r.recipients),
+    read: Number(r.read_count),
+    recipientName: Number(r.is_broadcast) ? null : ((r.recipient_name as string) ?? null)
+  }));
+}
+
+// Drops notifications created before the given ISO timestamp (dismissed or not).
 export async function pruneNotifications(olderThanIso: string): Promise<void> {
   await client.execute({ sql: `DELETE FROM notifications WHERE created_at < ?`, args: [olderThanIso] });
 }

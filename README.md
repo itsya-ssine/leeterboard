@@ -123,6 +123,21 @@ After every sync the server works out each member's badges and weekly wins (badg
 
 Awards are noticed when a sync runs (at most ~30 minutes after the member earns them).
 
+### Notification API
+
+Members only ever see and change their own notifications; the member id always comes from the session.
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/notifications` | member | Newest 50 notifications and the total unread count |
+| `POST` | `/api/notifications/read` | member | Body `{ "all": true }` or `{ "ids": [...] }` |
+| `POST` | `/api/notifications/clear-read` | member | Remove every notification already read |
+| `DELETE` | `/api/notifications/:id` | member | Remove one |
+| `GET` | `/api/admin/notifications` | admin | Recent messages sent, with how many members received and read each |
+| `POST` | `/api/admin/notifications` | admin | Body `{ "to": "all" \| "<member id>", "title", "message"? }` |
+
+Titles are limited to 80 characters and messages to 500; control characters are stripped and the text is stored and shown as plain text. Sending is rate-limited with the same limiter as account actions. Removing a notification is a soft delete, so an admin's "read by" numbers don't shrink when members tidy up; rows are deleted for good after 90 days.
+
 ## Scripts
 
 | Command | Description |

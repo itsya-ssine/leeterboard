@@ -88,3 +88,34 @@ export interface AdminSyncReport {
 // What a notification is about. "badge" and "achievement" are created by the
 // server when a member earns something; "admin" is a message an admin sent.
 export type NotificationType = "badge" | "achievement" | "admin";
+
+// Named AppNotification so it doesn't shadow the browser's built-in
+// Notification API.
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  createdAt: string;
+  read: boolean;
+}
+
+// What GET /api/notifications returns: the member's newest notifications plus
+// their total unread count (which can be larger than the list).
+export interface NotificationFeed {
+  notifications: AppNotification[];
+  unread: number;
+}
+
+// One message an admin sent, as the admin page lists it. A broadcast is a
+// single entry no matter how many members received it.
+export interface SentMessage {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  recipients: number;
+  read: number;
+  // Name of the member when it went to a single person, null for a broadcast.
+  recipientName: string | null;
+}
