@@ -100,6 +100,8 @@ SQLite locally, Turso in production. The full annotated schema is in [`db/schema
 
 ```
 users ──< history        one cumulative snapshot per member per UTC day (newest 60 kept)
+users ──< notifications  badge / achievement / admin notifications, one row per recipient
+users ──< user_awards    ledger of awards already announced (each is announced once)
 users ── sync_status     latest sync attempt per member (admin dashboard)
 pending_registrations    sign-ups waiting for LeetCode ownership proof
 meta                     key/value store (weekly winners archive, last full sync)
@@ -109,6 +111,17 @@ schema_migrations        applied migrations
 Changes to an existing database are versioned migrations in `db.ts` (`MIGRATIONS`). They run automatically on start-up and are idempotent; `npm run db:migrate` runs them on purpose, with a backup of a local database first. For a Turso database, take a snapshot before migrating.
 
 **How progress is counted.** Each member has a `tracking_start` day and a `baseline_solved` total (their all-time count when they signed up). Weeks run Monday to Sunday (UTC) and the weekly counter restarts from 0 every Monday. A member who joins mid-week is counted from their joining day to that Sunday, measured from their baseline, and from then on like everyone else. Group growth is the sum of what each member has solved since they joined, so adding someone never inflates the chart with their past.
+
+## Notifications
+
+After every sync the server works out each member's badges and weekly wins (badges are computed, not stored) and compares them with the `user_awards` ledger. Anything not in the ledger is new: it is announced once as a row in `notifications`.
+
+- A member's **first check is silent**: it only records what they already hold, so nothing is announced on the day this ships and a new member isn't congratulated for what they walked in with.
+- Each contest tier is its own award; **weekly champion** is the achievement.
+- The ledger insert and the notification are one transaction, so two serverless instances racing on a sync can't announce an award twice.
+- A notification error is logged and never fails a sync or a sign-up. Notifications older than 90 days are pruned.
+
+Awards are noticed when a sync runs (at most ~30 minutes after the member earns them).
 
 ## Scripts
 

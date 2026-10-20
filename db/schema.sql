@@ -5,6 +5,8 @@
 -- same statements in initDb(). Keep the three in step.
 --
 --   users ─┬─< history           (1 member : many daily snapshots)
+--          ├─< notifications     (1 member : many notifications)
+--          ├─< user_awards       (1 member : many already-announced awards)
 --          └─  sync_status       (1 member : 1 latest sync result)
 --   pending_registrations        (standalone; becomes a users row once verified)
 --   meta                         (standalone key/value)
@@ -90,3 +92,30 @@ CREATE TABLE schema_migrations (
   name        TEXT NOT NULL,
   applied_at  TEXT NOT NULL
 );
+
+-- One notification for one member. A broadcast from an admin is one row per
+-- member sharing a broadcast_id, so every member has their own read state.
+CREATE TABLE notifications (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type          TEXT NOT NULL CHECK (type IN ('badge', 'achievement', 'admin')),
+  title         TEXT NOT NULL,
+  body          TEXT NOT NULL DEFAULT '',
+  created_at    TEXT NOT NULL,                     -- ISO timestamp
+  read_at       TEXT,                              -- NULL = unread
+  sender_id     TEXT,                              -- admin who sent it (type 'admin')
+  broadcast_id  TEXT                               -- shared by every row of one broadcast
+);
+CREATE INDEX idx_notifications_user   ON notifications(user_id, created_at DESC);
+CREATE INDEX idx_notifications_unread ON notifications(user_id) WHERE read_at IS NULL;
+
+-- Ledger of badges / weekly wins a member has already been told about, so each
+-- is announced exactly once. award_key examples: 'badge:solved-100',
+-- 'badge:contest-tier:Knight', 'winner:2026-10-05'. The special key '_baseline'
+-- marks a member whose existing awards were recorded silently (first pass).
+CREATE TABLE user_awards (
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  award_key   TEXT NOT NULL,
+  awarded_at  TEXT NOT NULL,
+  PRIMARY KEY (user_id, award_key)
+) WITHOUT ROWID;

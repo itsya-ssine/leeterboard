@@ -84,3 +84,7 @@ export interface AdminSyncReport {
   lastSyncAll: string;
   members: AdminSyncMember[];
 }
+
+// What a notification is about. "badge" and "achievement" are created by the
+// server when a member earns something; "admin" is a message an admin sent.
+export type NotificationType = "badge" | "achievement" | "admin";

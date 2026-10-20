@@ -4,6 +4,7 @@ import crypto from "crypto";
 import path from "path";
 import "dotenv/config";
 import { User, HistoryRecord, AdminSyncMember, AdminSyncReport } from "./src/types.js";
+import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -625,6 +626,19 @@ function computeWeeklyProgressFromHistory(
 // table; the hall of fame reads from that archive and so outlives the history.
 const WINNERS_META_KEY = "weeklyWinners";
 
+// Tells members about any badge or weekly win they have earned since the last
+// check. A notification problem is logged and swallowed: it must never fail
+// (or even slow down the error path of) a sync or a sign-up.
+async function checkNewAwards(users?: User[]): Promise<void> {
+  try {
+    // Group badges depend on everyone, so look at the whole board.
+    const board = users ?? (await listUsers());
+    await notifyNewAwards(board, await resolveWinners(board));
+  } catch (err: any) {
+    console.warn(`[Notifications] Award check failed: ${err.message}`);
+  }
+}
+
 async function resolveWinners(users: User[]): Promise<WeeklyWinner[]> {
   // Nothing to compare (or a read that came back empty by mistake): don't
   // touch the stored archive.
@@ -977,6 +991,12 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
         ]
       };
       await insertUser(user, pending.passwordHash);
+      // What they already hold when they join isn't news; only later awards notify.
+      try {
+        await baselineNewMember(user, await listUsers());
+      } catch (err: any) {
+        console.warn(`[Notifications] Baseline failed: ${err.message}`);
+      }
     }
 
     await deletePendingRegistration(pending.id);
@@ -1289,6 +1309,7 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
 
     await updateUser(user);
     await recordSyncResult(user.id, { ok: true });
+    await checkNewAwards();
 
     res.json(user);
   } catch (error: any) {
@@ -1411,6 +1432,9 @@ async function syncAllUsers(
       });
     }
   }
+
+  // Anything earned during this pass (nothing to check if nobody was stale).
+  if (queue.length > 0) await checkNewAwards(users);
 
   let lastSyncAll = (await getMeta("lastSyncAll")) || "";
   if (!partial) {

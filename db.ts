@@ -1,5 +1,5 @@
 import { createClient, type Client, type InStatement } from "@libsql/client";
-import { User, HistoryRecord, SyncState } from "./src/types.js";
+import { User, HistoryRecord, SyncState, NotificationType } from "./src/types.js";
 
 // If TURSO_DATABASE_URL is set, connect to a real Turso cloud database.
 // Otherwise fall back to a local SQLite file (no signup needed) so the
@@ -34,6 +34,37 @@ async function columnExists(table: string, column: string): Promise<boolean> {
 
 // How many daily snapshots are kept per member.
 export const HISTORY_LIMIT = 60;
+
+/* ---------- Notification tables ----------
+ * Shared by initDb (fresh databases) and migration 3 (existing ones).
+ */
+const NOTIFICATION_DDL = [
+  // One row per recipient: a broadcast is a row for every member (sharing a
+  // broadcast_id), so each member has their own read state and can dismiss it
+  // independently.
+  `CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('badge', 'achievement', 'admin')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    read_at TEXT,
+    sender_id TEXT,
+    broadcast_id TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id) WHERE read_at IS NULL`,
+  // Remembers which badges and wins a member has already been told about, so
+  // each one is announced exactly once. The '_baseline' row marks a member
+  // whose existing awards have been recorded silently.
+  `CREATE TABLE IF NOT EXISTS user_awards (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    award_key TEXT NOT NULL,
+    awarded_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, award_key)
+  ) WITHOUT ROWID`
+];
 
 export async function initDb(): Promise<void> {
   // Final schema for brand-new databases. On an existing database every
@@ -107,7 +138,8 @@ export async function initDb(): Promise<void> {
         error TEXT,
         failures INTEGER NOT NULL DEFAULT 0,
         failing_since TEXT
-      )`
+      )`,
+      ...NOTIFICATION_DDL
     ],
     "write"
   );
@@ -129,7 +161,8 @@ interface Migration {
 
 const MIGRATIONS: Migration[] = [
   { version: 1, name: "legacy_columns", up: migrateLegacyColumns },
-  { version: 2, name: "history_table", up: migrateHistoryTable }
+  { version: 2, name: "history_table", up: migrateHistoryTable },
+  { version: 3, name: "notifications", up: migrateNotifications }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -205,11 +238,21 @@ const VALID_DATE = `'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`;
 // record when each member started being tracked (and their total at that
 // moment) so their first, partial week can be counted from the day they joined.
 async function migrateHistoryTable(): Promise<void> {
-  if (!(await columnExists("users", "tracking_start"))) {
-    await client.execute(`ALTER TABLE users ADD COLUMN tracking_start TEXT NOT NULL DEFAULT ''`);
-  }
-  if (!(await columnExists("users", "baseline_solved"))) {
-    await client.execute(`ALTER TABLE users ADD COLUMN baseline_solved INTEGER NOT NULL DEFAULT 0`);
+  // Two instances can start at once on a serverless host and both get here; the
+  // loser's ALTER fails with "duplicate column", which is fine as long as the
+  // column now exists.
+  for (const [column, ddl] of [
+    ["tracking_start", `ALTER TABLE users ADD COLUMN tracking_start TEXT NOT NULL DEFAULT ''`],
+    ["baseline_solved", `ALTER TABLE users ADD COLUMN baseline_solved INTEGER NOT NULL DEFAULT 0`]
+  ] as const) {
+    if (await columnExists("users", column)) continue;
+    try {
+      await client.execute(ddl);
+    } catch (err: any) {
+      if (!(await columnExists("users", column))) {
+        throw new Error(`Couldn't add users.${column}: ${err.message}`);
+      }
+    }
   }
 
   // Nothing to copy on a database that never had the JSON column (fresh install
@@ -273,6 +316,12 @@ async function migrateHistoryTable(): Promise<void> {
       throw new Error(`Couldn't remove users.history: ${err.message}`);
     }
   }
+}
+
+// v3 — notifications and the award ledger (see NOTIFICATION_DDL). Purely
+// additive: no existing table is touched.
+async function migrateNotifications(): Promise<void> {
+  await client.batch(NOTIFICATION_DDL, "write");
 }
 
 /* ---------- Users ---------- */
@@ -502,17 +551,88 @@ export async function updateDisplayName(id: string, displayName: string): Promis
 }
 
 export async function deleteUserById(id: string): Promise<boolean> {
-  // history is deleted explicitly as well as by ON DELETE CASCADE, because
-  // SQLite only enforces foreign keys on connections that turn them on.
+  // Dependent rows are deleted explicitly as well as by ON DELETE CASCADE,
+  // because SQLite only enforces foreign keys on connections that turn them on.
   const results = await client.batch(
     [
       { sql: "DELETE FROM history WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM sync_status WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM notifications WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM user_awards WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM users WHERE id = ?", args: [id] }
     ],
     "write"
   );
-  return (results[2].rowsAffected ?? 0) > 0;
+  return (results[results.length - 1].rowsAffected ?? 0) > 0;
+}
+
+/* ---------- Notifications ---------- */
+
+export const NOTIFICATIONS_KEEP_DAYS = 90;
+
+// Marker row in user_awards: this member's existing awards were recorded
+// without notifying (see notifyNewAwards).
+export const AWARD_BASELINE_KEY = "_baseline";
+
+export interface NewAward {
+  key: string; // e.g. "badge:solved-100", "winner:2026-10-05"
+  type: Exclude<NotificationType, "admin">;
+  title: string;
+  body: string;
+}
+
+// Every award each member has already been told about (or had silently
+// recorded), keyed by member id.
+export async function listAwardLedger(): Promise<Map<string, Set<string>>> {
+  const res = await client.execute(`SELECT user_id, award_key FROM user_awards`);
+  const ledger = new Map<string, Set<string>>();
+  for (const r of res.rows) {
+    const id = r.user_id as string;
+    const keys = ledger.get(id) ?? new Set<string>();
+    keys.add(r.award_key as string);
+    ledger.set(id, keys);
+  }
+  return ledger;
+}
+
+// Records awards without telling the member (what they already held when they
+// joined, or when notifications were introduced) and marks them as baselined,
+// so later awards do notify.
+export async function baselineAwards(userId: string, keys: string[]): Promise<void> {
+  const now = new Date().toISOString();
+  await client.batch(
+    [...new Set([...keys, AWARD_BASELINE_KEY])].map((key) => ({
+      sql: `INSERT OR IGNORE INTO user_awards (user_id, award_key, awarded_at) VALUES (?, ?, ?)`,
+      args: [userId, key, now]
+    })),
+    "write"
+  );
+}
+
+// Records new awards and creates their notifications in one transaction. A
+// notification is only inserted while its award is not yet in the ledger, so
+// two serverless instances racing on the same sync can't announce it twice.
+export async function grantAwards(userId: string, awards: NewAward[]): Promise<void> {
+  const now = new Date().toISOString();
+  const statements: InStatement[] = [];
+  for (const a of awards) {
+    statements.push({
+      sql: `INSERT INTO notifications (id, user_id, type, title, body, created_at)
+            SELECT lower(hex(randomblob(16))), ?, ?, ?, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM user_awards WHERE user_id = ? AND award_key = ?)`,
+      args: [userId, a.type, a.title, a.body, now, userId, a.key]
+    });
+    statements.push({
+      sql: `INSERT OR IGNORE INTO user_awards (user_id, award_key, awarded_at) VALUES (?, ?, ?)`,
+      args: [userId, a.key, now]
+    });
+  }
+  if (statements.length > 0) await client.batch(statements, "write");
+}
+
+// Drops notifications created before the given ISO timestamp.
+export async function pruneNotifications(olderThanIso: string): Promise<void> {
+  await client.execute({ sql: `DELETE FROM notifications WHERE created_at < ?`, args: [olderThanIso] });
 }
 
 /* ---------- Sync status (admin dashboard) ---------- */
