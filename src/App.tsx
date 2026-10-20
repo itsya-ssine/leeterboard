@@ -26,6 +26,7 @@ import AccountModal from "./AccountModal.js";
 import Podium from "./Podium.js";
 import RankMovement from "./RankMovement.js";
 import ThemeToggle from "./ThemeToggle.js";
+import NotificationBell from "./NotificationBell.js";
 import { chartColors, useTheme } from "./theme.js";
 import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
@@ -666,6 +667,10 @@ export default function App() {
             )}
 
             <ThemeToggle />
+
+            {/* Notifications — signed-in members only. Keyed by member so
+                switching accounts never shows the previous person's list. */}
+            {authStatus === "authenticated" && currentUser && <NotificationBell key={currentUser.id} />}
 
             {/* Auth control */}
             {authStatus === "authenticated" && currentUser ? (

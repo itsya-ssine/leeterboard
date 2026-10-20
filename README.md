@@ -14,8 +14,9 @@ A weekly LeetCode leaderboard. Members sign up with their LeetCode username, and
 - **Badges** for solved counts, streaks, a first Hard, a first contest and contest-rating tiers (1500+, 1700+, Knight, Guardian), plus two awarded across the board: **Most improved** (biggest jump in monthly solving pace) and **First on the board** (earliest member still here)
 - **Automatic data** pulled from LeetCode: easy/medium/hard counts, streaks, contest rating and avatar
 - **Freshness indicators** that flag members whose data has stopped updating
+- **Notifications** in a bell in the header: you're told when you earn a new badge or win a week, and admins can message you directly or broadcast to everyone. Unread count, mark all read, dismiss, refreshed every minute and when you return to the tab
 - **Account settings** to change your display name or password, or delete your account
-- **Admin tools** to sync everyone at once and remove members
+- **Admin tools** to sync everyone at once, remove members, and send messages (to one member or everyone) with a record of how many members have read each
 
 ## Tech stack
 
@@ -122,6 +123,8 @@ After every sync the server works out each member's badges and weekly wins (badg
 - A notification error is logged and never fails a sync or a sign-up. Notifications older than 90 days are pruned.
 
 Awards are noticed when a sync runs (at most ~30 minutes after the member earns them).
+
+In the app, signed-in members get a bell in the header (`src/NotificationBell.tsx`). It polls `GET /api/notifications` on load, every 60 seconds while the tab is visible, and when the tab regains focus (serverless hosts have no persistent connections, so polling is how updates arrive). Admins send messages from the **Admin** page's "Send a message" form (`src/AdminDashboard.tsx`). All notification text is rendered as plain text, never HTML.
 
 ### Notification API
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, ExternalLink, RefreshCw, Trash2, UserX } from "lucide-react";
-import type { AdminSyncMember, AdminSyncReport } from "./types.js";
+import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Megaphone, RefreshCw, Send, Trash2, UserX } from "lucide-react";
+import type { AdminSyncMember, AdminSyncReport, SentMessage } from "./types.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -59,6 +59,227 @@ function StatusBadge({ health }: { health: Health }) {
     >
       {label}
     </span>
+  );
+}
+
+// Limits mirror the server's (notificationRoutes.ts), which enforces them.
+const MAX_TITLE_LENGTH = 80;
+const MAX_MESSAGE_LENGTH = 500;
+
+const fieldCls =
+  "w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
+
+// Send a notification to one member or to everyone, and see what was sent and
+// how many people have read it. Everything is shown as plain text.
+function MessagesPanel({ members }: { members: AdminSyncMember[] }) {
+  const [to, setTo] = useState("all");
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [notice, setNotice] = useState<{ kind: "error" | "success"; message: string } | null>(null);
+  const [sent, setSent] = useState<SentMessage[] | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+
+  const loadSent = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/notifications", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't load sent messages.");
+      setSent(data.messages as SentMessage[]);
+      setLoadError("");
+    } catch (err: any) {
+      setLoadError(err.message || "Couldn't load sent messages.");
+    } finally {
+      setNow(Date.now());
+    }
+  }, []);
+
+  // Read counts change as members open their notifications, so keep them fresh.
+  useEffect(() => {
+    loadSent();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") loadSent();
+    }, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [loadSent]);
+
+  const sortedMembers = [...members].sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const trimmedTitle = title.trim();
+  const canSend = !sending && trimmedTitle.length > 0 && members.length > 0;
+
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSend) return;
+    const target = to === "all" ? null : members.find((m) => m.id === to);
+    // A message can't be taken back, so ask before it goes to everyone.
+    if (to === "all" && !confirm(`Send this message to all ${members.length} members? It can't be unsent.`)) return;
+
+    setSending(true);
+    setNotice(null);
+    try {
+      const res = await fetch("/api/admin/notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to, title: trimmedTitle, message })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't send the message.");
+      setNotice({
+        kind: "success",
+        message: target
+          ? `Sent to ${target.displayName}.`
+          : `Sent to ${data.sent} ${data.sent === 1 ? "member" : "members"}.`
+      });
+      setTitle("");
+      setMessage("");
+      await loadSent();
+    } catch (err: any) {
+      setNotice({ kind: "error", message: err.message || "Couldn't send the message." });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section aria-labelledby="messages-heading" className="mt-8" id="admin-messages">
+      <h2 id="messages-heading" className="mb-3 flex items-center gap-2 text-base font-semibold text-strong">
+        <Megaphone className="size-4 text-teal-300" aria-hidden="true" />
+        Send a message
+      </h2>
+
+      <div className="grid gap-6 lg:grid-cols-5">
+        <form onSubmit={send} className="rounded-xl bg-ink-900 p-5 ring-1 ring-line lg:col-span-2" id="send-message-form">
+          <label htmlFor="msg-to" className="mb-1.5 block text-sm font-medium text-mist-100">
+            Send to
+          </label>
+          <select
+            id="msg-to"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            disabled={sending}
+            className={`${fieldCls} h-10 cursor-pointer`}
+          >
+            <option value="all">Everyone ({members.length})</option>
+            {sortedMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.displayName} (@{m.leetcodeUsername})
+              </option>
+            ))}
+          </select>
+
+          <div className="mb-1.5 mt-4 flex items-baseline justify-between">
+            <label htmlFor="msg-title" className="text-sm font-medium text-mist-100">
+              Title
+            </label>
+            <span className="text-xs text-mist-500 tabular-nums" aria-hidden="true">
+              {title.length}/{MAX_TITLE_LENGTH}
+            </span>
+          </div>
+          <input
+            id="msg-title"
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={MAX_TITLE_LENGTH}
+            placeholder="e.g. Weekly meetup moved to Friday"
+            disabled={sending}
+            autoComplete="off"
+            className={`${fieldCls} h-10`}
+          />
+
+          <div className="mb-1.5 mt-4 flex items-baseline justify-between">
+            <label htmlFor="msg-body" className="text-sm font-medium text-mist-100">
+              Message <span className="font-normal text-mist-500">(optional)</span>
+            </label>
+            <span className="text-xs text-mist-500 tabular-nums" aria-hidden="true">
+              {message.length}/{MAX_MESSAGE_LENGTH}
+            </span>
+          </div>
+          <textarea
+            id="msg-body"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            maxLength={MAX_MESSAGE_LENGTH}
+            rows={5}
+            placeholder="Plain text only."
+            disabled={sending}
+            className={`${fieldCls} resize-y py-2.5`}
+          />
+
+          {notice && (
+            <div
+              role={notice.kind === "error" ? "alert" : "status"}
+              className={`mt-4 rounded-lg p-3 text-sm ring-1 ${
+                notice.kind === "error"
+                  ? "bg-rose-500/10 text-rose-300 ring-rose-400/20"
+                  : "bg-teal-400/10 text-teal-300 ring-teal-400/20"
+              }`}
+            >
+              {notice.message}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!canSend}
+            className={`mt-4 inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-teal-400 px-4 text-sm font-medium text-ink-950 transition-colors hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`}
+          >
+            <Send className="size-4" aria-hidden="true" />
+            {sending ? "Sending…" : to === "all" ? "Send to everyone" : "Send message"}
+          </button>
+        </form>
+
+        <div className="overflow-hidden rounded-xl bg-ink-900 ring-1 ring-line lg:col-span-3">
+          <div className="border-b border-line px-5 py-2.5 text-xs font-medium text-mist-500">Recently sent</div>
+
+          {loadError && (
+            <div role="alert" className="flex items-start gap-2 border-b border-line bg-rose-500/10 px-5 py-2.5 text-xs text-rose-300">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span>{loadError}</span>
+            </div>
+          )}
+
+          {sent === null ? (
+            <p className="px-5 py-10 text-center text-sm text-mist-500">{loadError ? "" : "Loading…"}</p>
+          ) : sent.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-mist-500">No messages sent yet.</p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {sent.map((m) => {
+                const pct = m.recipients > 0 ? Math.round((m.read / m.recipients) * 100) : 0;
+                return (
+                  <li key={m.id} className="px-5 py-4">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <span className="min-w-0 break-words font-medium text-strong">{m.title}</span>
+                      <span className="shrink-0 text-xs text-mist-500" title={exact(m.createdAt)}>
+                        {ago(m.createdAt, now)}
+                      </span>
+                    </div>
+                    {m.body && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-mist-400">{m.body}</p>}
+                    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-mist-400">
+                      <span className="inline-flex items-center rounded bg-tint px-1.5 py-0.5 ring-1 ring-line">
+                        {m.recipientName === null ? `Everyone (${m.recipients})` : m.recipientName}
+                      </span>
+                      <span className="tabular-nums">
+                        Read by {m.read} of {m.recipients}
+                      </span>
+                      <span
+                        className="h-1.5 w-24 overflow-hidden rounded-full bg-ink-800"
+                        role="img"
+                        aria-label={`${pct}% have read it`}
+                      >
+                        <span className="block h-full rounded-full bg-teal-400" style={{ width: `${pct}%` }} />
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -367,6 +588,8 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
           </ul>
         )}
       </section>
+
+      <MessagesPanel members={report.members} />
     </div>
   );
 }
