@@ -7,7 +7,6 @@ import {
   ArrowUpRight,
   Pin,
   LogIn,
-  LogOut,
   Settings,
   Clock,
   Activity,
@@ -357,7 +356,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
 /* ---------- App ---------- */
 
 export default function App() {
-  const { status: authStatus, user: currentUser, logout } = useAuth();
+  const { status: authStatus, user: currentUser } = useAuth();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
@@ -689,10 +688,6 @@ export default function App() {
                 >
                   <Settings className="size-4" />
                   <span className="hidden sm:inline">Account</span>
-                </button>
-                <button onClick={() => logout()} className={btnSecondary}>
-                  <LogOut className="size-4" />
-                  <span className="hidden sm:inline">Log out</span>
                 </button>
               </>
             ) : (

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, Check, KeyRound, RefreshCw, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, Check, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
 import Modal from "./Modal.js";
 
@@ -65,7 +65,7 @@ export default function AccountModal({
   // deleted account), so it can reload.
   onChanged?: () => void;
 }) {
-  const { user, updateDisplayName, changePassword, deleteAccount } = useAuth();
+  const { user, updateDisplayName, changePassword, deleteAccount, logout } = useAuth();
 
   const [name, setName] = useState("");
   const [nameBusy, setNameBusy] = useState(false);
@@ -170,6 +170,19 @@ export default function AccountModal({
     } catch (err: any) {
       setDeleteNotice({ kind: "error", message: err.message || "Couldn't delete your account." });
       setDeleteBusy(false);
+    }
+  };
+
+  // Close the dialog first so it never flashes an empty state, then sign out.
+  // logout() clears the local session even when the request fails, but it
+  // re-throws the network error, so swallow it here: the member is signed out
+  // on this device either way.
+  const handleLogout = async () => {
+    onClose();
+    try {
+      await logout();
+    } catch {
+      // Already signed out locally.
     }
   };
 
@@ -285,6 +298,20 @@ export default function AccountModal({
                   {pwBusy ? "Changing…" : "Change password"}
                 </button>
               </form>
+            </Section>
+
+            {/* ---------- Log out ---------- */}
+            <Section icon={<LogOut className="size-4 text-teal-300" />} title="Log out">
+              <div className="flex flex-col gap-3">
+                <p className="text-sm leading-relaxed text-mist-400">
+                  Sign out of <span className="font-medium text-strong">@{user.leetcodeUsername}</span> on this device.
+                  Your stats and history are kept.
+                </p>
+                <button type="button" onClick={handleLogout} className={btnSecondary} id="logout-btn">
+                  <LogOut className="size-4" />
+                  Log out
+                </button>
+              </div>
             </Section>
 
             {/* ---------- Delete account ---------- */}
