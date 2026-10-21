@@ -3,6 +3,8 @@
 @theme {
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Wordmark only (the "Leeterboard" logo in the header). */
+  --font-logo: "Space Grotesk", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 
   /* Surfaces: a blue-tinted ink scale instead of flat zinc */
   --color-ink-950: #0a0d12;

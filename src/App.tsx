@@ -647,7 +647,13 @@ export default function App() {
               <span className="grid size-8 place-items-center rounded-lg bg-teal-400 text-ink-950">
                 <Trophy className="size-4" strokeWidth={2.25} />
               </span>
-              <span className="text-base font-semibold tracking-tight text-strong">Leeterboard</span>
+              {/* Wordmark: "Leet" large in the accent colour, "erboard" in the
+                  strong text colour (white in dark mode, near-black in light mode
+                  so it stays readable on both themes). */}
+              <span className="flex items-baseline font-logo font-bold leading-none tracking-tight">
+                <span className="text-2xl text-teal-400 sm:text-[1.75rem]">Leet</span>
+                <span className="text-base text-strong sm:text-lg">erboard</span>
+              </span>
             </a>
             <NavLinks page={page} isAdmin={!!currentUser?.isAdmin} className="hidden md:flex" />
           </div>
