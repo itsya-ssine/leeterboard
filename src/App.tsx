@@ -9,7 +9,6 @@ import {
   LogIn,
   LogOut,
   Settings,
-  Trophy,
   Clock,
   Activity,
   ListOrdered,
@@ -643,10 +642,7 @@ export default function App() {
       <header className="border-b border-line">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
           <div className="flex items-center gap-6">
-            <a href="#/" className={`flex items-center gap-2.5 rounded-lg ${focusRing}`} aria-label="Leeterboard home">
-              <span className="grid size-8 place-items-center rounded-lg bg-teal-400 text-ink-950">
-                <Trophy className="size-4" strokeWidth={2.25} />
-              </span>
+            <a href="#/" className={`flex items-center rounded-lg ${focusRing}`} aria-label="Leeterboard home">
               {/* Wordmark: "Leet" large in the accent colour, "erboard" in the
                   strong text colour (white in dark mode, near-black in light mode
                   so it stays readable on both themes). */}
