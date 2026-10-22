@@ -7,7 +7,6 @@ import {
   ArrowUpRight,
   Pin,
   LogIn,
-  Settings,
   Clock,
   Activity,
   ListOrdered,
@@ -25,6 +24,7 @@ import Podium from "./Podium.js";
 import RankMovement from "./RankMovement.js";
 import ThemeToggle from "./ThemeToggle.js";
 import NotificationBell from "./NotificationBell.js";
+import AccountButton from "./AccountButton.js";
 import { chartColors, useTheme } from "./theme.js";
 import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
@@ -675,21 +675,7 @@ export default function App() {
 
             {/* Auth control */}
             {authStatus === "authenticated" && currentUser ? (
-              <>
-                <span className="hidden text-sm text-mist-400 md:inline">
-                  Signed in as <span className="font-medium text-strong">@{currentUser.leetcodeUsername}</span>
-                </span>
-                <button
-                  onClick={() => setIsAccountOpen(true)}
-                  className={btnSecondary}
-                  id="open-account-btn"
-                  aria-label="Account settings"
-                  title={`Account settings (@${currentUser.leetcodeUsername})`}
-                >
-                  <Settings className="size-4" />
-                  <span className="hidden sm:inline">Account</span>
-                </button>
-              </>
+              <AccountButton user={currentUser} onClick={() => setIsAccountOpen(true)} />
             ) : (
               <button onClick={() => setIsLoginOpen(true)} className={btnPrimary} id="open-login-btn">
                 <LogIn className="size-4" />
