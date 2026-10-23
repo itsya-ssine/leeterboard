@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, Check, GraduationCap, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, Check, GraduationCap, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
 import Modal from "./Modal.js";
 
@@ -234,6 +234,17 @@ export default function AccountModal({
               <p className="text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
             </div>
           </div>
+
+          <a
+            href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
+            onClick={onClose}
+            id="account-profile-link"
+            className={`${btnSecondary} mt-3`}
+          >
+            <UserRound className="size-4" aria-hidden="true" />
+            View my profile
+            <ArrowUpRight className="size-4" aria-hidden="true" />
+          </a>
 
           <div className="mt-5 flex flex-col gap-5">
             {/* ---------- Display name ---------- */}
