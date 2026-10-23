@@ -1,0 +1,625 @@
+import React, { useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  GraduationCap,
+  KeyRound,
+  Link2,
+  LogOut,
+  RefreshCw,
+  Trash2,
+  UserRound
+} from "lucide-react";
+import { useAuth } from "./AuthContext.js";
+
+const focusRing =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+
+const inputCls =
+  "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
+
+const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnPrimary = `${btnBase} w-full bg-teal-400 text-ink-950 hover:bg-teal-300`;
+const btnSecondary = `${btnBase} w-full bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
+const btnDanger = `${btnBase} w-full bg-rose-500 text-white hover:bg-rose-400`;
+const btnLink = `${btnBase} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
+
+const labelCls = "mb-1.5 block text-sm font-medium text-mist-400";
+
+type Notice = { kind: "error" | "success"; message: string } | null;
+
+function NoticeBox({ notice }: { notice: Notice }) {
+  if (!notice) return null;
+  const isError = notice.kind === "error";
+  return (
+    <div
+      role={isError ? "alert" : "status"}
+      className={`flex items-start gap-2 rounded-lg p-3 text-sm ring-1 ${
+        isError
+          ? "bg-rose-500/10 text-rose-300 ring-rose-400/20"
+          : "bg-teal-400/10 text-teal-300 ring-teal-400/20"
+      }`}
+    >
+      {isError ? <AlertTriangle className="mt-0.5 size-4 shrink-0" /> : <Check className="mt-0.5 size-4 shrink-0" />}
+      <span>{notice.message}</span>
+    </div>
+  );
+}
+
+function Card({
+  icon,
+  title,
+  description,
+  id,
+  children
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description?: string;
+  id?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} aria-label={title} className="rounded-xl bg-ink-900 p-5 ring-1 ring-line">
+      <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-strong">
+        {icon}
+        {title}
+      </h2>
+      {description && <p className="mt-1 text-sm text-mist-500">{description}</p>}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+const goHome = () => {
+  window.location.hash = "#/";
+};
+
+export default function AccountPage({
+  // Called after something the leaderboard shows has changed (a rename, school,
+  // bio or links, or a deleted account), so it can reload its data.
+  onChanged
+}: {
+  onChanged?: () => void;
+}) {
+  const {
+    status,
+    user,
+    updateDisplayName,
+    updateSchool,
+    updateProfileDetails,
+    changePassword,
+    deleteAccount,
+    logout
+  } = useAuth();
+
+  const [name, setName] = useState("");
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameNotice, setNameNotice] = useState<Notice>(null);
+
+  const [school, setSchool] = useState("");
+  const [schoolBusy, setSchoolBusy] = useState(false);
+  const [schoolNotice, setSchoolNotice] = useState<Notice>(null);
+
+  const [bio, setBio] = useState("");
+  const [github, setGithub] = useState("");
+  const [linkedin, setLinkedin] = useState("");
+  const [website, setWebsite] = useState("");
+  const [aboutBusy, setAboutBusy] = useState(false);
+  const [aboutNotice, setAboutNotice] = useState<Notice>(null);
+
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwNotice, setPwNotice] = useState<Notice>(null);
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletePw, setDeletePw] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteNotice, setDeleteNotice] = useState<Notice>(null);
+
+  // Fill the forms once, when the signed-in member is first known — not every
+  // time the user object changes, which would overwrite what they are typing.
+  const userId = user?.id;
+  useEffect(() => {
+    if (!user) return;
+    setName(user.displayName);
+    setSchool(user.school ?? "");
+    setBio(user.bio ?? "");
+    setGithub(user.githubUrl ?? "");
+    setLinkedin(user.linkedinUrl ?? "");
+    setWebsite(user.websiteUrl ?? "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  if (status === "loading") {
+    return <p className="py-10 text-center text-sm text-mist-500">Checking your session…</p>;
+  }
+
+  if (!user) {
+    return (
+      <div
+        id="account-signed-out"
+        className="mx-auto max-w-xl rounded-xl bg-ink-900 px-5 py-12 text-center ring-1 ring-line"
+      >
+        <p className="font-medium text-strong">You're not signed in</p>
+        <p className="mt-1 text-sm text-mist-500">Log in to change your name, school, links or password.</p>
+        <a href="#/" className={`${btnLink} mt-5`}>
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Back to the leaderboard
+        </a>
+      </div>
+    );
+  }
+
+  const profileHref = `#/u/${encodeURIComponent(user.leetcodeUsername)}`;
+
+  const handleRename = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNameNotice(null);
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setNameNotice({ kind: "error", message: "Display name can't be empty." });
+      return;
+    }
+    if (trimmed === user.displayName) {
+      setNameNotice({ kind: "error", message: "That is already your display name." });
+      return;
+    }
+    setNameBusy(true);
+    try {
+      const updated = await updateDisplayName(trimmed);
+      setName(updated.displayName);
+      setNameNotice({ kind: "success", message: "Display name updated." });
+      onChanged?.();
+    } catch (err: any) {
+      setNameNotice({ kind: "error", message: err.message || "Couldn't update your display name." });
+    } finally {
+      setNameBusy(false);
+    }
+  };
+
+  const handleSchool = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSchoolNotice(null);
+    const trimmed = school.trim();
+    if (trimmed === (user.school ?? "")) {
+      setSchoolNotice({ kind: "error", message: "That is already your school." });
+      return;
+    }
+    setSchoolBusy(true);
+    try {
+      const updated = await updateSchool(trimmed);
+      setSchool(updated.school);
+      setSchoolNotice({
+        kind: "success",
+        message: updated.school ? "School updated." : "School removed."
+      });
+      onChanged?.();
+    } catch (err: any) {
+      setSchoolNotice({ kind: "error", message: err.message || "Couldn't update your school." });
+    } finally {
+      setSchoolBusy(false);
+    }
+  };
+
+  const handleAbout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAboutNotice(null);
+    const next = {
+      bio: bio.trim(),
+      github: github.trim(),
+      linkedin: linkedin.trim(),
+      website: website.trim()
+    };
+    if (
+      next.bio === (user.bio ?? "") &&
+      next.github === (user.githubUrl ?? "") &&
+      next.linkedin === (user.linkedinUrl ?? "") &&
+      next.website === (user.websiteUrl ?? "")
+    ) {
+      setAboutNotice({ kind: "error", message: "Nothing has changed." });
+      return;
+    }
+    setAboutBusy(true);
+    try {
+      const updated = await updateProfileDetails(next);
+      // Show what the server actually stored (links are tidied up).
+      setBio(updated.bio);
+      setGithub(updated.githubUrl);
+      setLinkedin(updated.linkedinUrl);
+      setWebsite(updated.websiteUrl);
+      setAboutNotice({ kind: "success", message: "Profile details updated." });
+      // The profile page reads from the board's data, so refresh it.
+      onChanged?.();
+    } catch (err: any) {
+      setAboutNotice({ kind: "error", message: err.message || "Couldn't update your profile details." });
+    } finally {
+      setAboutBusy(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwNotice(null);
+    if (newPw.length < 8) {
+      setPwNotice({ kind: "error", message: "New password must be at least 8 characters." });
+      return;
+    }
+    if (newPw !== confirmPw) {
+      setPwNotice({ kind: "error", message: "The new passwords don't match." });
+      return;
+    }
+    setPwBusy(true);
+    try {
+      await changePassword(currentPw, newPw);
+      setCurrentPw("");
+      setNewPw("");
+      setConfirmPw("");
+      setPwNotice({
+        kind: "success",
+        message: "Password changed. You've been signed out of your other devices."
+      });
+    } catch (err: any) {
+      setPwNotice({ kind: "error", message: err.message || "Couldn't change your password." });
+    } finally {
+      setPwBusy(false);
+    }
+  };
+
+  const handleDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteNotice(null);
+    if (!deletePw) {
+      setDeleteNotice({ kind: "error", message: "Enter your password to confirm." });
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await deleteAccount(deletePw);
+      setDeletePw("");
+      onChanged?.();
+      goHome();
+    } catch (err: any) {
+      setDeleteNotice({ kind: "error", message: err.message || "Couldn't delete your account." });
+      setDeleteBusy(false);
+    }
+  };
+
+  // logout() clears the local session even when the request fails, but it
+  // re-throws the network error, so swallow it here: the member is signed out
+  // on this device either way.
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // Already signed out locally.
+    }
+    goHome();
+  };
+
+  return (
+    <div id="account-page" className="mx-auto max-w-4xl space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">Account settings</h1>
+          <p className="mt-2 max-w-xl text-base text-mist-400">
+            Choose how you appear on the board, and manage your password and account.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <a href={profileHref} className={btnLink} id="account-view-profile">
+            <UserRound className="size-4" aria-hidden="true" />
+            View my profile
+          </a>
+          <a href="#/" className={btnLink}>
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Leaderboard
+          </a>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 rounded-xl bg-ink-900 p-4 ring-1 ring-line">
+        <img
+          src={user.avatarUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          className="size-12 shrink-0 rounded-full bg-ink-800 object-cover"
+        />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-strong">@{user.leetcodeUsername}</p>
+          <p className="text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        {/* ---------- Left column: how you appear ---------- */}
+        <div className="flex flex-col gap-6">
+          <Card icon={<UserRound className="size-4 text-teal-300" />} title="Display name" id="account-name-card">
+            <form onSubmit={handleRename} className="flex flex-col gap-3">
+              <div>
+                <label htmlFor="acct-name" className="sr-only">
+                  Display name
+                </label>
+                <input
+                  id="acct-name"
+                  type="text"
+                  autoComplete="nickname"
+                  maxLength={40}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className={inputCls}
+                  disabled={nameBusy}
+                />
+              </div>
+              <NoticeBox notice={nameNotice} />
+              <button type="submit" disabled={nameBusy} className={btnPrimary}>
+                {nameBusy && <RefreshCw className="size-4 animate-spin" />}
+                {nameBusy ? "Saving…" : "Save name"}
+              </button>
+            </form>
+          </Card>
+
+          <Card
+            icon={<GraduationCap className="size-4 text-teal-300" />}
+            title="School"
+            description="Optional. Shown as a tag next to your name on the leaderboard."
+            id="account-school-card"
+          >
+            <form onSubmit={handleSchool} className="flex flex-col gap-3">
+              <div>
+                <label htmlFor="acct-school" className="sr-only">
+                  School
+                </label>
+                <input
+                  id="acct-school"
+                  type="text"
+                  autoComplete="organization"
+                  maxLength={60}
+                  placeholder="e.g. 42 Network, ENSA Khouribga"
+                  value={school}
+                  onChange={(e) => setSchool(e.target.value)}
+                  className={inputCls}
+                  disabled={schoolBusy}
+                />
+                <p className="mt-1.5 text-xs text-mist-500">Leave it empty to remove it.</p>
+              </div>
+              <NoticeBox notice={schoolNotice} />
+              <button type="submit" disabled={schoolBusy} className={btnPrimary}>
+                {schoolBusy && <RefreshCw className="size-4 animate-spin" />}
+                {schoolBusy ? "Saving…" : "Save school"}
+              </button>
+            </form>
+          </Card>
+
+          <Card
+            icon={<Link2 className="size-4 text-teal-300" />}
+            title="Bio & links"
+            description="All optional, and shown publicly on your profile page."
+            id="account-about-card"
+          >
+            <form onSubmit={handleAbout} className="flex flex-col gap-3">
+              <div>
+                <div className="mb-1.5 flex items-baseline justify-between">
+                  <label htmlFor="acct-bio" className="text-sm font-medium text-mist-400">
+                    Bio
+                  </label>
+                  <span className="text-xs tabular-nums text-mist-500">{bio.length}/200</span>
+                </div>
+                <textarea
+                  id="acct-bio"
+                  rows={3}
+                  maxLength={200}
+                  placeholder="A line or two about you"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  className="w-full resize-y rounded-lg bg-ink-950 px-3 py-2 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50"
+                  disabled={aboutBusy}
+                />
+              </div>
+              <div>
+                <label htmlFor="acct-github" className={labelCls}>
+                  GitHub
+                </label>
+                <input
+                  id="acct-github"
+                  type="text"
+                  inputMode="url"
+                  autoComplete="off"
+                  maxLength={200}
+                  placeholder="github.com/your-name"
+                  value={github}
+                  onChange={(e) => setGithub(e.target.value)}
+                  className={inputCls}
+                  disabled={aboutBusy}
+                />
+              </div>
+              <div>
+                <label htmlFor="acct-linkedin" className={labelCls}>
+                  LinkedIn
+                </label>
+                <input
+                  id="acct-linkedin"
+                  type="text"
+                  inputMode="url"
+                  autoComplete="off"
+                  maxLength={200}
+                  placeholder="linkedin.com/in/your-name"
+                  value={linkedin}
+                  onChange={(e) => setLinkedin(e.target.value)}
+                  className={inputCls}
+                  disabled={aboutBusy}
+                />
+              </div>
+              <div>
+                <label htmlFor="acct-website" className={labelCls}>
+                  Portfolio / website
+                </label>
+                <input
+                  id="acct-website"
+                  type="text"
+                  inputMode="url"
+                  autoComplete="off"
+                  maxLength={200}
+                  placeholder="your-site.com"
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  className={inputCls}
+                  disabled={aboutBusy}
+                />
+                <p className="mt-1.5 text-xs text-mist-500">Leave a field empty to remove it.</p>
+              </div>
+              <NoticeBox notice={aboutNotice} />
+              <button type="submit" disabled={aboutBusy} className={btnPrimary}>
+                {aboutBusy && <RefreshCw className="size-4 animate-spin" />}
+                {aboutBusy ? "Saving…" : "Save bio & links"}
+              </button>
+            </form>
+          </Card>
+        </div>
+
+        {/* ---------- Right column: security and account ---------- */}
+        <div className="flex flex-col gap-6">
+          <Card icon={<KeyRound className="size-4 text-teal-300" />} title="Change password" id="account-password-card">
+            <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
+              {/* Lets password managers attach the new password to the right account. */}
+              <input
+                type="text"
+                name="username"
+                autoComplete="username"
+                value={user.leetcodeUsername}
+                readOnly
+                hidden
+              />
+              <div>
+                <label htmlFor="acct-current-pw" className={labelCls}>
+                  Current password
+                </label>
+                <input
+                  id="acct-current-pw"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPw}
+                  onChange={(e) => setCurrentPw(e.target.value)}
+                  className={inputCls}
+                  disabled={pwBusy}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="acct-new-pw" className={labelCls}>
+                  New password <span className="font-normal text-mist-500">(8+ characters)</span>
+                </label>
+                <input
+                  id="acct-new-pw"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={8}
+                  maxLength={128}
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  className={inputCls}
+                  disabled={pwBusy}
+                  required
+                />
+              </div>
+              <div>
+                <label htmlFor="acct-confirm-pw" className={labelCls}>
+                  Confirm new password
+                </label>
+                <input
+                  id="acct-confirm-pw"
+                  type="password"
+                  autoComplete="new-password"
+                  maxLength={128}
+                  value={confirmPw}
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                  className={inputCls}
+                  disabled={pwBusy}
+                  required
+                />
+              </div>
+              <NoticeBox notice={pwNotice} />
+              <button type="submit" disabled={pwBusy} className={btnPrimary}>
+                {pwBusy && <RefreshCw className="size-4 animate-spin" />}
+                {pwBusy ? "Changing…" : "Change password"}
+              </button>
+            </form>
+          </Card>
+
+          <Card icon={<LogOut className="size-4 text-teal-300" />} title="Log out">
+            <div className="flex flex-col gap-3">
+              <p className="text-sm leading-relaxed text-mist-400">
+                Sign out of <span className="font-medium text-strong">@{user.leetcodeUsername}</span> on this device.
+                Your stats and history are kept.
+              </p>
+              <button type="button" onClick={handleLogout} className={btnSecondary} id="logout-btn">
+                <LogOut className="size-4" />
+                Log out
+              </button>
+            </div>
+          </Card>
+
+          <Card icon={<Trash2 className="size-4 text-rose-300" />} title="Delete account" id="account-delete-card">
+            {!confirmingDelete ? (
+              <div className="flex flex-col gap-3">
+                <p className="text-sm leading-relaxed text-mist-400">
+                  Removes you from the leaderboard and permanently deletes your stats and history. You can sign up
+                  again later, but your history starts from zero.
+                </p>
+                <button type="button" onClick={() => setConfirmingDelete(true)} className={btnSecondary}>
+                  <Trash2 className="size-4" />
+                  Delete my account…
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleDelete} className="flex flex-col gap-3">
+                <p className="text-sm leading-relaxed text-rose-300">
+                  This can't be undone. Enter your password to permanently delete{" "}
+                  <span className="font-semibold">@{user.leetcodeUsername}</span>.
+                </p>
+                <div>
+                  <label htmlFor="acct-delete-pw" className="sr-only">
+                    Password
+                  </label>
+                  <input
+                    id="acct-delete-pw"
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="Your password"
+                    value={deletePw}
+                    onChange={(e) => setDeletePw(e.target.value)}
+                    className={inputCls}
+                    disabled={deleteBusy}
+                    required
+                  />
+                </div>
+                <NoticeBox notice={deleteNotice} />
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConfirmingDelete(false);
+                      setDeletePw("");
+                      setDeleteNotice(null);
+                    }}
+                    disabled={deleteBusy}
+                    className={btnSecondary}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={deleteBusy} className={btnDanger}>
+                    {deleteBusy ? <RefreshCw className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                    {deleteBusy ? "Deleting…" : "Delete forever"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -20,6 +20,7 @@ import { User } from "./types.js";
 import { useAuth } from "./AuthContext.js";
 import LoginModal from "./LoginModal.js";
 import AccountModal from "./AccountModal.js";
+import AccountPage from "./AccountPage.js";
 import Podium from "./Podium.js";
 import SchoolTag from "./SchoolTag.js";
 import RankMovement from "./RankMovement.js";
@@ -75,16 +76,18 @@ type SortKey = "weekly" | "allTime" | "rating";
 
 // The pages share one app shell. They are switched with the URL hash
 // (#/ = leaderboard, #/stats = stats, #/compare/<a>/<b> = head to head,
-// #/u/<username> = member profile, #/admin = sync health for admins) so no
+// #/u/<username> = member profile, #/account = account settings,
+// #/admin = sync health for admins) so no
 // server rewrite is needed: a plain
 // static host or Vercel serves "/" for all.
-type Page = "leaderboard" | "stats" | "compare" | "profile" | "admin";
+type Page = "leaderboard" | "stats" | "compare" | "profile" | "account" | "admin";
 
 function readPage(): Page {
   const hash = window.location.hash;
   if (hash.startsWith("#/admin")) return "admin";
   if (hash.startsWith("#/compare")) return "compare";
   if (hash.startsWith("#/u/")) return "profile";
+  if (hash.startsWith("#/account")) return "account";
   return hash.startsWith("#/stats") ? "stats" : "leaderboard";
 }
 
@@ -692,8 +695,8 @@ export default function App() {
       </div>
 
       <main className="mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
-        {/* ---------- Intro (the profile page has its own header) ---------- */}
-        {page !== "profile" && (
+        {/* ---------- Intro (the profile and account pages have their own header) ---------- */}
+        {page !== "profile" && page !== "account" && (
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">
@@ -744,6 +747,9 @@ export default function App() {
           ) : (
             <ProfilePage users={users} winners={winners} username={profileName} lastSyncAll={lastSyncAll} />
           ))}
+
+        {/* ======== Account settings page ======== */}
+        {page === "account" && <AccountPage onChanged={loadData} />}
 
         {/* ======== Compare page ======== */}
         {page === "compare" && !loading && <ComparePage users={users} />}
@@ -1106,7 +1112,7 @@ export default function App() {
         )}
 
         <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} onAuthenticated={loadData} />
-        <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} onChanged={loadData} />
+        <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
 
         {/* ---------- Member card ---------- */}
         {/* A short summary that opens when a member is clicked; the full

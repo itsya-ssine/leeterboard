@@ -16,7 +16,7 @@ A weekly LeetCode leaderboard. Members sign up with their LeetCode username, and
 - **Automatic data** pulled from LeetCode: easy/medium/hard counts, streaks, contest rating and avatar
 - **Freshness indicators** that flag members whose data has stopped updating
 - **Notifications** in a bell in the header: you're told when you earn a new badge or win a week, and admins can message you directly or broadcast to everyone. Unread count, mark all read, dismiss, refreshed every minute and when you return to the tab
-- **Account settings** to change your display name, add your school (shown as a tag on the leaderboard), add a short bio and GitHub / LinkedIn / website links (shown on your profile page), change your password, or delete your account
+- **Account settings page** (`#/account`) to change your display name, add your school (shown as a tag on the leaderboard), add a short bio and GitHub / LinkedIn / website links (shown on your profile page), change your password, or delete your account
 - **Admin tools** to sync everyone at once, remove members, and send messages (to one member or everyone) with a record of how many members have read each
 
 ## Tech stack
@@ -74,10 +74,11 @@ You can remove the code from your profile afterwards. The same steps reset a for
 
 ## Account settings
 
-Logged-in members open **Account** in the header to:
+Logged-in members click their name in the header and choose **Account settings** (the page lives at `#/account`; the same menu also links to their profile) to:
 
-- **Change their display name.** The avatar is not editable: it always comes from the member's LeetCode profile and refreshes automatically.
+- **Change their display name, school, bio and links.** The avatar is not editable: it always comes from the member's LeetCode profile and refreshes automatically.
 - **Change their password.** This needs the current password, keeps the current device signed in, and signs out every other device.
+- **Log out.**
 - **Delete their account.** This needs the password and permanently removes the member's stats and history. Signing up again starts from zero.
 
 ## Security
