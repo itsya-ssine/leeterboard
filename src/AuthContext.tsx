@@ -14,6 +14,14 @@ export interface RegistrationChallenge {
   expiresInMinutes: number;
 }
 
+// The optional about-me fields editable from account settings.
+export interface ProfileDetails {
+  bio: string;
+  github: string;
+  linkedin: string;
+  website: string;
+}
+
 interface AuthContextValue {
   status: SessionStatus;
   user: User | null;
@@ -24,6 +32,7 @@ interface AuthContextValue {
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
   updateSchool: (school: string) => Promise<User>;
+  updateProfileDetails: (details: ProfileDetails) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
 }
@@ -124,6 +133,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
+  // Empty strings clear a field. The server validates the links and answers
+  // with a specific message when one isn't acceptable.
+  const updateProfileDetails = useCallback(async (details: ProfileDetails) => {
+    const data = await requestJson<User>("PATCH", "/api/account/profile", details);
+    setUser(data);
+    return data;
+  }, []);
+
   // The server keeps this device signed in with a fresh cookie and signs out
   // every other session.
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
@@ -157,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshSession,
         updateDisplayName,
         updateSchool,
+        updateProfileDetails,
         changePassword,
         deleteAccount
       }}

@@ -18,6 +18,8 @@ import {
   deleteUserById,
   updateDisplayName,
   updateSchool,
+  updateProfileDetails,
+  type ProfileDetailsUpdate,
   getUserAuthById,
   setPasswordHash,
   recordFailedLogin,
@@ -692,6 +694,8 @@ app.get("/api/users", async (req, res) => {
 const LEETCODE_USERNAME_RE = /^[A-Za-z0-9_.-]{1,50}$/;
 const MAX_DISPLAY_NAME_LENGTH = 40;
 const MAX_SCHOOL_LENGTH = 60;
+const MAX_BIO_LENGTH = 200;
+const MAX_LINK_LENGTH = 200;
 
 const REGISTRATION_COOKIE = "registration";
 const REGISTRATION_TTL_MS = 30 * 60 * 1000;
@@ -742,6 +746,60 @@ function cleanSchool(value: unknown): string {
     .trim()
     .slice(0, MAX_SCHOOL_LENGTH);
 }
+
+// A short free-text bio. Newlines are kept (at most one blank line in a row);
+// everything else that isn't printable is dropped. Empty clears it.
+function cleanBio(value: string): string {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ ?\n ?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, MAX_BIO_LENGTH);
+}
+
+// A profile link. Accepts "github.com/me" or a full URL, and only ever stores an
+// http(s) address (never javascript:, data: and the like), so it is safe to put
+// in an href. `hosts` limits it to certain sites (a host also matches its
+// subdomains); null allows any site that looks like a real domain.
+// An empty value is valid and clears the link.
+function cleanLink(value: string, label: string, hosts: string[] | null): { value: string } | { error: string } {
+  const trimmed = value.replace(/[\u0000-\u001f\u007f\s]/g, "");
+  if (!trimmed) return { value: "" };
+  if (trimmed.length > MAX_LINK_LENGTH) return { error: `${label} link is too long.` };
+
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    return { error: `${label} link isn't a valid web address.` };
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return { error: `${label} link must start with https://.` };
+  }
+  if (url.username || url.password) {
+    return { error: `${label} link can't contain a username or password.` };
+  }
+  const host = url.hostname.toLowerCase();
+  if (hosts) {
+    if (!hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
+      return { error: `${label} link must be a ${hosts[0]} address.` };
+    }
+    url.protocol = "https:";
+  } else if (!host.includes(".") || /^[\d.]+$/.test(host)) {
+    return { error: `${label} link must be a website address like example.com.` };
+  }
+  return { value: url.href.slice(0, MAX_LINK_LENGTH) };
+}
+
+const LINK_FIELDS = [
+  { body: "github", key: "githubUrl", label: "GitHub", hosts: ["github.com"] },
+  { body: "linkedin", key: "linkedinUrl", label: "LinkedIn", hosts: ["linkedin.com"] },
+  { body: "website", key: "websiteUrl", label: "Website", hosts: null }
+] as const;
 
 // Used when LeetCode doesn't give us an avatar. Built from one validated
 // letter only, so nothing user-controlled ends up inside the SVG.
@@ -976,6 +1034,10 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
         leetcodeUsername: pending.leetcodeUsername,
         avatarUrl: scraped.avatarUrl || defaultAvatar(pending.leetcodeUsername),
         school: "",
+        bio: "",
+        githubUrl: "",
+        linkedinUrl: "",
+        websiteUrl: "",
         allTimeSolved: scraped.allTimeSolved,
         easySolved: scraped.easySolved,
         mediumSolved: scraped.mediumSolved,
@@ -1155,29 +1217,50 @@ async function checkCurrentPassword(
   return { record, status: 200, error: "" };
 }
 
-// PATCH — change the display name and/or the school. Send only the fields that
-// change. The avatar is not editable: it always comes from the member's
-// LeetCode account. An empty school clears it.
+// PATCH — change the display name, school, bio and/or profile links (GitHub,
+// LinkedIn, website). Send only the fields that change; an empty string clears
+// school, bio or a link. The avatar is not editable: it always comes from the
+// member's LeetCode account.
 app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) => {
   try {
     const { id } = (req as any).user as { id: string };
-    const hasName = req.body?.displayName !== undefined;
-    const hasSchool = req.body?.school !== undefined;
-    if (!hasName && !hasSchool) {
-      return res.status(400).json({ error: "Nothing to update." });
-    }
-    if (hasSchool && typeof req.body.school !== "string") {
+    const body = req.body ?? {};
+    const hasName = body.displayName !== undefined;
+    const hasSchool = body.school !== undefined;
+
+    if (hasSchool && typeof body.school !== "string") {
       return res.status(400).json({ error: "School must be text." });
     }
 
     let cleanedName = "";
     if (hasName) {
-      cleanedName = cleanDisplayName(req.body.displayName, "");
+      cleanedName = cleanDisplayName(body.displayName, "");
       if (!cleanedName) return res.status(400).json({ error: "Display name can't be empty." });
     }
 
+    // Validate everything before writing anything.
+    const details: ProfileDetailsUpdate = {};
+    if (body.bio !== undefined) {
+      if (typeof body.bio !== "string") return res.status(400).json({ error: "Bio must be text." });
+      details.bio = cleanBio(body.bio);
+    }
+    for (const f of LINK_FIELDS) {
+      if (body[f.body] === undefined) continue;
+      if (typeof body[f.body] !== "string") {
+        return res.status(400).json({ error: `${f.label} link must be text.` });
+      }
+      const result = cleanLink(body[f.body], f.label, f.hosts ? [...f.hosts] : null);
+      if ("error" in result) return res.status(400).json({ error: result.error });
+      details[f.key] = result.value;
+    }
+
+    if (!hasName && !hasSchool && Object.keys(details).length === 0) {
+      return res.status(400).json({ error: "Nothing to update." });
+    }
+
     if (hasName) await updateDisplayName(id, cleanedName);
-    if (hasSchool) await updateSchool(id, cleanSchool(req.body.school));
+    if (hasSchool) await updateSchool(id, cleanSchool(body.school));
+    await updateProfileDetails(id, details);
 
     const updated = await getUserById(id);
     if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });

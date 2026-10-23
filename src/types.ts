@@ -14,6 +14,11 @@ export interface User {
   avatarUrl: string;
   // The member's school, shown as a tag on the leaderboard. "" = not set.
   school: string;
+  // Optional "about me" details, shown on the member's profile page. "" = not set.
+  bio: string;
+  githubUrl: string;
+  linkedinUrl: string;
+  websiteUrl: string;
   allTimeSolved: number;
   easySolved: number;
   mediumSolved: number;

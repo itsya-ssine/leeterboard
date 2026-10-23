@@ -8,7 +8,10 @@ import {
   Clock,
   Crown,
   Flame,
+  Github,
+  Globe,
   Link2,
+  Linkedin,
   Share2,
   Swords,
   Target,
@@ -161,6 +164,36 @@ function SegmentedToggle<T extends string | number>({
 
 /* ---------- Hero ---------- */
 
+// The member's optional GitHub / LinkedIn / website links. The server only
+// stores http(s) addresses, but this checks again before putting one in an href.
+function ProfileLinks({ user }: { user: User }) {
+  const entries = [
+    { label: "GitHub", href: user.githubUrl, icon: <Github className="size-3.5" aria-hidden="true" /> },
+    { label: "LinkedIn", href: user.linkedinUrl, icon: <Linkedin className="size-3.5" aria-hidden="true" /> },
+    { label: "Website", href: user.websiteUrl, icon: <Globe className="size-3.5" aria-hidden="true" /> }
+  ].filter((e) => e.href && /^https?:\/\//i.test(e.href));
+  if (entries.length === 0) return null;
+  return (
+    <ul className="mt-3 flex flex-wrap gap-2 text-xs font-medium" aria-label="Links">
+      {entries.map((e) => (
+        <li key={e.label}>
+          <a
+            href={e.href}
+            target="_blank"
+            rel="noopener noreferrer nofollow ugc"
+            title={e.href}
+            className={`inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 text-mist-400 ring-1 ring-line transition-colors hover:text-teal-300 ${focusRing}`}
+          >
+            {e.icon}
+            {e.label}
+            <ArrowUpRight className="size-3" aria-hidden="true" />
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Hero({
   user,
   users,
@@ -266,6 +299,11 @@ function Hero({
                   </li>
                 )}
               </ul>
+
+              {user.bio && (
+                <p className="mt-3 max-w-xl whitespace-pre-line text-sm leading-relaxed text-mist-400">{user.bio}</p>
+              )}
+              <ProfileLinks user={user} />
             </div>
           </div>
 

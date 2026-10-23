@@ -1,6 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, ArrowUpRight, Check, GraduationCap, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Check,
+  GraduationCap,
+  KeyRound,
+  Link2,
+  LogOut,
+  RefreshCw,
+  Trash2,
+  UserRound
+} from "lucide-react";
 import { useAuth } from "./AuthContext.js";
 import Modal from "./Modal.js";
 
@@ -65,7 +76,8 @@ export default function AccountModal({
   // deleted account), so it can reload.
   onChanged?: () => void;
 }) {
-  const { user, updateDisplayName, updateSchool, changePassword, deleteAccount, logout } = useAuth();
+  const { user, updateDisplayName, updateSchool, updateProfileDetails, changePassword, deleteAccount, logout } =
+    useAuth();
 
   const [name, setName] = useState("");
   const [nameBusy, setNameBusy] = useState(false);
@@ -74,6 +86,13 @@ export default function AccountModal({
   const [school, setSchool] = useState("");
   const [schoolBusy, setSchoolBusy] = useState(false);
   const [schoolNotice, setSchoolNotice] = useState<Notice>(null);
+
+  const [bio, setBio] = useState("");
+  const [github, setGithub] = useState("");
+  const [linkedin, setLinkedin] = useState("");
+  const [website, setWebsite] = useState("");
+  const [aboutBusy, setAboutBusy] = useState(false);
+  const [aboutNotice, setAboutNotice] = useState<Notice>(null);
 
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -93,6 +112,11 @@ export default function AccountModal({
       setNameNotice(null);
       setSchool(user?.school ?? "");
       setSchoolNotice(null);
+      setBio(user?.bio ?? "");
+      setGithub(user?.githubUrl ?? "");
+      setLinkedin(user?.linkedinUrl ?? "");
+      setWebsite(user?.websiteUrl ?? "");
+      setAboutNotice(null);
       setCurrentPw("");
       setNewPw("");
       setConfirmPw("");
@@ -153,6 +177,40 @@ export default function AccountModal({
       setSchoolNotice({ kind: "error", message: err.message || "Couldn't update your school." });
     } finally {
       setSchoolBusy(false);
+    }
+  };
+
+  const handleAbout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAboutNotice(null);
+    const next = {
+      bio: bio.trim(),
+      github: github.trim(),
+      linkedin: linkedin.trim(),
+      website: website.trim()
+    };
+    if (
+      next.bio === (user.bio ?? "") &&
+      next.github === (user.githubUrl ?? "") &&
+      next.linkedin === (user.linkedinUrl ?? "") &&
+      next.website === (user.websiteUrl ?? "")
+    ) {
+      setAboutNotice({ kind: "error", message: "Nothing has changed." });
+      return;
+    }
+    setAboutBusy(true);
+    try {
+      const updated = await updateProfileDetails(next);
+      // Show what the server actually stored (links are tidied up).
+      setBio(updated.bio);
+      setGithub(updated.githubUrl);
+      setLinkedin(updated.linkedinUrl);
+      setWebsite(updated.websiteUrl);
+      setAboutNotice({ kind: "success", message: "Profile details updated." });
+    } catch (err: any) {
+      setAboutNotice({ kind: "error", message: err.message || "Couldn't update your profile details." });
+    } finally {
+      setAboutBusy(false);
     }
   };
 
@@ -299,6 +357,89 @@ export default function AccountModal({
                 <button type="submit" disabled={schoolBusy} className={btnPrimary}>
                   {schoolBusy && <RefreshCw className="size-4 animate-spin" />}
                   {schoolBusy ? "Saving…" : "Save school"}
+                </button>
+              </form>
+            </Section>
+
+            {/* ---------- About & links ---------- */}
+            <Section icon={<Link2 className="size-4 text-teal-300" />} title="Bio & links">
+              <form onSubmit={handleAbout} className="flex flex-col gap-3">
+                <div>
+                  <div className="mb-1.5 flex items-baseline justify-between">
+                    <label htmlFor="acct-bio" className="text-sm font-medium text-mist-400">
+                      Bio <span className="font-normal text-mist-500">(optional)</span>
+                    </label>
+                    <span className="text-xs tabular-nums text-mist-500">{bio.length}/200</span>
+                  </div>
+                  <textarea
+                    id="acct-bio"
+                    rows={3}
+                    maxLength={200}
+                    placeholder="A line or two about you"
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    className="w-full resize-y rounded-lg bg-ink-950 px-3 py-2 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50"
+                    disabled={aboutBusy}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="acct-github" className="mb-1.5 block text-sm font-medium text-mist-400">
+                    GitHub
+                  </label>
+                  <input
+                    id="acct-github"
+                    type="text"
+                    inputMode="url"
+                    autoComplete="off"
+                    maxLength={200}
+                    placeholder="github.com/your-name"
+                    value={github}
+                    onChange={(e) => setGithub(e.target.value)}
+                    className={inputCls}
+                    disabled={aboutBusy}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="acct-linkedin" className="mb-1.5 block text-sm font-medium text-mist-400">
+                    LinkedIn
+                  </label>
+                  <input
+                    id="acct-linkedin"
+                    type="text"
+                    inputMode="url"
+                    autoComplete="off"
+                    maxLength={200}
+                    placeholder="linkedin.com/in/your-name"
+                    value={linkedin}
+                    onChange={(e) => setLinkedin(e.target.value)}
+                    className={inputCls}
+                    disabled={aboutBusy}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="acct-website" className="mb-1.5 block text-sm font-medium text-mist-400">
+                    Portfolio / website
+                  </label>
+                  <input
+                    id="acct-website"
+                    type="text"
+                    inputMode="url"
+                    autoComplete="off"
+                    maxLength={200}
+                    placeholder="your-site.com"
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
+                    className={inputCls}
+                    disabled={aboutBusy}
+                  />
+                  <p className="mt-1.5 text-xs text-mist-500">
+                    All optional, and shown publicly on your profile page. Leave a field empty to remove it.
+                  </p>
+                </div>
+                <NoticeBox notice={aboutNotice} />
+                <button type="submit" disabled={aboutBusy} className={btnPrimary}>
+                  {aboutBusy && <RefreshCw className="size-4 animate-spin" />}
+                  {aboutBusy ? "Saving…" : "Save bio & links"}
                 </button>
               </form>
             </Section>

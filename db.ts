@@ -86,6 +86,10 @@ export async function initDb(): Promise<void> {
         leetcode_username TEXT NOT NULL,
         avatar_url TEXT,
         school TEXT NOT NULL DEFAULT '',
+        bio TEXT NOT NULL DEFAULT '',
+        github_url TEXT NOT NULL DEFAULT '',
+        linkedin_url TEXT NOT NULL DEFAULT '',
+        website_url TEXT NOT NULL DEFAULT '',
         all_time_solved INTEGER NOT NULL DEFAULT 0,
         easy_solved INTEGER NOT NULL DEFAULT 0,
         medium_solved INTEGER NOT NULL DEFAULT 0,
@@ -169,7 +173,8 @@ const MIGRATIONS: Migration[] = [
   { version: 2, name: "history_table", up: migrateHistoryTable },
   { version: 3, name: "notifications", up: migrateNotifications },
   { version: 4, name: "notification_dismissed", up: migrateNotificationDismissed },
-  { version: 5, name: "user_school", up: migrateUserSchool }
+  { version: 5, name: "user_school", up: migrateUserSchool },
+  { version: 6, name: "user_profile_details", up: migrateUserProfileDetails }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -359,6 +364,21 @@ async function migrateUserSchool(): Promise<void> {
   }
 }
 
+// v6 — optional bio and GitHub / LinkedIn / website links for the profile page.
+async function migrateUserProfileDetails(): Promise<void> {
+  for (const column of ["bio", "github_url", "linkedin_url", "website_url"]) {
+    if (await columnExists("users", column)) continue;
+    try {
+      await client.execute(`ALTER TABLE users ADD COLUMN ${column} TEXT NOT NULL DEFAULT ''`);
+    } catch (err: any) {
+      // Another cold-started instance may have added it a moment ago.
+      if (!(await columnExists("users", column))) {
+        throw new Error(`Couldn't add users.${column}: ${err.message}`);
+      }
+    }
+  }
+}
+
 /* ---------- Users ---------- */
 
 const HISTORY_COLUMNS = `user_id, date, solved_count, easy_solved, medium_solved, hard_solved, weekly_progress`;
@@ -381,6 +401,10 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
     leetcodeUsername: row.leetcode_username as string,
     avatarUrl: (row.avatar_url as string) || "",
     school: (row.school as string) || "",
+    bio: (row.bio as string) || "",
+    githubUrl: (row.github_url as string) || "",
+    linkedinUrl: (row.linkedin_url as string) || "",
+    websiteUrl: (row.website_url as string) || "",
     allTimeSolved: Number(row.all_time_solved),
     easySolved: Number(row.easy_solved),
     mediumSolved: Number(row.medium_solved),
@@ -591,6 +615,31 @@ export async function updateSchool(id: string, school: string): Promise<void> {
   await client.execute({
     sql: "UPDATE users SET school = ? WHERE id = ?",
     args: [school, id]
+  });
+}
+
+// The optional about-me fields. Only the fields present are written; an empty
+// string clears one. Column names come from this fixed map, never from input.
+export interface ProfileDetailsUpdate {
+  bio?: string;
+  githubUrl?: string;
+  linkedinUrl?: string;
+  websiteUrl?: string;
+}
+
+const DETAIL_COLUMNS: Record<keyof ProfileDetailsUpdate, string> = {
+  bio: "bio",
+  githubUrl: "github_url",
+  linkedinUrl: "linkedin_url",
+  websiteUrl: "website_url"
+};
+
+export async function updateProfileDetails(id: string, details: ProfileDetailsUpdate): Promise<void> {
+  const keys = (Object.keys(DETAIL_COLUMNS) as (keyof ProfileDetailsUpdate)[]).filter((k) => details[k] !== undefined);
+  if (keys.length === 0) return;
+  await client.execute({
+    sql: `UPDATE users SET ${keys.map((k) => `${DETAIL_COLUMNS[k]} = ?`).join(", ")} WHERE id = ?`,
+    args: [...keys.map((k) => details[k] as string), id]
   });
 }
 

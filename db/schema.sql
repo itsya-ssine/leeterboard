@@ -19,6 +19,10 @@ CREATE TABLE users (
   leetcode_username  TEXT NOT NULL,
   avatar_url         TEXT,
   school             TEXT NOT NULL DEFAULT '',     -- optional, member-edited; shown as a tag on the board
+  bio                TEXT NOT NULL DEFAULT '',     -- optional short bio (profile page)
+  github_url         TEXT NOT NULL DEFAULT '',     -- optional, validated https://github.com/... link
+  linkedin_url       TEXT NOT NULL DEFAULT '',     -- optional, validated https://...linkedin.com/... link
+  website_url        TEXT NOT NULL DEFAULT '',     -- optional http(s) link to a portfolio / site
 
   -- Current stats, refreshed by every sync.
   all_time_solved    INTEGER NOT NULL DEFAULT 0,
