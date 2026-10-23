@@ -85,6 +85,7 @@ export async function initDb(): Promise<void> {
         display_name TEXT NOT NULL,
         leetcode_username TEXT NOT NULL,
         avatar_url TEXT,
+        school TEXT NOT NULL DEFAULT '',
         all_time_solved INTEGER NOT NULL DEFAULT 0,
         easy_solved INTEGER NOT NULL DEFAULT 0,
         medium_solved INTEGER NOT NULL DEFAULT 0,
@@ -167,7 +168,8 @@ const MIGRATIONS: Migration[] = [
   { version: 1, name: "legacy_columns", up: migrateLegacyColumns },
   { version: 2, name: "history_table", up: migrateHistoryTable },
   { version: 3, name: "notifications", up: migrateNotifications },
-  { version: 4, name: "notification_dismissed", up: migrateNotificationDismissed }
+  { version: 4, name: "notification_dismissed", up: migrateNotificationDismissed },
+  { version: 5, name: "user_school", up: migrateUserSchool }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -343,6 +345,20 @@ async function migrateNotificationDismissed(): Promise<void> {
   }
 }
 
+// v5 — optional school per member (shown as a tag on the leaderboard). Databases
+// created before it existed get the column here; newer ones already have it.
+async function migrateUserSchool(): Promise<void> {
+  if (await columnExists("users", "school")) return;
+  try {
+    await client.execute(`ALTER TABLE users ADD COLUMN school TEXT NOT NULL DEFAULT ''`);
+  } catch (err: any) {
+    // Another cold-started instance may have added it a moment ago.
+    if (!(await columnExists("users", "school"))) {
+      throw new Error(`Couldn't add users.school: ${err.message}`);
+    }
+  }
+}
+
 /* ---------- Users ---------- */
 
 const HISTORY_COLUMNS = `user_id, date, solved_count, easy_solved, medium_solved, hard_solved, weekly_progress`;
@@ -364,6 +380,7 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
     displayName: row.display_name as string,
     leetcodeUsername: row.leetcode_username as string,
     avatarUrl: (row.avatar_url as string) || "",
+    school: (row.school as string) || "",
     allTimeSolved: Number(row.all_time_solved),
     easySolved: Number(row.easy_solved),
     mediumSolved: Number(row.medium_solved),
@@ -566,6 +583,14 @@ export async function updateDisplayName(id: string, displayName: string): Promis
   await client.execute({
     sql: "UPDATE users SET display_name = ? WHERE id = ?",
     args: [displayName, id]
+  });
+}
+
+// Member-initiated school change. An empty string clears it.
+export async function updateSchool(id: string, school: string): Promise<void> {
+  await client.execute({
+    sql: "UPDATE users SET school = ? WHERE id = ?",
+    args: [school, id]
   });
 }
 

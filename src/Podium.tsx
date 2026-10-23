@@ -3,6 +3,7 @@ import { Trophy } from "lucide-react";
 import type { User } from "./types.js";
 import type { Movement, RankingKey } from "./movement.js";
 import RankMovement from "./RankMovement.js";
+import SchoolTag from "./SchoolTag.js";
 
 // Medal styling for places 1–3.
 const PLACES = [
@@ -82,6 +83,7 @@ export default function Podium({
                 <RankMovement movement={movements?.[user.id]} />
               </span>
               <span className="w-full truncate text-xs text-mist-500">@{user.leetcodeUsername}</span>
+              <SchoolTag school={user.school} />
               <span className={`text-sm font-semibold tabular-nums ${style.text}`}>
                 {value} <span className="text-xs font-normal text-mist-500">{label}</span>
               </span>

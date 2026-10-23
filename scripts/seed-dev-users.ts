@@ -123,6 +123,7 @@ function buildUser(seed: Seed, nowMs: number): User {
     displayName: seed.displayName,
     leetcodeUsername: seed.leetcodeUsername,
     avatarUrl: avatarFor(seed.displayName, seed.color),
+    school: "",
     allTimeSolved: now,
     easySolved: easy,
     mediumSolved: medium,

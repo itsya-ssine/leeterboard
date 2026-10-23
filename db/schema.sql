@@ -18,6 +18,7 @@ CREATE TABLE users (
   display_name       TEXT NOT NULL,
   leetcode_username  TEXT NOT NULL,
   avatar_url         TEXT,
+  school             TEXT NOT NULL DEFAULT '',     -- optional, member-edited; shown as a tag on the board
 
   -- Current stats, refreshed by every sync.
   all_time_solved    INTEGER NOT NULL DEFAULT 0,

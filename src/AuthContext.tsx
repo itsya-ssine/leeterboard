@@ -23,6 +23,7 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
+  updateSchool: (school: string) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
 }
@@ -116,6 +117,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
+  // An empty string clears the school.
+  const updateSchool = useCallback(async (school: string) => {
+    const data = await requestJson<User>("PATCH", "/api/account/profile", { school });
+    setUser(data);
+    return data;
+  }, []);
+
   // The server keeps this device signed in with a fresh cookie and signs out
   // every other session.
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
@@ -148,6 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         refreshSession,
         updateDisplayName,
+        updateSchool,
         changePassword,
         deleteAccount
       }}

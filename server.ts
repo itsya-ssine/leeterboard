@@ -17,6 +17,7 @@ import {
   updateUser,
   deleteUserById,
   updateDisplayName,
+  updateSchool,
   getUserAuthById,
   setPasswordHash,
   recordFailedLogin,
@@ -690,6 +691,7 @@ app.get("/api/users", async (req, res) => {
 
 const LEETCODE_USERNAME_RE = /^[A-Za-z0-9_.-]{1,50}$/;
 const MAX_DISPLAY_NAME_LENGTH = 40;
+const MAX_SCHOOL_LENGTH = 60;
 
 const REGISTRATION_COOKIE = "registration";
 const REGISTRATION_TTL_MS = 30 * 60 * 1000;
@@ -729,6 +731,16 @@ function cleanDisplayName(value: unknown, fallback: string): string {
     .trim()
     .slice(0, MAX_DISPLAY_NAME_LENGTH);
   return v || fallback;
+}
+
+// The school is optional, so an empty result is valid (it clears the field).
+function cleanSchool(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_SCHOOL_LENGTH);
 }
 
 // Used when LeetCode doesn't give us an avatar. Built from one validated
@@ -963,6 +975,7 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
         displayName: pending.displayName,
         leetcodeUsername: pending.leetcodeUsername,
         avatarUrl: scraped.avatarUrl || defaultAvatar(pending.leetcodeUsername),
+        school: "",
         allTimeSolved: scraped.allTimeSolved,
         easySolved: scraped.easySolved,
         mediumSolved: scraped.mediumSolved,
@@ -1142,15 +1155,30 @@ async function checkCurrentPassword(
   return { record, status: 200, error: "" };
 }
 
-// PATCH — change the display name. The avatar is not editable: it always
-// comes from the member's LeetCode account.
+// PATCH — change the display name and/or the school. Send only the fields that
+// change. The avatar is not editable: it always comes from the member's
+// LeetCode account. An empty school clears it.
 app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) => {
   try {
     const { id } = (req as any).user as { id: string };
-    const cleaned = cleanDisplayName(req.body?.displayName, "");
-    if (!cleaned) return res.status(400).json({ error: "Display name can't be empty." });
+    const hasName = req.body?.displayName !== undefined;
+    const hasSchool = req.body?.school !== undefined;
+    if (!hasName && !hasSchool) {
+      return res.status(400).json({ error: "Nothing to update." });
+    }
+    if (hasSchool && typeof req.body.school !== "string") {
+      return res.status(400).json({ error: "School must be text." });
+    }
 
-    await updateDisplayName(id, cleaned);
+    let cleanedName = "";
+    if (hasName) {
+      cleanedName = cleanDisplayName(req.body.displayName, "");
+      if (!cleanedName) return res.status(400).json({ error: "Display name can't be empty." });
+    }
+
+    if (hasName) await updateDisplayName(id, cleanedName);
+    if (hasSchool) await updateSchool(id, cleanSchool(req.body.school));
+
     const updated = await getUserById(id);
     if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
     res.json({ ...updated, isAdmin: isAdminUser(updated) });

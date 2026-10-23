@@ -12,6 +12,8 @@ export interface User {
   displayName: string;
   leetcodeUsername: string;
   avatarUrl: string;
+  // The member's school, shown as a tag on the leaderboard. "" = not set.
+  school: string;
   allTimeSolved: number;
   easySolved: number;
   mediumSolved: number;

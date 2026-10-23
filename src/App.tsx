@@ -21,6 +21,7 @@ import { useAuth } from "./AuthContext.js";
 import LoginModal from "./LoginModal.js";
 import AccountModal from "./AccountModal.js";
 import Podium from "./Podium.js";
+import SchoolTag from "./SchoolTag.js";
 import RankMovement from "./RankMovement.js";
 import ThemeToggle from "./ThemeToggle.js";
 import NotificationBell from "./NotificationBell.js";
@@ -539,7 +540,8 @@ export default function App() {
     const q = searchQuery.toLowerCase();
     return (
       u.displayName.toLowerCase().includes(q) ||
-      u.leetcodeUsername.toLowerCase().includes(q)
+      u.leetcodeUsername.toLowerCase().includes(q) ||
+      (u.school ?? "").toLowerCase().includes(q)
     );
   });
 
@@ -808,6 +810,7 @@ export default function App() {
                         {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
                       </div>
                       <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
+                      <SchoolTag school={user.school} className="mt-1" />
                     </div>
                   </div>
 
@@ -852,7 +855,7 @@ export default function App() {
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-mist-500" />
               <input
                 type="text"
-                placeholder="Search by name or LeetCode username"
+                placeholder="Search by name, username or school"
                 aria-label="Search members"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -993,6 +996,7 @@ export default function App() {
                               <RankMovement movement={movements[user.id]} />
                             </div>
                             <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
+                            <SchoolTag school={user.school} className="mt-1" />
                             {!boardStale && isStale(user.lastUpdated, now) && (
                               <div
                                 className="mt-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1.5 py-0.5 text-xs text-amber-300 ring-1 ring-amber-300/20"

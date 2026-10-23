@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, Check, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, Check, GraduationCap, KeyRound, LogOut, RefreshCw, Trash2, UserRound } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
 import Modal from "./Modal.js";
 
@@ -65,11 +65,15 @@ export default function AccountModal({
   // deleted account), so it can reload.
   onChanged?: () => void;
 }) {
-  const { user, updateDisplayName, changePassword, deleteAccount, logout } = useAuth();
+  const { user, updateDisplayName, updateSchool, changePassword, deleteAccount, logout } = useAuth();
 
   const [name, setName] = useState("");
   const [nameBusy, setNameBusy] = useState(false);
   const [nameNotice, setNameNotice] = useState<Notice>(null);
+
+  const [school, setSchool] = useState("");
+  const [schoolBusy, setSchoolBusy] = useState(false);
+  const [schoolNotice, setSchoolNotice] = useState<Notice>(null);
 
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -87,6 +91,8 @@ export default function AccountModal({
     if (open) {
       setName(user?.displayName ?? "");
       setNameNotice(null);
+      setSchool(user?.school ?? "");
+      setSchoolNotice(null);
       setCurrentPw("");
       setNewPw("");
       setConfirmPw("");
@@ -123,6 +129,30 @@ export default function AccountModal({
       setNameNotice({ kind: "error", message: err.message || "Couldn't update your display name." });
     } finally {
       setNameBusy(false);
+    }
+  };
+
+  const handleSchool = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSchoolNotice(null);
+    const trimmed = school.trim();
+    if (trimmed === (user.school ?? "")) {
+      setSchoolNotice({ kind: "error", message: "That is already your school." });
+      return;
+    }
+    setSchoolBusy(true);
+    try {
+      const updated = await updateSchool(trimmed);
+      setSchool(updated.school);
+      setSchoolNotice({
+        kind: "success",
+        message: updated.school ? "School updated." : "School removed."
+      });
+      onChanged?.();
+    } catch (err: any) {
+      setSchoolNotice({ kind: "error", message: err.message || "Couldn't update your school." });
+    } finally {
+      setSchoolBusy(false);
     }
   };
 
@@ -228,6 +258,36 @@ export default function AccountModal({
                 <button type="submit" disabled={nameBusy} className={btnPrimary}>
                   {nameBusy && <RefreshCw className="size-4 animate-spin" />}
                   {nameBusy ? "Saving…" : "Save name"}
+                </button>
+              </form>
+            </Section>
+
+            {/* ---------- School ---------- */}
+            <Section icon={<GraduationCap className="size-4 text-teal-300" />} title="School">
+              <form onSubmit={handleSchool} className="flex flex-col gap-3">
+                <div>
+                  <label htmlFor="acct-school" className="sr-only">
+                    School
+                  </label>
+                  <input
+                    id="acct-school"
+                    type="text"
+                    autoComplete="organization"
+                    maxLength={60}
+                    placeholder="e.g. 42 Network, ENSA Khouribga"
+                    value={school}
+                    onChange={(e) => setSchool(e.target.value)}
+                    className={inputCls}
+                    disabled={schoolBusy}
+                  />
+                  <p className="mt-1.5 text-xs text-mist-500">
+                    Optional. Shown as a tag next to your name on the leaderboard. Leave it empty to remove it.
+                  </p>
+                </div>
+                <NoticeBox notice={schoolNotice} />
+                <button type="submit" disabled={schoolBusy} className={btnPrimary}>
+                  {schoolBusy && <RefreshCw className="size-4 animate-spin" />}
+                  {schoolBusy ? "Saving…" : "Save school"}
                 </button>
               </form>
             </Section>

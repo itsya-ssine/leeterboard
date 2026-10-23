@@ -15,7 +15,7 @@ A weekly LeetCode leaderboard. Members sign up with their LeetCode username, and
 - **Automatic data** pulled from LeetCode: easy/medium/hard counts, streaks, contest rating and avatar
 - **Freshness indicators** that flag members whose data has stopped updating
 - **Notifications** in a bell in the header: you're told when you earn a new badge or win a week, and admins can message you directly or broadcast to everyone. Unread count, mark all read, dismiss, refreshed every minute and when you return to the tab
-- **Account settings** to change your display name or password, or delete your account
+- **Account settings** to change your display name, add your school (shown as a tag on the leaderboard), change your password, or delete your account
 - **Admin tools** to sync everyone at once, remove members, and send messages (to one member or everyone) with a record of how many members have read each
 
 ## Tech stack
@@ -170,7 +170,7 @@ Titles are limited to 80 characters and messages to 500; control characters are 
 | POST | `/api/auth/login` | Public | Log in |
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |
-| PATCH | `/api/account/profile` | Member | Change the display name |
+| PATCH | `/api/account/profile` | Member | Change the display name and/or school |
 | POST | `/api/account/password` | Member | Change the password (needs the current one) |
 | POST | `/api/account/delete` | Member | Delete the account (needs the password) |
 | POST | `/api/refresh-all` | Admin | Refresh every member |
