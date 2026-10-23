@@ -9,12 +9,13 @@ import {
   Crown,
   Flame,
   Link2,
+  Share2,
   Swords,
   Target,
   Trophy,
   Zap
 } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import {
   Area,
   AreaChart,
@@ -32,6 +33,7 @@ import { chartColors, useTheme } from "./theme.js";
 import { computeBadges, computeGroupAwards } from "./achievements.js";
 import { addDays, mondayIndex, type DayActivity } from "./activity.js";
 import { computeProfile, WEEKDAYS, type ProfileStats, type RankInfo } from "./profile.js";
+import ShareCardModal from "./ShareCardModal.js";
 
 /* ---------- Shared bits ---------- */
 
@@ -159,8 +161,23 @@ function SegmentedToggle<T extends string | number>({
 
 /* ---------- Hero ---------- */
 
-function Hero({ user, stats, usersCount }: { user: User; stats: ProfileStats; usersCount: number }) {
+function Hero({
+  user,
+  users,
+  stats,
+  usersCount
+}: {
+  user: User;
+  users: User[];
+  stats: ProfileStats;
+  usersCount: number;
+}) {
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const badgesEarned = useMemo(
+    () => computeBadges(user, computeGroupAwards(users, Date.now())).filter((b) => b.earned).length,
+    [user, users]
+  );
   const overall = stats.ranks[0];
   const hot = user.weeklyProgress >= HOT_STREAK_THRESHOLD;
 
@@ -269,9 +286,26 @@ function Hero({ user, stats, usersCount }: { user: User; stats: ProfileStats; us
               )}
               {copied ? "Copied" : "Copy link"}
             </button>
+            <button type="button" onClick={() => setSharing(true)} id="share-card-btn" className={btnSecondary}>
+              <Share2 className="size-4" aria-hidden="true" />
+              Share card
+            </button>
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {sharing && (
+          <ShareCardModal
+            user={user}
+            rank={overall.rank}
+            rankOf={overall.of}
+            topPercent={overall.topPercent}
+            badgesEarned={badgesEarned}
+            onClose={() => setSharing(false)}
+          />
+        )}
+      </AnimatePresence>
     </section>
   );
 }
@@ -1150,7 +1184,7 @@ export default function ProfilePage({
   return (
     <div id="profile-page" className="space-y-4">
       <Reveal>
-        <Hero user={user} stats={stats} usersCount={users.length} />
+        <Hero user={user} users={users} stats={stats} usersCount={users.length} />
       </Reveal>
 
       <Reveal delay={0.05}>
