@@ -680,7 +680,14 @@ export default function App() {
 
             {/* Auth control */}
             {authStatus === "authenticated" && currentUser ? (
-              <AccountButton user={currentUser} onClick={() => setIsAccountOpen(true)} />
+              <div className="relative">
+                <AccountButton
+                  user={currentUser}
+                  open={isAccountOpen}
+                  onClick={() => setIsAccountOpen((v) => !v)}
+                />
+                <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
+              </div>
             ) : (
               <button onClick={() => setIsLoginOpen(true)} className={btnPrimary} id="open-login-btn">
                 <LogIn className="size-4" />
@@ -1112,7 +1119,6 @@ export default function App() {
         )}
 
         <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} onAuthenticated={loadData} />
-        <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
 
         {/* ---------- Member card ---------- */}
         {/* A short summary that opens when a member is clicked; the full

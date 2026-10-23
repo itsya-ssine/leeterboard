@@ -12,6 +12,7 @@ import {
   Globe,
   Link2,
   Linkedin,
+  Settings,
   Share2,
   Swords,
   Target,
@@ -37,6 +38,7 @@ import { computeBadges, computeGroupAwards } from "./achievements.js";
 import { addDays, mondayIndex, type DayActivity } from "./activity.js";
 import { computeProfile, WEEKDAYS, type ProfileStats, type RankInfo } from "./profile.js";
 import ShareCardModal from "./ShareCardModal.js";
+import { useAuth } from "./AuthContext.js";
 
 /* ---------- Shared bits ---------- */
 
@@ -207,6 +209,8 @@ function Hero({
 }) {
   const [copied, setCopied] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const { user: me } = useAuth();
+  const isOwnProfile = !!me && me.id === user.id;
   const badgesEarned = useMemo(
     () => computeBadges(user, computeGroupAwards(users, Date.now())).filter((b) => b.earned).length,
     [user, users]
@@ -282,6 +286,18 @@ function Hero({
               )}
               <span className="hidden sm:inline">{copied ? "Copied" : "Copy link"}</span>
             </button>
+            {isOwnProfile && (
+              <a
+                href="#/account"
+                id="profile-account-settings-link"
+                className={btnSecondary}
+                aria-label="Account settings"
+                title="Account settings"
+              >
+                <Settings className="size-4" aria-hidden="true" />
+                <span className="hidden sm:inline">Settings</span>
+              </a>
+            )}
             <button
               type="button"
               onClick={() => setSharing(true)}

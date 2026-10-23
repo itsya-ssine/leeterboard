@@ -4,14 +4,16 @@ const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 // The signed-in member's header button: their LeetCode profile picture and
-// username. Clicking it opens the account settings dialog. On narrow screens
+// username. Clicking it toggles the account menu that drops down beneath it. On narrow screens
 // only the picture is shown, to leave room for the other header controls.
 export default function AccountButton({
   user,
-  onClick
+  onClick,
+  open = false
 }: {
   user: { avatarUrl: string; displayName: string; leetcodeUsername: string };
   onClick: () => void;
+  open?: boolean;
 }) {
   // LeetCode avatars can be missing or fail to load; show the member's initial
   // instead of a broken image.
@@ -26,8 +28,10 @@ export default function AccountButton({
       type="button"
       onClick={onClick}
       id="open-account-btn"
-      aria-label={`Account settings (@${user.leetcodeUsername})`}
-      title="Account settings"
+      aria-label={`Account menu (@${user.leetcodeUsername})`}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      title="Account"
       className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-ink-800 p-1 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 sm:pr-3.5 ${focusRing}`}
     >
       {showImage ? (
