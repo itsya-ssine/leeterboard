@@ -174,7 +174,7 @@ function ProfileLinks({ user }: { user: User }) {
   ].filter((e) => e.href && /^https?:\/\//i.test(e.href));
   if (entries.length === 0) return null;
   return (
-    <ul className="mt-3 flex flex-wrap gap-2 text-xs font-medium" aria-label="Links">
+    <ul className="flex flex-wrap items-center gap-2 text-xs font-medium" aria-label="Links">
       {entries.map((e) => (
         <li key={e.label}>
           <a
@@ -235,99 +235,123 @@ function Hero({
         className="h-24 bg-linear-to-r from-teal-400/30 via-teal-400/5 to-amber-400/20 md:h-32"
       />
       <div className="px-5 pb-6 md:px-8">
-        <div className="-mt-12 flex flex-col gap-5 md:-mt-14 md:flex-row md:items-end md:justify-between">
-          <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="relative shrink-0">
-              <img
-                src={user.avatarUrl}
-                alt=""
-                referrerPolicy="no-referrer"
-                className="size-24 rounded-full bg-ink-800 object-cover ring-4 ring-ink-900 md:size-28"
-              />
-              {overall.rank != null && overall.rank <= 3 && (
-                <span
-                  className={`absolute -bottom-1 -right-1 grid size-8 place-items-center rounded-full bg-ink-900 ring-2 ring-line-strong ${rankColor(overall.rank)}`}
-                  title={`Rank ${overall.rank} on the board`}
-                >
-                  <Crown className="size-4" aria-hidden="true" />
-                </span>
-              )}
-            </div>
-            <div className="min-w-0 pb-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-2xl font-semibold tracking-tight text-strong md:text-3xl">
-                  {user.displayName}
-                </h1>
-                {hot && (
-                  <span title="Hot solve streak" className="shrink-0">
-                    <Flame className="size-5 text-amber-400" />
-                  </span>
-                )}
-              </div>
-              <a
-                href={`https://leetcode.com/${encodeURIComponent(user.leetcodeUsername)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`mt-0.5 inline-flex items-center gap-1 rounded text-sm text-mist-400 transition-colors hover:text-teal-300 ${focusRing}`}
+        {/* Row 1: avatar (overlapping the banner) on the left, actions on the right. */}
+        <div className="-mt-12 flex items-end justify-between gap-3 md:-mt-14">
+          <div className="relative shrink-0">
+            <img
+              src={user.avatarUrl}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="size-24 rounded-full bg-ink-800 object-cover ring-4 ring-ink-900 md:size-28"
+            />
+            {overall.rank != null && overall.rank <= 3 && (
+              <span
+                className={`absolute -bottom-1 -right-1 grid size-8 place-items-center rounded-full bg-ink-900 ring-2 ring-line-strong ${rankColor(overall.rank)}`}
+                title={`Rank ${overall.rank} on the board`}
               >
-                @{user.leetcodeUsername}
-                <ArrowUpRight className="size-3.5" aria-hidden="true" />
-              </a>
-
-              <ul className="mt-3 flex flex-wrap gap-2 text-xs font-medium">
-                {overall.rank != null && (
-                  <li className="inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 ring-1 ring-line">
-                    <Trophy className={`size-3 ${rankColor(overall.rank)}`} aria-hidden="true" />
-                    <span className={`tabular-nums ${rankColor(overall.rank)}`}>#{overall.rank}</span>
-                    <span className="text-mist-400">of {usersCount} all time</span>
-                  </li>
-                )}
-                {overall.topPercent != null && usersCount > 1 && (
-                  <li className="rounded-full bg-teal-400/10 px-2.5 py-1 text-teal-300 ring-1 ring-teal-400/30">
-                    Top {overall.topPercent}%
-                  </li>
-                )}
-                {stats.wins.length > 0 && (
-                  <li className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-amber-300 ring-1 ring-amber-300/30">
-                    <Crown className="size-3" aria-hidden="true" />
-                    {stats.wins.length} weekly {stats.wins.length === 1 ? "win" : "wins"}
-                  </li>
-                )}
-                {stats.joinedOrder != null && (
-                  <li className="rounded-full bg-tint px-2.5 py-1 text-mist-400 ring-1 ring-line">
-                    Member #{stats.joinedOrder}
-                  </li>
-                )}
-              </ul>
-
-              {user.bio && (
-                <p className="mt-3 max-w-xl whitespace-pre-line text-sm leading-relaxed text-mist-400">{user.bio}</p>
-              )}
-              <ProfileLinks user={user} />
-            </div>
+                <Crown className="size-4" aria-hidden="true" />
+              </span>
+            )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <a href="#/" className={btnSecondary}>
+          <div className="flex shrink-0 items-center gap-2">
+            <a href="#/" className={btnSecondary} aria-label="Back to the leaderboard" title="Leaderboard">
               <ArrowLeft className="size-4" aria-hidden="true" />
-              Leaderboard
+              <span className="hidden sm:inline">Leaderboard</span>
             </a>
-            <a href={`#/compare/${encodeURIComponent(user.leetcodeUsername)}`} className={btnSecondary}>
+            <a
+              href={`#/compare/${encodeURIComponent(user.leetcodeUsername)}`}
+              className={btnSecondary}
+              aria-label="Compare with another member"
+              title="Compare"
+            >
               <Swords className="size-4" aria-hidden="true" />
-              Compare
+              <span className="hidden sm:inline">Compare</span>
             </a>
-            <button type="button" onClick={copyLink} className={btnSecondary}>
+            <button
+              type="button"
+              onClick={copyLink}
+              className={btnSecondary}
+              aria-label="Copy profile link"
+              title="Copy link"
+            >
               {copied ? (
                 <Check className="size-4 text-teal-300" aria-hidden="true" />
               ) : (
                 <Link2 className="size-4" aria-hidden="true" />
               )}
-              {copied ? "Copied" : "Copy link"}
+              <span className="hidden sm:inline">{copied ? "Copied" : "Copy link"}</span>
             </button>
-            <button type="button" onClick={() => setSharing(true)} id="share-card-btn" className={btnSecondary}>
+            <button
+              type="button"
+              onClick={() => setSharing(true)}
+              id="share-card-btn"
+              className={btnSecondary}
+              aria-label="Open share card"
+              title="Share card"
+            >
               <Share2 className="size-4" aria-hidden="true" />
-              Share card
+              <span className="hidden sm:inline">Share card</span>
             </button>
+          </div>
+        </div>
+
+        {/* Row 2: identity. Sits fully below the banner so nothing overlaps it. */}
+        <div className="mt-4 min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight text-strong md:text-3xl">
+              {user.displayName}
+            </h1>
+            {hot && (
+              <span title="Hot solve streak" className="shrink-0">
+                <Flame className="size-5 text-amber-400" />
+              </span>
+            )}
+          </div>
+          <a
+            href={`https://leetcode.com/${encodeURIComponent(user.leetcodeUsername)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`mt-0.5 inline-flex items-center gap-1 rounded text-sm text-mist-400 transition-colors hover:text-teal-300 ${focusRing}`}
+          >
+            @{user.leetcodeUsername}
+            <ArrowUpRight className="size-3.5" aria-hidden="true" />
+          </a>
+
+          {user.bio && (
+            <p className="mt-3 max-w-2xl whitespace-pre-line break-words text-sm leading-relaxed text-mist-400">
+              {user.bio}
+            </p>
+          )}
+
+          {/* Row 3: standing badges and links, one tidy line each. */}
+          <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 md:flex-row md:flex-wrap md:items-center md:gap-x-6">
+            <ul className="flex flex-wrap items-center gap-2 text-xs font-medium" aria-label="Standing">
+              {overall.rank != null && (
+                <li className="inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 ring-1 ring-line">
+                  <Trophy className={`size-3 ${rankColor(overall.rank)}`} aria-hidden="true" />
+                  <span className={`tabular-nums ${rankColor(overall.rank)}`}>#{overall.rank}</span>
+                  <span className="text-mist-400">of {usersCount} all time</span>
+                </li>
+              )}
+              {overall.topPercent != null && usersCount > 1 && (
+                <li className="rounded-full bg-teal-400/10 px-2.5 py-1 text-teal-300 ring-1 ring-teal-400/30">
+                  Top {overall.topPercent}%
+                </li>
+              )}
+              {stats.wins.length > 0 && (
+                <li className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-amber-300 ring-1 ring-amber-300/30">
+                  <Crown className="size-3" aria-hidden="true" />
+                  {stats.wins.length} weekly {stats.wins.length === 1 ? "win" : "wins"}
+                </li>
+              )}
+              {stats.joinedOrder != null && (
+                <li className="rounded-full bg-tint px-2.5 py-1 text-mist-400 ring-1 ring-line">
+                  Member #{stats.joinedOrder}
+                </li>
+              )}
+            </ul>
+            <ProfileLinks user={user} />
           </div>
         </div>
       </div>
