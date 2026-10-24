@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight, ImageIcon } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { User } from "./types.js";
 import { chartColors, useTheme } from "./theme.js";
@@ -11,6 +11,7 @@ import {
   type CompareRow,
   type HistoryMode
 } from "./compare.js";
+import CompareCardModal from "./CompareCardModal.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -147,6 +148,7 @@ export default function ComparePage({ users }: { users: User[] }) {
   const [selA, setSelA] = useState<string | null>(() => readSelection()[0]);
   const [selB, setSelB] = useState<string | null>(() => readSelection()[1]);
   const [mode, setMode] = useState<HistoryMode>("gained");
+  const [cardOpen, setCardOpen] = useState(false);
   const { theme } = useTheme();
   const c = chartColors(theme);
 
@@ -221,6 +223,18 @@ export default function ComparePage({ users }: { users: User[] }) {
         </button>
         <MemberSelect side="b" label="Member B" value={b.leetcodeUsername} users={users} otherId={a.id} onChange={(v) => pick("b", v)} />
       </section>
+
+      {/* ---------- Card ---------- */}
+      <div className="mb-3 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setCardOpen(true)}
+          className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg bg-ink-800 px-3.5 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 ${focusRing}`}
+        >
+          <ImageIcon className="size-4" aria-hidden="true" />
+          Create card
+        </button>
+      </div>
 
       {/* ---------- Head to head ---------- */}
       <section aria-label="Head to head" className="mb-8 overflow-hidden rounded-xl bg-ink-900 ring-1 ring-line">
@@ -362,6 +376,8 @@ export default function ComparePage({ users }: { users: User[] }) {
           </>
         )}
       </section>
+
+      {cardOpen && <CompareCardModal a={a} b={b} onClose={() => setCardOpen(false)} />}
     </div>
   );
 }

@@ -35,7 +35,7 @@ export const CARD_SIZES: Record<CardFormat, { w: number; h: number }> = {
   square: { w: 1080, h: 1080 } // feeds and chats
 };
 
-interface Palette {
+export interface Palette {
   bg: string;
   glowA: string;
   glowB: string;
@@ -54,7 +54,7 @@ interface Palette {
   track: string;
 }
 
-const PALETTES: Record<CardTheme, Palette> = {
+export const PALETTES: Record<CardTheme, Palette> = {
   dark: {
     bg: "#0a0d12",
     glowA: "rgba(45, 212, 191, 0.22)",
@@ -93,12 +93,12 @@ const PALETTES: Record<CardTheme, Palette> = {
   }
 };
 
-const FONT = `"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
-const LOGO_FONT = `"Space Grotesk", ${FONT}`;
+export const FONT = `"Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif`;
+export const LOGO_FONT = `"Space Grotesk", ${FONT}`;
 
 /* ---------- Small canvas helpers ---------- */
 
-function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const rr = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x + rr, y);
@@ -120,7 +120,7 @@ interface TextOpts {
 
 // Draws one line of text, trimming it with an ellipsis if it is wider than
 // maxWidth. Returns the width actually drawn.
-function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, o: TextOpts): number {
+export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, o: TextOpts): number {
   ctx.font = `${o.weight ?? 500} ${o.size}px ${o.font ?? FONT}`;
   ctx.fillStyle = o.color;
   ctx.textAlign = o.align ?? "left";
@@ -139,7 +139,7 @@ function measure(ctx: CanvasRenderingContext2D, text: string, size: number, weig
   return ctx.measureText(text).width;
 }
 
-function loadAvatar(url: string): Promise<HTMLImageElement | null> {
+export function loadAvatar(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     if (!url) return resolve(null);
     const img = new Image();
