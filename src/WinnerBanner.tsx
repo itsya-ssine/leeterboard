@@ -6,19 +6,17 @@ import { lastWeekStart, addDays, tallyWinners, type WeeklyWinner } from "./winne
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
-// How many members the hall of fame lists.
-const HALL_OF_FAME_SIZE = 10;
+// How many weeks the wall shows before "Show all".
+const WALL_INITIAL = 12;
 
 const fmt = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 
 const weekRange = (weekStart: string) => `${fmt(weekStart)} – ${fmt(addDays(weekStart, 6))}`;
 
-const weeks = (n: number) => `${n} ${n === 1 ? "week" : "weeks"}`;
-
-// Last finished week's top solver, plus a hall of fame listing each member who
-// has ever won once, with how many weeks they were the top solver. Winners
-// whose account no longer exists are skipped.
+// Last finished week's top solver, plus a hall of fame wall: one tile per
+// finished week (newest first) with that week's winner's picture and name.
+// Winners whose account no longer exists are skipped.
 export default function WinnerBanner({
   winners,
   users,
@@ -31,6 +29,7 @@ export default function WinnerBanner({
   onSelect: (user: User) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   const byId = new Map(users.map((u) => [u.id, u]));
   const resolved = winners.flatMap((w) => {
@@ -41,11 +40,10 @@ export default function WinnerBanner({
 
   const latest = resolved[0];
 
-  const tally = tallyWinners(resolved);
-  const wins = new Map(tally.map((t) => [t.userId, t.wins]));
-  const hallOfFame = tally.slice(0, HALL_OF_FAME_SIZE).map((t) => ({ ...t, user: byId.get(t.userId)! }));
-  // With a single winning week the hall of fame would just repeat the banner.
+  const wins = new Map(tallyWinners(resolved).map((t) => [t.userId, t.wins]));
+  // With a single winning week the wall would just repeat the banner.
   const hasHallOfFame = resolved.length >= 2;
+  const wall = showAll ? resolved : resolved.slice(0, WALL_INITIAL);
 
   const isLastWeek = latest.weekStart === lastWeekStart(nowMs);
   const heading = isLastWeek ? "Last week's top solver" : "Latest weekly winner";
@@ -112,29 +110,71 @@ export default function WinnerBanner({
       </div>
 
       {open && hasHallOfFame && (
-        <ol id="hall-of-fame" aria-label="Hall of fame: weeks as top solver" className="divide-y divide-line border-t border-amber-300/20 bg-ink-900">
-          {hallOfFame.map((t) => (
-            <li key={t.userId}>
-              <button
-                type="button"
-                onClick={() => onSelect(t.user)}
-                title="View full profile"
-                className={`group/past flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-ink-800/60 md:px-5 ${focusRing}`}
-              >
-                <img
-                  src={t.user.avatarUrl}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className="size-7 shrink-0 rounded-full object-cover ring-1 ring-line-strong"
-                />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-strong transition-colors group-hover/past:text-teal-300">
-                  {t.user.displayName}
-                </span>
-                <span className="shrink-0 text-sm tabular-nums text-amber-300">{weeks(t.wins)}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
+        <div id="hall-of-fame" className="border-t border-amber-300/20 bg-ink-900 p-4 md:p-5">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wide text-mist-400">
+            Weekly winners · last {wall.length} {wall.length === 1 ? "week" : "weeks"}
+          </p>
+
+          <ol
+            aria-label="Hall of fame: weekly winners, newest first"
+            className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
+          >
+            {wall.map((w, i) => {
+              const count = wins.get(w.userId) ?? 1;
+              return (
+                <li key={w.weekStart}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(w.user)}
+                    title={`${w.user.displayName} · ${weekRange(w.weekStart)} · View full profile`}
+                    className={`group/tile flex w-full cursor-pointer flex-col overflow-hidden rounded-xl bg-ink-800 text-left ring-1 transition hover:-translate-y-0.5 hover:ring-amber-300/60 ${
+                      i === 0 ? "ring-amber-300/40" : "ring-line"
+                    } ${focusRing}`}
+                  >
+                    <span className="relative block aspect-square w-full bg-ink-700">
+                      <img
+                        src={w.user.avatarUrl}
+                        alt=""
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="size-full object-cover"
+                      />
+                      <span className="absolute left-2 top-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white backdrop-blur-sm">
+                        {weekRange(w.weekStart)}
+                      </span>
+                      {count > 1 && (
+                        <span
+                          title={`${count} weekly wins`}
+                          className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-200 backdrop-blur-sm"
+                        >
+                          <Trophy className="size-3" aria-hidden="true" />×{count}
+                        </span>
+                      )}
+                    </span>
+                    <span className="block min-w-0 px-2.5 py-2">
+                      <span className="block truncate text-sm font-semibold text-strong transition-colors group-hover/tile:text-teal-300">
+                        {w.user.displayName}
+                      </span>
+                      <span className="block text-xs text-mist-400">
+                        <span className="font-semibold tabular-nums text-amber-300">+{w.gained}</span> solved
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+
+          {resolved.length > WALL_INITIAL && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className={`mt-4 inline-flex h-9 cursor-pointer items-center rounded-lg bg-ink-800 px-3.5 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 ${focusRing}`}
+            >
+              {showAll ? "Show fewer" : `Show all ${resolved.length} weeks`}
+            </button>
+          )}
+        </div>
       )}
     </section>
   );
