@@ -7,7 +7,11 @@
 --   users ─┬─< history           (1 member : many daily snapshots)
 --          ├─< notifications     (1 member : many notifications)
 --          ├─< user_awards       (1 member : many already-announced awards)
---          └─  sync_status       (1 member : 1 latest sync result)
+--          ├─  sync_status       (1 member : 1 latest sync result)
+--          ├─< platform_accounts (1 member : 0..2 linked Codeforces / CodinGame accounts)
+--          ├─< platform_history  (1 member : many daily snapshots per linked platform)
+--          ├─< platform_sync_status (1 member : 1 latest sync result per linked platform)
+--          └─< pending_links     (1 member : open "prove you own this account" requests)
 --   pending_registrations        (standalone; becomes a users row once verified)
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
@@ -124,4 +128,62 @@ CREATE TABLE user_awards (
   award_key   TEXT NOT NULL,
   awarded_at  TEXT NOT NULL,
   PRIMARY KEY (user_id, award_key)
+) WITHOUT ROWID;
+
+-- Codeforces / CodinGame accounts a member links on top of their (required)
+-- LeetCode account. Current stats live on the row; `extra` is platform-specific
+-- JSON (e.g. Codeforces difficulty buckets).
+CREATE TABLE platform_accounts (
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform        TEXT NOT NULL CHECK (platform IN ('codeforces', 'codingame')),
+  handle          TEXT NOT NULL,
+  solved          INTEGER NOT NULL DEFAULT 0,
+  weekly_solved   INTEGER NOT NULL DEFAULT 0,
+  monthly_solved  INTEGER NOT NULL DEFAULT 0,
+  rating          INTEGER,                         -- NULL = unrated
+  max_rating      INTEGER,
+  rank_title      TEXT,
+  contests        INTEGER NOT NULL DEFAULT 0,
+  avatar_url      TEXT,
+  extra           TEXT NOT NULL DEFAULT '{}',
+  linked_at       TEXT NOT NULL,
+  last_updated    TEXT,                            -- last successful sync (NULL = never)
+  PRIMARY KEY (user_id, platform)
+) WITHOUT ROWID;
+-- A handle belongs to at most one member.
+CREATE UNIQUE INDEX idx_platform_accounts_handle ON platform_accounts(platform, lower(handle));
+
+-- Latest sync attempt per member per platform.
+CREATE TABLE platform_sync_status (
+  user_id        TEXT NOT NULL,
+  platform       TEXT NOT NULL,
+  last_attempt   TEXT NOT NULL,
+  state          TEXT NOT NULL,                    -- 'ok' | 'unavailable' | 'not_found'
+  error          TEXT,
+  failures       INTEGER NOT NULL DEFAULT 0,
+  failing_since  TEXT,
+  PRIMARY KEY (user_id, platform)
+) WITHOUT ROWID;
+
+-- One snapshot per member per platform per UTC day.
+CREATE TABLE platform_history (
+  user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform  TEXT NOT NULL,
+  date      TEXT NOT NULL CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  solved    INTEGER NOT NULL CHECK (solved >= 0),
+  rating    INTEGER,
+  PRIMARY KEY (user_id, platform, date)
+) WITHOUT ROWID;
+CREATE INDEX idx_platform_history_date ON platform_history(date);
+
+-- A request to link an account, waiting for the member to put `code` in the
+-- profile of that account. One open request per member per platform.
+CREATE TABLE pending_links (
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform    TEXT NOT NULL,
+  handle      TEXT NOT NULL,
+  code        TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  expires_at  TEXT NOT NULL,
+  PRIMARY KEY (user_id, platform)
 ) WITHOUT ROWID;

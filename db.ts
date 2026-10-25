@@ -70,6 +70,69 @@ const NOTIFICATION_DDL = [
   ) WITHOUT ROWID`
 ];
 
+/* ---------- Linked platform accounts ----------
+ * Codeforces / CodinGame accounts a member links on top of their (required)
+ * LeetCode account. Shared by initDb (fresh databases) and migration 7
+ * (existing ones).
+ */
+const PLATFORM_DDL = [
+  // One row per member per extra platform, holding that platform's current
+  // stats. Kept out of `users` so adding a platform never means adding columns
+  // to it. `extra` is platform-specific JSON (e.g. Codeforces difficulty buckets).
+  `CREATE TABLE IF NOT EXISTS platform_accounts (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL CHECK (platform IN ('codeforces', 'codingame')),
+    handle TEXT NOT NULL,
+    solved INTEGER NOT NULL DEFAULT 0,
+    weekly_solved INTEGER NOT NULL DEFAULT 0,
+    monthly_solved INTEGER NOT NULL DEFAULT 0,
+    rating INTEGER,
+    max_rating INTEGER,
+    rank_title TEXT,
+    contests INTEGER NOT NULL DEFAULT 0,
+    avatar_url TEXT,
+    extra TEXT NOT NULL DEFAULT '{}',
+    linked_at TEXT NOT NULL,
+    last_updated TEXT,
+    PRIMARY KEY (user_id, platform)
+  ) WITHOUT ROWID`,
+  // A handle can belong to only one member (case-insensitive).
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_accounts_handle ON platform_accounts(platform, lower(handle))`,
+  // Latest sync attempt per member per platform (same idea as sync_status).
+  `CREATE TABLE IF NOT EXISTS platform_sync_status (
+    user_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    last_attempt TEXT NOT NULL,
+    state TEXT NOT NULL,
+    error TEXT,
+    failures INTEGER NOT NULL DEFAULT 0,
+    failing_since TEXT,
+    PRIMARY KEY (user_id, platform)
+  ) WITHOUT ROWID`,
+  // One snapshot per member per platform per UTC day (trend charts, and weekly
+  // progress for platforms that expose no submission timestamps).
+  `CREATE TABLE IF NOT EXISTS platform_history (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,
+    date TEXT NOT NULL CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    solved INTEGER NOT NULL CHECK (solved >= 0),
+    rating INTEGER,
+    PRIMARY KEY (user_id, platform, date)
+  ) WITHOUT ROWID`,
+  `CREATE INDEX IF NOT EXISTS idx_platform_history_date ON platform_history(date)`,
+  // A request to link an account, waiting for the member to prove they own it
+  // (by putting `code` in their profile). One open request per member per platform.
+  `CREATE TABLE IF NOT EXISTS pending_links (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform TEXT NOT NULL,
+    handle TEXT NOT NULL,
+    code TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, platform)
+  ) WITHOUT ROWID`
+];
+
 export async function initDb(): Promise<void> {
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
@@ -148,7 +211,8 @@ export async function initDb(): Promise<void> {
         failures INTEGER NOT NULL DEFAULT 0,
         failing_since TEXT
       )`,
-      ...NOTIFICATION_DDL
+      ...NOTIFICATION_DDL,
+      ...PLATFORM_DDL
     ],
     "write"
   );
@@ -174,7 +238,8 @@ const MIGRATIONS: Migration[] = [
   { version: 3, name: "notifications", up: migrateNotifications },
   { version: 4, name: "notification_dismissed", up: migrateNotificationDismissed },
   { version: 5, name: "user_school", up: migrateUserSchool },
-  { version: 6, name: "user_profile_details", up: migrateUserProfileDetails }
+  { version: 6, name: "user_profile_details", up: migrateUserProfileDetails },
+  { version: 7, name: "platform_accounts", up: migratePlatformAccounts }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -377,6 +442,13 @@ async function migrateUserProfileDetails(): Promise<void> {
       }
     }
   }
+}
+
+// v7 — linked Codeforces / CodinGame accounts (see PLATFORM_DDL). Purely
+// additive: no existing table or row is touched, and every statement is
+// IF NOT EXISTS, so it is safe to run twice.
+async function migratePlatformAccounts(): Promise<void> {
+  await client.batch(PLATFORM_DDL, "write");
 }
 
 /* ---------- Users ---------- */
@@ -650,6 +722,10 @@ export async function deleteUserById(id: string): Promise<boolean> {
     [
       { sql: "DELETE FROM history WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM sync_status WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM platform_accounts WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM platform_sync_status WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM platform_history WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM pending_links WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM notifications WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM user_awards WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM users WHERE id = ?", args: [id] }
