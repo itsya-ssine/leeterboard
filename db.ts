@@ -912,6 +912,97 @@ export async function recordPlatformSyncResult(userId: string, platform: Platfor
   }
 }
 
+/* ---------- Linking and unlinking platform accounts ---------- */
+
+export interface PendingLink {
+  userId: string;
+  platform: PlatformId;
+  handle: string;
+  code: string;
+  attempts: number;
+  expiresAt: string;
+}
+
+// Starting again for the same platform replaces the open request and resets
+// its attempt counter.
+export async function createPendingLink(p: Omit<PendingLink, "attempts">): Promise<void> {
+  await client.execute({
+    sql: `INSERT OR REPLACE INTO pending_links (user_id, platform, handle, code, attempts, expires_at)
+          VALUES (?, ?, ?, ?, 0, ?)`,
+    args: [p.userId, p.platform, p.handle, p.code, p.expiresAt]
+  });
+}
+
+export async function getPendingLink(userId: string, platform: PlatformId): Promise<PendingLink | null> {
+  const res = await client.execute({
+    sql: "SELECT * FROM pending_links WHERE user_id = ? AND platform = ?",
+    args: [userId, platform]
+  });
+  if (!res.rows.length) return null;
+  const r = res.rows[0] as unknown as Record<string, unknown>;
+  return {
+    userId: r.user_id as string,
+    platform: r.platform as PlatformId,
+    handle: r.handle as string,
+    code: r.code as string,
+    attempts: Number(r.attempts ?? 0),
+    expiresAt: r.expires_at as string
+  };
+}
+
+export async function bumpPendingLinkAttempts(userId: string, platform: PlatformId): Promise<void> {
+  await client.execute({
+    sql: "UPDATE pending_links SET attempts = attempts + 1 WHERE user_id = ? AND platform = ?",
+    args: [userId, platform]
+  });
+}
+
+export async function deletePendingLink(userId: string, platform: PlatformId): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?", args: [userId, platform] });
+}
+
+export async function purgeExpiredPendingLinks(nowIso: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_links WHERE expires_at < ?", args: [nowIso] });
+}
+
+// The member who has linked this handle, if any (case-insensitive).
+export async function findPlatformAccountOwner(platform: PlatformId, handle: string): Promise<string | null> {
+  const res = await client.execute({
+    sql: "SELECT user_id FROM platform_accounts WHERE platform = ? AND lower(handle) = lower(?)",
+    args: [platform, handle]
+  });
+  return res.rows.length ? ((res.rows[0] as unknown as Record<string, unknown>).user_id as string) : null;
+}
+
+// Throws a UNIQUE error if the member already has this platform linked or
+// someone else has the handle (the caller turns that into a 409).
+export async function insertPlatformAccount(
+  userId: string,
+  platform: PlatformId,
+  handle: string,
+  now: Date = new Date()
+): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO platform_accounts (user_id, platform, handle, linked_at) VALUES (?, ?, ?, ?)`,
+    args: [userId, platform, handle, now.toISOString()]
+  });
+}
+
+// Unlinks the account together with everything stored for it. Returns false
+// when the member had nothing linked on that platform.
+export async function removePlatformAccount(userId: string, platform: PlatformId): Promise<boolean> {
+  const results = await client.batch(
+    [
+      { sql: "DELETE FROM platform_accounts WHERE user_id = ? AND platform = ?", args: [userId, platform] },
+      { sql: "DELETE FROM platform_history WHERE user_id = ? AND platform = ?", args: [userId, platform] },
+      { sql: "DELETE FROM platform_sync_status WHERE user_id = ? AND platform = ?", args: [userId, platform] },
+      { sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?", args: [userId, platform] }
+    ],
+    "write"
+  );
+  return (results[0].rowsAffected ?? 0) > 0;
+}
+
 /* ---------- Notifications ---------- */
 
 export const NOTIFICATIONS_KEEP_DAYS = 90;

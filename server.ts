@@ -35,6 +35,14 @@ import {
   listSyncStatus,
   loadPlatformsByUser,
   getPlatformAccounts,
+  createPendingLink,
+  getPendingLink,
+  bumpPendingLinkAttempts,
+  deletePendingLink,
+  purgeExpiredPendingLinks,
+  findPlatformAccountOwner,
+  insertPlatformAccount,
+  removePlatformAccount,
   type UserWithAuth
 } from "./db.js";
 import {
@@ -52,7 +60,9 @@ import {
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH
 } from "./auth.js";
-import { syncAllPlatformAccounts, syncPlatformAccountsForUser } from "./platformSync.js";
+import { syncAllPlatformAccounts, syncPlatformAccount, syncPlatformAccountsForUser } from "./platformSync.js";
+import { PLATFORMS, isPlatformId, type PlatformInfo } from "./platforms/registry.js";
+import { PlatformNotFoundError } from "./platforms/common.js";
 import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
@@ -1270,6 +1280,173 @@ app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) 
     res.json({ ...updated, isAdmin: isAdminUser(updated) });
   } catch (error: any) {
     console.error(`[Account] profile update failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+/* ---------- Linked Codeforces / CodinGame accounts ---------- */
+//
+// LeetCode stays the member's main account; they can add or remove the others.
+// Because anyone could type any handle, adding one needs the same kind of proof
+// as sign-up: the server hands out a random code, the member puts it in a
+// profile field of that account, and the server reads the public profile back.
+// Nobody else can edit that profile, so nobody can link an account that isn't
+// theirs. Nothing about the member changes until the check passes.
+
+const LINK_TTL_MS = 30 * 60 * 1000;
+const MAX_LINK_ATTEMPTS = 10;
+
+// Sends the error itself and returns null when the platform in the URL is
+// unknown or can't be linked yet.
+function resolveLinkPlatform(value: unknown, res: express.Response): PlatformInfo | null {
+  if (!isPlatformId(value)) {
+    res.status(404).json({ error: "Unknown platform." });
+    return null;
+  }
+  const platform = PLATFORMS[value];
+  if (!platform.fetchProfile) {
+    res.status(400).json({ error: `Linking ${platform.label} isn't available yet.` });
+    return null;
+  }
+  return platform;
+}
+
+async function userJson(id: string) {
+  const user = await getUserById(id);
+  return user ? { ...user, isAdmin: isAdminUser(user) } : null;
+}
+
+// POST — step 1. Checks the account exists and isn't taken, then returns the
+// code to put in its profile.
+app.post("/api/account/platforms/:platform/start", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const platform = resolveLinkPlatform(req.params.platform, res);
+    if (!platform) return;
+
+    const raw = req.body?.handle;
+    const handle = typeof raw === "string" ? raw.trim() : "";
+    if (!platform.handlePattern.test(handle)) {
+      return res.status(400).json({
+        error: `Enter a valid ${platform.label} handle (letters, numbers, dots, dashes and underscores).`
+      });
+    }
+
+    if ((await getPlatformAccounts(id))[platform.id]) {
+      return res.status(409).json({
+        error: `You've already linked a ${platform.label} account. Remove it first to link a different one.`
+      });
+    }
+    if (await findPlatformAccountOwner(platform.id, handle)) {
+      return res.status(409).json({ error: `That ${platform.label} account is already linked to a member.` });
+    }
+
+    let profile;
+    try {
+      profile = await platform.fetchProfile!(handle);
+    } catch (err: any) {
+      if (err instanceof PlatformNotFoundError) return res.status(404).json({ error: err.message });
+      return res.status(503).json({ error: err.message });
+    }
+
+    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
+    await purgeExpiredPendingLinks(new Date().toISOString());
+    await createPendingLink({
+      userId: id,
+      platform: platform.id,
+      handle: profile.handle,
+      code,
+      expiresAt: new Date(Date.now() + LINK_TTL_MS).toISOString()
+    });
+
+    res.json({
+      code,
+      platform: platform.id,
+      handle: profile.handle,
+      instructions: platform.proofHelp,
+      expiresInMinutes: LINK_TTL_MS / 60_000
+    });
+  } catch (error: any) {
+    console.error(`[Account] link start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — step 2. Reads the public profile and, if the code is there, links the
+// account, runs its first sync and returns the updated member.
+app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const platform = resolveLinkPlatform(req.params.platform, res);
+    if (!platform) return;
+
+    const pending = await getPendingLink(id, platform.id);
+    if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
+      if (pending) await deletePendingLink(id, platform.id);
+      return res.status(400).json({ error: "This link request has expired. Please start again.", expired: true });
+    }
+    if (pending.attempts >= MAX_LINK_ATTEMPTS) {
+      await deletePendingLink(id, platform.id);
+      return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
+    }
+
+    let profile;
+    try {
+      profile = await platform.fetchProfile!(pending.handle);
+    } catch (err: any) {
+      if (err instanceof PlatformNotFoundError) return res.status(404).json({ error: err.message });
+      return res.status(503).json({ error: err.message });
+    }
+
+    const needle = pending.code.toLowerCase();
+    if (!profile.texts.some((t) => t.toLowerCase().includes(needle))) {
+      await bumpPendingLinkAttempts(id, platform.id);
+      return res.status(400).json({
+        error: `We couldn't find the code on your ${platform.label} profile yet. Save it there, wait a few seconds, then try again.`
+      });
+    }
+
+    // Ownership proven.
+    try {
+      await insertPlatformAccount(id, platform.id, profile.handle);
+    } catch (err: any) {
+      if (String(err?.message).includes("UNIQUE")) {
+        await deletePendingLink(id, platform.id);
+        return res.status(409).json({ error: `That ${platform.label} account was just linked. Refresh and check.` });
+      }
+      throw err;
+    }
+    await deletePendingLink(id, platform.id);
+
+    // First sync so the stats show straight away. If the platform is slow or
+    // down the account is still linked and the next sync fills it in.
+    await syncPlatformAccount({ userId: id, platform: platform.id, handle: profile.handle });
+
+    const updated = await userJson(id);
+    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    res.status(201).json(updated);
+  } catch (error: any) {
+    console.error(`[Account] link verify failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// DELETE — unlinks the account and everything stored for it. LeetCode is the
+// member's main account and isn't handled here.
+app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    if (!isPlatformId(req.params.platform)) return res.status(404).json({ error: "Unknown platform." });
+    const platform = PLATFORMS[req.params.platform];
+
+    if (!(await removePlatformAccount(id, platform.id))) {
+      return res.status(404).json({ error: `You don't have a ${platform.label} account linked.` });
+    }
+    const updated = await userJson(id);
+    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    res.json(updated);
+  } catch (error: any) {
+    console.error(`[Account] unlink failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });

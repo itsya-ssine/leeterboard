@@ -29,3 +29,10 @@ export class PlatformUnavailableError extends Error {
     this.name = "PlatformUnavailableError";
   }
 }
+
+// What a provider can read from a public profile, used to prove a member owns
+// the account they are linking.
+export interface PlatformProfile {
+  handle: string; // the platform's own spelling of the handle
+  texts: string[]; // profile fields a member can edit (name, organization, ...); the proof code is searched here
+}

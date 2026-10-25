@@ -1,4 +1,4 @@
-import { PlatformNotFoundError, PlatformUnavailableError, type PlatformStats } from "./common.js";
+import { PlatformNotFoundError, PlatformUnavailableError, type PlatformProfile, type PlatformStats } from "./common.js";
 
 // Codeforces public API (https://codeforces.com/apiHelp). No key needed for
 // these methods. Codeforces allows about one request every two seconds, so every
@@ -139,4 +139,16 @@ export async function fetchCodeforcesStats(handle: string): Promise<PlatformStat
     avatarUrl: normalizeUrl(info.titlePhoto) ?? normalizeUrl(info.avatar),
     extra: { buckets: s.buckets }
   };
+}
+
+// Public profile, for proving ownership when linking. Codeforces has no "about
+// me" box, so the member temporarily puts a code in a field they can edit
+// (Settings > Social: Organization, name, city) and we read it back here.
+export async function fetchCodeforcesProfile(handle: string): Promise<PlatformProfile> {
+  const [info] = await call("user.info", { handles: handle }, handle, 8000);
+  if (!info || typeof info.handle !== "string") throw new PlatformNotFoundError(NAME, handle);
+  const texts = ["organization", "firstName", "lastName", "city", "country"]
+    .map((k) => info[k])
+    .filter((v): v is string => typeof v === "string");
+  return { handle: info.handle, texts };
 }
