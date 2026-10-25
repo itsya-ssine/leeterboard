@@ -859,9 +859,9 @@ export default function App() {
                   : page === "stats"
                     ? "Roster stats"
                     : page === "codeforces"
-                      ? "Codeforces ladder"
+                      ? "Codeforces"
                       : page === "codingame"
-                        ? "CodinGame ladder"
+                        ? "CodinGame"
                         : "Weekly LeetCode sprint"}
             </h1>
             <p className="mt-2 max-w-xl text-base text-mist-400">
@@ -871,11 +871,7 @@ export default function App() {
                   ? "Pick two members and see who is ahead, stat by stat and over time."
                   : page === "stats"
                   ? "tachou makaynch f top 3."
-                  : page === "codeforces"
-                    ? "Members who linked their Codeforces account, by problems solved, this week or rating."
-                    : page === "codingame"
-                      ? "Members who linked their CodinGame account, by total XP, XP earned this week or level."
-                      : "9raa wziid 9ra."}
+                  : "9raa wziid 9ra."}
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-mist-400">
