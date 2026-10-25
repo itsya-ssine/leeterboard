@@ -31,13 +31,21 @@ import {
   XAxis,
   YAxis
 } from "recharts";
-import type { User } from "./types.js";
+import type { PlatformAccount, User } from "./types.js";
 import type { WeeklyWinner } from "./winners.js";
 import { chartColors, useTheme } from "./theme.js";
 import { computeBadges, computeGroupAwards } from "./achievements.js";
 import { addDays, mondayIndex, type DayActivity } from "./activity.js";
 import { computeProfile, WEEKDAYS, type ProfileStats, type RankInfo } from "./profile.js";
 import ShareCardModal from "./ShareCardModal.js";
+import {
+  codeforcesBuckets,
+  codeforcesMembers,
+  compareCodeforces,
+  formatRankTitle,
+  rankTextClass,
+  type CodeforcesSort
+} from "./CodeforcesPage.js";
 import { useAuth } from "./AuthContext.js";
 
 /* ---------- Shared bits ---------- */
@@ -1225,6 +1233,194 @@ function BadgesPanel({ user, users, nowMs }: { user: User; users: User[]; nowMs:
 
 /* ---------- Page ---------- */
 
+/* ---------- Codeforces view ---------- */
+
+type ProfileView = "leetcode" | "codeforces";
+
+// The Codeforces counterpart of the stats below the hero: key numbers, the
+// split by problem rating, and where the member stands among linked members.
+function CodeforcesView({ user, account, users }: { user: User; account: PlatformAccount; users: User[] }) {
+  const members = codeforcesMembers(users);
+  const buckets = codeforcesBuckets(account);
+  const rated = account.rating != null;
+  const ratedCount = members.filter((m) => m.account.rating != null).length;
+
+  const rankIn = (sort: CodeforcesSort): number | null => {
+    const i = [...members].sort(compareCodeforces(sort)).findIndex((m) => m.user.id === user.id);
+    return i < 0 ? null : i + 1;
+  };
+  const solvedRank = rankIn("solved");
+  const weeklyRank = rankIn("weekly");
+  const ratingRank = rated ? rankIn("rating") : null;
+
+  const profileUrl = `https://codeforces.com/profile/${encodeURIComponent(account.handle)}`;
+
+  if (!account.lastUpdated) {
+    return (
+      <div id="profile-codeforces" className="rounded-xl bg-ink-900 px-5 py-12 text-center ring-1 ring-line">
+        <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-ink-800 text-mist-500">
+          <Clock className="size-4" aria-hidden="true" />
+        </div>
+        <p className="font-medium text-strong">Codeforces stats are on their way</p>
+        <p className="mt-1 text-sm text-mist-500">
+          @{account.handle} is linked but hasn't been synced yet. The numbers show up after the next sync.
+        </p>
+      </div>
+    );
+  }
+
+  const kpis: Kpi[] = [
+    {
+      label: "Problems solved",
+      value: account.solved.toLocaleString(),
+      hint: solvedRank != null ? `#${solvedRank} of ${members.length} on Codeforces` : "Not ranked yet",
+      icon: <Target className="size-4" />
+    },
+    {
+      label: "This week",
+      value: `+${account.weeklySolved}`,
+      accent: true,
+      hint: `+${account.monthlySolved} in the last 30 days`,
+      icon: <Zap className="size-4" />
+    },
+    {
+      label: "Rating",
+      value: rated ? (
+        <span className={rankTextClass(account.rankTitle)}>{account.rating!.toLocaleString()}</span>
+      ) : (
+        "Unrated"
+      ),
+      hint: rated ? (
+        <>
+          <span className={rankTextClass(account.rankTitle)}>{formatRankTitle(account.rankTitle)}</span>
+          {account.maxRating != null && account.maxRating !== account.rating && (
+            <> · max {account.maxRating.toLocaleString()}</>
+          )}
+        </>
+      ) : (
+        "No rated contest yet"
+      ),
+      icon: <Trophy className="size-4" />
+    },
+    {
+      label: "Contests",
+      value: account.contests.toLocaleString(),
+      hint: account.contests === 1 ? "contest entered" : "contests entered",
+      icon: <Calendar className="size-4" />
+    }
+  ];
+
+  const total = buckets.easy + buckets.medium + buckets.hard;
+  const values = { easy: buckets.easy, medium: buckets.medium, hard: buckets.hard };
+  const scale = Math.max(1, buckets.easy, buckets.medium, buckets.hard);
+
+  const standing = [
+    { label: "Problems solved", rank: solvedRank, of: members.length },
+    { label: "This week", rank: weeklyRank, of: members.length },
+    { label: "Rating", rank: ratingRank, of: ratedCount }
+  ];
+
+  return (
+    <div id="profile-codeforces" className="space-y-4">
+      <section
+        id="profile-cf-stats"
+        aria-label="Codeforces key stats"
+        className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line lg:grid-cols-4"
+      >
+        {kpis.map((k) => (
+          <div key={k.label} className="min-w-0 bg-ink-900 p-5">
+            <div className="flex items-center justify-between gap-2 text-sm text-mist-500">
+              <span className="truncate">{k.label}</span>
+              <span className="shrink-0 text-mist-500/70" aria-hidden="true">
+                {k.icon}
+              </span>
+            </div>
+            <div
+              className={`mt-2 truncate text-3xl font-semibold tracking-tight tabular-nums ${
+                k.accent ? "text-teal-300" : "text-strong"
+              }`}
+            >
+              {k.value}
+            </div>
+            <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
+          </div>
+        ))}
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="lg:col-span-3">
+          <Panel
+            title="Difficulty"
+            subtitle="Solved problems by their Codeforces rating: under 1200, 1200 to 1699, 1700 and up"
+          >
+            <div className="flex flex-col items-center gap-6 sm:flex-row">
+              <Donut easy={buckets.easy} medium={buckets.medium} hard={buckets.hard} />
+              <ul className="w-full min-w-0 flex-1 space-y-3.5">
+                {DIFFS.map((d) => {
+                  const v = values[d.key];
+                  return (
+                    <li key={d.key}>
+                      <div className="mb-1.5 flex items-baseline gap-2 text-sm">
+                        <span className={`inline-flex items-center gap-2 ${d.text}`}>
+                          <span className={`size-2 rounded-full ${d.bar}`} aria-hidden="true" />
+                          <span className="text-mist-400">{d.label}</span>
+                          <span className="font-semibold tabular-nums">{v}</span>
+                          <span className="text-xs tabular-nums text-mist-500">
+                            {total > 0 ? Math.round((v / total) * 100) : 0}%
+                          </span>
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-tint" aria-hidden="true">
+                        <div className={`h-full rounded-full ${d.bar}`} style={{ width: `${(v / scale) * 100}%` }} />
+                      </div>
+                    </li>
+                  );
+                })}
+                {buckets.unrated > 0 && (
+                  <li className="text-xs text-mist-500">
+                    Plus {buckets.unrated} {buckets.unrated === 1 ? "problem" : "problems"} without a rating.
+                  </li>
+                )}
+              </ul>
+            </div>
+          </Panel>
+        </div>
+
+        <div className="lg:col-span-2">
+          <Panel title="Standing on Codeforces" subtitle="Among members who linked their account">
+            <ul className="divide-y divide-line">
+              {standing.map((r) => (
+                <li key={r.label} className="flex items-center justify-between gap-3 py-3 text-sm first:pt-0">
+                  <span className="text-mist-400">{r.label}</span>
+                  <span className="font-semibold tabular-nums text-strong">
+                    {r.rank != null ? (
+                      <>
+                        #{r.rank}
+                        <span className="font-normal text-mist-500"> of {r.of}</span>
+                      </>
+                    ) : (
+                      <span className="font-normal text-mist-500">Not ranked</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href={profileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${btnSecondary} mt-4 w-full`}
+            >
+              @{account.handle} on Codeforces
+              <ArrowUpRight className="size-4" aria-hidden="true" />
+            </a>
+          </Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage({
   users,
   winners,
@@ -1240,6 +1436,9 @@ export default function ProfilePage({
     ? users.find((u) => u.leetcodeUsername.toLowerCase() === username.toLowerCase())
     : undefined;
   const nowMs = Date.now();
+
+  // LeetCode is always there; Codeforces appears when the member linked it.
+  const [view, setView] = useState<ProfileView>("leetcode");
 
   const stats = useMemo(
     () => (user ? computeProfile(user, users, winners, Date.now()) : null),
@@ -1261,7 +1460,10 @@ export default function ProfilePage({
     );
   }
 
-  const synced = user.lastUpdated || lastSyncAll;
+  const cfAccount = user.platforms?.codeforces;
+  const activeView: ProfileView = cfAccount ? view : "leetcode";
+  const synced =
+    activeView === "codeforces" && cfAccount ? cfAccount.lastUpdated : user.lastUpdated || lastSyncAll;
 
   return (
     <div id="profile-page" className="space-y-4">
@@ -1269,6 +1471,26 @@ export default function ProfilePage({
         <Hero user={user} users={users} stats={stats} usersCount={users.length} />
       </Reveal>
 
+      {cfAccount && (
+        <div id="profile-view-toggle" className="flex items-center gap-3">
+          <SegmentedToggle<ProfileView>
+            label="Stats platform"
+            value={activeView}
+            onChange={setView}
+            options={[
+              { value: "leetcode", label: "LeetCode" },
+              { value: "codeforces", label: "Codeforces" }
+            ]}
+          />
+        </div>
+      )}
+
+      {activeView === "codeforces" && cfAccount ? (
+        <Reveal key="codeforces">
+          <CodeforcesView user={user} account={cfAccount} users={users} />
+        </Reveal>
+      ) : (
+        <div key="leetcode" className="space-y-4">
       <Reveal delay={0.05}>
         <KpiGrid user={user} stats={stats} />
       </Reveal>
@@ -1312,6 +1534,8 @@ export default function ProfilePage({
           <WeeklyWins stats={stats} />
         </Reveal>
       </div>
+        </div>
+      )}
 
       <p className="flex items-center justify-end gap-2 pt-2 text-sm text-mist-500">
         <Clock className="size-3.5" aria-hidden="true" />
