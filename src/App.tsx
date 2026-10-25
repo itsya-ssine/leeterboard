@@ -1011,7 +1011,9 @@ export default function App() {
               <span>
                 {page === "stats"
                   ? `./leeterboard stats --platform ${statsPlatform}`
-                  : page === "codeforces"
+                  : page === "compare"
+                    ? "./leeterboard vs --duel"
+                    : page === "codeforces"
                     ? "./leeterboard cf --standings"
                     : page === "codingame"
                       ? "./leeterboard cg --arena"
