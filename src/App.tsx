@@ -1044,7 +1044,11 @@ export default function App() {
               <span>
                 {page === "stats"
                   ? `./leeterboard stats --platform ${statsPlatform}`
-                  : `./leeterboard --round W${isoWeek(now)}`}
+                  : page === "codeforces"
+                    ? "./leeterboard cf --standings"
+                    : page === "codingame"
+                      ? "./leeterboard cg --arena"
+                      : `./leeterboard --round W${isoWeek(now)}`}
               </span>
               <span className="animate-blink inline-block h-3.5 w-1.5 bg-teal-400" />
             </div>

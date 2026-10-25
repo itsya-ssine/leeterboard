@@ -118,6 +118,8 @@ html[data-theme="light"] {
   --color-orange-300: #c2410c;
   --color-rose-300: #be123c;
   --color-rose-400: #e11d48;
+  --color-lime-400: #4d7c0f;
+  --color-lime-500: #3f6212;
   --color-rose-500: #be123c;
   --color-slate-300: #475569;
 }
