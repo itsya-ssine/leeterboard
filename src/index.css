@@ -228,18 +228,21 @@ html[data-theme="light"] ::selection {
   pointer-events: none;
 }
 
-/* CRT scanlines, drawn behind content. */
-.scanlines::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 2px,
-    color-mix(in srgb, var(--color-strong) 5%, transparent) 3px
-  );
+/* Podium backdrop: code wallpaper that fades toward the centre, plus a
+   perspective grid "floor" under the pedestals. */
+.podium-code {
+  -webkit-mask-image: linear-gradient(to right, #000 0%, transparent 36%, transparent 64%, #000 100%);
+  mask-image: linear-gradient(to right, #000 0%, transparent 36%, transparent 64%, #000 100%);
+}
+.podium-floor {
+  background-image:
+    linear-gradient(var(--color-line-strong) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-line-strong) 1px, transparent 1px);
+  background-size: 28px 28px;
+  transform: perspective(260px) rotateX(58deg);
+  transform-origin: 50% 100%;
+  -webkit-mask-image: linear-gradient(to top, #000 10%, transparent 90%);
+  mask-image: linear-gradient(to top, #000 10%, transparent 90%);
 }
 
 /* Scrolling submission ticker. Pauses on hover. */

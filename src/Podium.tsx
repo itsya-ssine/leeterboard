@@ -5,6 +5,107 @@ import type { Movement, RankingKey } from "./movement.js";
 import RankMovement from "./RankMovement.js";
 import SchoolTag from "./SchoolTag.js";
 
+// Faux "accepted solution" that scrolls behind the podium, like an editor
+// open next to the standings. Purely decorative.
+const CODE_LEFT = [
+  "#include <bits/stdc++.h>",
+  "using namespace std;",
+  "",
+  "int main() {",
+  "  int n; cin >> n;",
+  "  vector<long long> dp(n + 1);",
+  "  for (int i = 2; i <= n; i++)",
+  "    dp[i] = max(dp[i-1], dp[i-2] + a[i]);",
+  "  // O(n) time, O(n) memory",
+  "  cout << dp[n] << '\\n';",
+  "  return 0;",
+  "}",
+  "",
+  "// verdict: Accepted"
+];
+const CODE_RIGHT = [
+  "def solve(lo, hi):",
+  "    while lo < hi:",
+  "        mid = (lo + hi) // 2",
+  "        if ok(mid):",
+  "            hi = mid",
+  "        else:",
+  "            lo = mid + 1",
+  "    return lo",
+  "",
+  "# O(log n) per query",
+  "for _ in range(int(input())):",
+  "    print(solve(0, 10**9))",
+  "",
+  "# time 31 ms  memory 3.2 MB"
+];
+
+const KEYWORDS = /\b(int|long|for|while|if|else|return|def|in|range|using|namespace|vector|auto|const)\b/g;
+
+// Tiny tokenizer: comments, keywords and numbers get a theme-aware tint.
+function highlight(line: string): React.ReactNode {
+  const comment = line.search(/(\/\/|#(?!include))/);
+  const code = comment === -1 ? line : line.slice(0, comment);
+  const note = comment === -1 ? "" : line.slice(comment);
+  const parts = code.split(new RegExp(`${KEYWORDS.source}|(\\b\\d+\\b)`, "g")).filter((p) => p !== undefined && p !== "");
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^(int|long|for|while|if|else|return|def|in|range|using|namespace|vector|auto|const)$/.test(part) ? (
+          <span key={i} style={{ color: "var(--color-aurora-c)" }}>{part}</span>
+        ) : /^\d+$/.test(part) ? (
+          <span key={i} style={{ color: "var(--color-amber-300)" }}>{part}</span>
+        ) : (
+          part
+        )
+      )}
+      {note && <span className={note.includes("Accepted") ? "text-emerald-400" : "text-mist-500"}>{note}</span>}
+    </>
+  );
+}
+
+function CodePane({ lines, className = "" }: { lines: string[]; className?: string }) {
+  return (
+    <pre className={`m-0 flex gap-3 font-mono text-[11px] leading-[1.35rem] text-mist-400 ${className}`}>
+      <code className="select-none text-right text-mist-500/60">{lines.map((_, i) => i + 1).join("\n")}</code>
+      <code className="whitespace-pre">
+        {lines.map((l, i) => (
+          <React.Fragment key={i}>
+            {highlight(l)}
+            {"\n"}
+          </React.Fragment>
+        ))}
+      </code>
+    </pre>
+  );
+}
+
+// Everything behind the podium: code wallpaper, rising ICPC balloons and a
+// perspective grid floor.
+function PodiumBackdrop() {
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 select-none overflow-hidden">
+      <div className="podium-code absolute inset-0 flex justify-between px-4 pt-4 opacity-[0.28] sm:px-8">
+        <CodePane lines={CODE_LEFT} />
+        <CodePane lines={CODE_RIGHT} className="hidden sm:flex" />
+      </div>
+      <div className="podium-floor absolute inset-x-0 bottom-0 h-32 opacity-70" />
+      <span className="animate-float absolute left-[7%] top-[22%] scale-[2.4] text-amber-300 opacity-50" style={{ animationDelay: "0s" }}>
+        <span className="balloon" />
+      </span>
+      <span className="animate-float absolute right-[9%] top-[34%] scale-[2.8] text-sky-400 opacity-45" style={{ animationDelay: "1.4s", animationDuration: "7.5s" }}>
+        <span className="balloon" />
+      </span>
+      <span className="animate-float absolute left-[20%] top-[58%] scale-[1.8] text-rose-400 opacity-40" style={{ animationDelay: "0.7s", animationDuration: "5.5s" }}>
+        <span className="balloon" />
+      </span>
+      <span className="animate-float absolute right-[24%] top-[14%] scale-[1.6] text-emerald-400 opacity-40" style={{ animationDelay: "2.1s", animationDuration: "6.5s" }}>
+        <span className="balloon" />
+      </span>
+    </div>
+  );
+}
+
 // Medal styling for places 1–3. `glow` is the soft halo behind the avatar,
 // `block` the gradient pedestal, `delay` staggers the entrance animation.
 const PLACES = [
@@ -63,8 +164,9 @@ export default function Podium({
   return (
     <ol
       aria-label="Top three"
-      className="scanlines relative grid grid-cols-3 items-end gap-2 overflow-hidden border-b border-line bg-gradient-to-b from-transparent to-ink-950/50 px-3 pt-8 sm:gap-4 sm:px-8"
+      className="relative grid grid-cols-3 items-end gap-2 overflow-hidden border-b border-line bg-gradient-to-b from-transparent to-ink-950/50 px-3 pt-8 sm:gap-4 sm:px-8"
     >
+      <PodiumBackdrop />
       {/* Spotlight cone above the winner */}
       <div
         aria-hidden="true"

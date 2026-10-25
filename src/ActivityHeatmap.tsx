@@ -8,7 +8,13 @@ const WEEKS = 10;
 const WEEKDAY_LABELS = ["Mon", "", "Wed", "", "Fri", "", ""];
 
 // Level 0 = tracked but nobody solved anything; 1–4 = share of the busiest day.
-const LEVEL_CLASS = ["bg-ink-800", "bg-teal-400/25", "bg-teal-400/50", "bg-teal-400/75", "bg-teal-300"];
+const LEVEL_CLASS = [
+  "bg-ink-800",
+  "bg-emerald-400/25",
+  "bg-emerald-400/50",
+  "bg-emerald-400/75",
+  "bg-emerald-300 shadow-[0_0_8px_rgb(52_211_153/0.7)]"
+];
 const NO_DATA_CLASS = "bg-transparent ring-1 ring-inset ring-line";
 
 function levelFor(solved: number, max: number): number {
@@ -34,8 +40,17 @@ function cellTitle(day: DayActivity): string {
   return `${longDate(day.date)}: ${day.solved} solved`;
 }
 
+function Kpi({ label, value, tone = "text-strong" }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-lg bg-tint px-3 py-1.5 ring-1 ring-line">
+      <div className="text-[10px] uppercase tracking-widest text-mist-500">{label}</div>
+      <div className={`text-lg font-bold tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
 export default function ActivityHeatmap({ users }: { users: User[] }) {
-  const { columns, total, busiest, max, hasData } = useMemo(() => {
+  const { columns, total, busiest, max, hasData, activeDays } = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     // Start on the Monday WEEKS-1 weeks before this week's Monday so the grid
     // is a whole number of Monday-first columns ending with the current week.
@@ -56,7 +71,8 @@ export default function ActivityHeatmap({ users }: { users: User[] }) {
       total: tracked.reduce((acc, d) => acc + d.solved, 0),
       busiest: busiestDay && busiestDay.solved > 0 ? busiestDay : null,
       max: busiestDay?.solved ?? 0,
-      hasData: tracked.length > 0
+      hasData: tracked.length > 0,
+      activeDays: tracked.filter((d) => d.solved > 0).length
     };
   }, [users]);
 
@@ -64,23 +80,19 @@ export default function ActivityHeatmap({ users }: { users: User[] }) {
     <section
       id="activity-panel"
       aria-label="Group activity"
-      className="mb-8 rounded-xl bg-ink-900 p-5 ring-1 ring-line"
+      className="card-aurora mb-8 animate-rise p-5"
     >
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div>
-          <h2 className="text-base font-semibold tracking-tight text-strong">Group activity</h2>
+          <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// submissions.heatmap</div>
+          <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">Group activity</h2>
           <p className="mt-0.5 text-sm text-mist-500">Problems solved per day by the whole roster, in UTC days</p>
         </div>
         {hasData && (
-          <div className="text-sm text-mist-400">
-            <span className="font-semibold tabular-nums text-strong">{total.toLocaleString()}</span> solved in the last{" "}
-            {WEEKS} weeks
-            {busiest && (
-              <>
-                , busiest day {longDate(busiest.date)} with{" "}
-                <span className="font-semibold tabular-nums text-teal-300">{busiest.solved}</span>
-              </>
-            )}
+          <div className="flex flex-wrap gap-2 font-mono">
+            <Kpi label={`Last ${WEEKS} weeks`} value={total.toLocaleString()} tone="text-emerald-400" />
+            <Kpi label="Active days" value={String(activeDays)} />
+            {busiest && <Kpi label={`Peak ${longDate(busiest.date)}`} value={`+${busiest.solved}`} tone="text-amber-300" />}
           </div>
         )}
       </div>
@@ -99,7 +111,7 @@ export default function ActivityHeatmap({ users }: { users: User[] }) {
             >
               <div aria-hidden="true" className="flex flex-col gap-1 pr-1">
                 {WEEKDAY_LABELS.map((label, i) => (
-                  <div key={i} className="h-4 text-xs leading-4 text-mist-500">
+                  <div key={i} className="h-4 font-mono text-[10px] uppercase leading-4 text-mist-500">
                     {label}
                   </div>
                 ))}
@@ -112,7 +124,7 @@ export default function ActivityHeatmap({ users }: { users: User[] }) {
                         <div
                           key={day.date}
                           title={cellTitle(day)}
-                          className={`size-4 rounded-[3px] ${
+                          className={`size-4 rounded-[3px] transition-transform duration-150 hover:z-10 hover:scale-150 ${
                             day.tracked ? LEVEL_CLASS[levelFor(day.solved, max)] : NO_DATA_CLASS
                           }`}
                         />
@@ -126,7 +138,7 @@ export default function ActivityHeatmap({ users }: { users: User[] }) {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4 text-xs text-mist-500">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4 font-mono text-[11px] uppercase tracking-wider text-mist-500">
             <div className="flex items-center gap-1.5">
               <span className={`size-3.5 rounded-[3px] ${NO_DATA_CLASS}`} />
               Not tracked

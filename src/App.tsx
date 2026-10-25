@@ -15,8 +15,11 @@ import {
   Swords,
   Trophy,
   UserRound,
-  Zap,
-  Timer
+  Timer,
+  Users,
+  CheckCheck,
+  TrendingUp,
+  Crown
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -169,6 +172,21 @@ function SubmissionTicker({ users }: { users: User[] }) {
     </div>
   );
 }
+
+// Stats page tiles: icon + accent per summary card, and medal styling for the
+// top-three cards.
+const STAT_TILES = [
+  { Icon: Users, text: "text-sky-400", bar: "from-sky-400" },
+  { Icon: CheckCheck, text: "text-emerald-400", bar: "from-emerald-400" },
+  { Icon: TrendingUp, text: "text-teal-300", bar: "from-teal-300" },
+  { Icon: Crown, text: "text-amber-300", bar: "from-amber-300" }
+] as const;
+
+const TOP_MEDALS = [
+  { label: "Gold", text: "text-amber-300", ring: "ring-amber-300/70", strip: "from-amber-300/15", bar: "from-amber-300 to-amber-500" },
+  { label: "Silver", text: "text-slate-300", ring: "ring-slate-300/60", strip: "from-slate-300/15", bar: "from-slate-300 to-slate-500" },
+  { label: "Bronze", text: "text-orange-300", ring: "ring-orange-300/60", strip: "from-orange-300/15", bar: "from-orange-300 to-orange-500" }
+] as const;
 
 /* ---------- Pages + navbar ---------- */
 
@@ -390,6 +408,39 @@ function DifficultyBar({
   );
 }
 
+// Contest-style "problem set": each difficulty is a lettered problem with its
+// own balloon, count and share of the total.
+function ProblemTiles({ easy, medium, hard }: { easy: number; medium: number; hard: number }) {
+  const total = Math.max(1, easy + medium + hard);
+  const tiles = [
+    { letter: "A", label: "Easy", value: easy, text: "text-emerald-400", bar: "from-emerald-500 to-emerald-300" },
+    { letter: "B", label: "Medium", value: medium, text: "text-amber-400", bar: "from-amber-500 to-amber-300" },
+    { letter: "C", label: "Hard", value: hard, text: "text-rose-400", bar: "from-rose-500 to-rose-300" }
+  ];
+  return (
+    <div className="grid gap-3 sm:grid-cols-3" role="img" aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}>
+      {tiles.map((t) => {
+        const pct = Math.round((t.value / total) * 100);
+        return (
+          <div key={t.label} className="rounded-lg bg-ink-950/50 p-3 ring-1 ring-line">
+            <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-widest">
+              <span className={`inline-flex items-center gap-2 font-bold ${t.text}`}>
+                <span className="balloon" aria-hidden="true" />
+                {t.letter} · {t.label}
+              </span>
+              <span className="text-mist-500">{pct}%</span>
+            </div>
+            <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-strong">{t.value.toLocaleString()}</div>
+            <div className="mt-2 h-1 overflow-hidden rounded-full bg-tint">
+              <div className={`h-full rounded-full bg-gradient-to-r ${t.bar}`} style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HotStreak({ className = "size-3.5" }: { className?: string }) {
   return (
     <span title="Hot solve streak" className="shrink-0">
@@ -420,6 +471,9 @@ function GroupGrowthChart({
   const pick = (name: string) => breakdown.find((b) => b.name === name)?.value ?? 0;
   const { theme } = useTheme();
   const c = chartColors(theme);
+  const latest = series.length ? series[series.length - 1].solved : 0;
+  const weekAgo = series.length > 7 ? series[series.length - 8].solved : (series[0]?.solved ?? 0);
+  const weekDelta = Math.max(0, latest - weekAgo);
 
   return (
     <section
@@ -427,9 +481,24 @@ function GroupGrowthChart({
       aria-label="Group growth"
       className="card-aurora mb-8 animate-rise p-5"
     >
-      <div className="mb-4">
-        <h2 className="text-base font-semibold tracking-tight text-strong">Group growth</h2>
-        <p className="mt-0.5 text-sm text-mist-500">{description}</p>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// growth.log</div>
+          <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">Group growth</h2>
+          <p className="mt-0.5 text-sm text-mist-500">{description}</p>
+        </div>
+        {series.length >= 2 && (
+          <div className="flex gap-2 font-mono">
+            <div className="rounded-lg bg-tint px-3 py-1.5 ring-1 ring-line">
+              <div className="text-[10px] uppercase tracking-widest text-mist-500">Since start</div>
+              <div className="text-lg font-bold tabular-nums text-emerald-400">+{latest.toLocaleString()}</div>
+            </div>
+            <div className="rounded-lg bg-tint px-3 py-1.5 ring-1 ring-line">
+              <div className="text-[10px] uppercase tracking-widest text-mist-500">Last 7 days</div>
+              <div className="text-lg font-bold tabular-nums text-teal-300">+{weekDelta.toLocaleString()}</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {series.length < 2 ? (
@@ -498,8 +567,8 @@ function GroupGrowthChart({
 
       {breakdown.length > 0 && (
         <div className="mt-4 border-t border-line pt-4">
-          <div className="mb-3 text-sm font-medium text-mist-400">{breakdownLabel}</div>
-          <DifficultyBar easy={pick("Easy")} medium={pick("Medium")} hard={pick("Hard")} size="lg" />
+          <div className="mb-3 font-mono text-[11px] uppercase tracking-widest text-mist-500">// {breakdownLabel}</div>
+          <ProblemTiles easy={pick("Easy")} medium={pick("Medium")} hard={pick("Hard")} />
         </div>
       )}
     </section>
@@ -904,7 +973,6 @@ export default function App() {
               <span className="flex items-baseline font-logo font-bold leading-none tracking-tight">
                 <span className="text-aurora text-2xl sm:text-[1.75rem]">Leet</span>
                 <span className="text-base text-strong sm:text-lg">erboard</span>
-                <Zap className="ml-1 size-3.5 self-center fill-amber-300 text-amber-300" aria-hidden="true" />
               </span>
             </a>
             <NavLinks
@@ -973,7 +1041,11 @@ export default function App() {
           <div>
             <div className="mb-3 flex items-center gap-2 font-mono text-xs text-mist-500" aria-hidden="true">
               <span className="font-bold text-emerald-400">&#8250;</span>
-              <span>{`./leeterboard --round W${isoWeek(now)}`}</span>
+              <span>
+                {page === "stats"
+                  ? `./leeterboard stats --platform ${statsPlatform}`
+                  : `./leeterboard --round W${isoWeek(now)}`}
+              </span>
               <span className="animate-blink inline-block h-3.5 w-1.5 bg-teal-400" />
             </div>
             <h1 className="animate-rise font-logo text-3xl font-bold tracking-tight text-strong md:text-5xl">
@@ -1063,12 +1135,12 @@ export default function App() {
         <div
           role="group"
           aria-label="Stats platform"
-          className="mb-6 inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line"
+          className="mb-6 inline-flex rounded-xl bg-ink-950/80 p-1 ring-1 ring-line"
         >
           {(
             [
-              { key: "leetcode", label: "LeetCode", id: "stats-platform-leetcode-btn" },
-              { key: "codeforces", label: "Codeforces", id: "stats-platform-codeforces-btn" }
+              { key: "leetcode", label: "LeetCode", dot: "bg-amber-400", id: "stats-platform-leetcode-btn" },
+              { key: "codeforces", label: "Codeforces", dot: "bg-sky-400", id: "stats-platform-codeforces-btn" }
             ] as const
           ).map((opt) => (
             <button
@@ -1077,10 +1149,16 @@ export default function App() {
               onClick={() => setStatsPlatform(opt.key)}
               aria-pressed={statsPlatform === opt.key}
               id={opt.id}
-              className={`h-8 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors ${focusRing} ${
-                statsPlatform === opt.key ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+              className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg px-4 font-mono text-xs font-semibold uppercase tracking-wider transition-colors ${focusRing} ${
+                statsPlatform === opt.key
+                  ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong ring-1 ring-line-strong"
+                  : "text-mist-400 hover:text-strong"
               }`}
             >
+              <span
+                className={`size-2 rounded-full ${opt.dot} ${statsPlatform === opt.key ? "" : "opacity-50"}`}
+                aria-hidden="true"
+              />
               {opt.label}
             </button>
           ))}
@@ -1092,68 +1170,107 @@ export default function App() {
           aria-label="Roster statistics"
           className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4"
         >
-          {statCards.map((s) => (
-            <div
-              key={s.label}
-              className="card-aurora group min-w-0 animate-rise p-5 transition-transform duration-300 hover:-translate-y-0.5"
-              style={{ animationDelay: `${statCards.indexOf(s) * 80}ms` }}
-            >
-              <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// {s.label}</div>
+          {statCards.map((s, i) => {
+            const { Icon, text, bar } = STAT_TILES[i % STAT_TILES.length];
+            return (
               <div
-                className={`mt-2 truncate font-mono font-bold tracking-tight tabular-nums ${
-                  s.isName ? "text-xl leading-9" : "text-3xl"
-                } ${s.accent ? "text-aurora" : "text-strong"}`}
+                key={s.label}
+                className="card-aurora group relative min-w-0 animate-rise overflow-hidden p-5 transition-transform duration-300 hover:-translate-y-0.5"
+                style={{ animationDelay: `${i * 80}ms` }}
               >
-                {s.value}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">{s.label}</div>
+                  <span className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${text}`}>
+                    <Icon className="size-4" aria-hidden="true" />
+                  </span>
+                </div>
+                <div
+                  className={`mt-3 truncate font-mono font-bold tracking-tight tabular-nums ${
+                    s.isName ? "text-xl leading-9" : "text-3xl"
+                  } ${s.accent ? "text-aurora" : "text-strong"}`}
+                >
+                  {s.value}
+                </div>
+                <div className="mt-1 truncate text-sm text-mist-500">{s.hint}</div>
+                <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${bar} to-transparent`} />
               </div>
-              <div className="mt-1 truncate text-sm text-mist-500">{s.hint}</div>
-            </div>
-          ))}
+            );
+          })}
         </section>
 
         {/* ---------- Top solvers this week (weekly progress only) ---------- */}
         {!loading && topCards.length > 0 && (
           <section aria-label="Top solvers this week" className="mb-8">
-            <h2 className="mb-3 text-base font-semibold tracking-tight text-strong">Top solvers this week</h2>
+            <div className="mb-3">
+              <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// standings.top3</div>
+              <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">Top solvers this week</h2>
+            </div>
             <div className="grid gap-3 md:grid-cols-3">
-              {topCards.map(({ user, handle, easy, medium, hard, solved, weekly }, i) => (
-                <button
-                  key={user.id}
-                  type="button"
-                  onClick={() => setSelectedUser(user)}
-                  className={`card-aurora flex animate-rise cursor-pointer flex-col gap-4 p-4 text-left transition-transform duration-300 hover:-translate-y-1 ${focusRing}`}
-                  style={{ animationDelay: `${i * 100}ms` }}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={`w-5 text-2xl font-semibold tabular-nums ${rankColor(i + 1)}`}>{i + 1}</span>
-                    <img
-                      src={user.avatarUrl}
-                      alt=""
-                      className="size-11 shrink-0 rounded-full object-cover ring-1 ring-line-strong"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate font-semibold text-strong">{user.displayName}</span>
-                        {weekly >= HOT_STREAK_THRESHOLD && <HotStreak />}
-                      </div>
-                      <div className="truncate text-sm text-mist-500">@{handle}</div>
-                      <SchoolTag school={user.school} className="mt-1" />
+              {topCards.map(({ user, handle, easy, medium, hard, solved, weekly }, i) => {
+                const medal = TOP_MEDALS[i];
+                const leaderWeekly = topCards[0]?.weekly ?? 0;
+                const vsLeader = leaderWeekly > 0 ? Math.round((weekly / leaderWeekly) * 100) : 0;
+                return (
+                  <button
+                    key={user.id}
+                    type="button"
+                    onClick={() => setSelectedUser(user)}
+                    className={`card-aurora flex animate-rise cursor-pointer flex-col overflow-hidden text-left transition-transform duration-300 hover:-translate-y-1 ${focusRing}`}
+                    style={{ animationDelay: `${i * 100}ms` }}
+                  >
+                    <div
+                      className={`flex items-center justify-between border-b border-line bg-gradient-to-r ${medal.strip} to-transparent px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-widest ${medal.text}`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <span className="balloon" aria-hidden="true" />#{i + 1} {medal.label}
+                      </span>
+                      <span>+{weekly} AC</span>
                     </div>
-                  </div>
+                    <div className="flex flex-col gap-4 p-4">
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={user.avatarUrl}
+                          alt=""
+                          className={`size-12 shrink-0 rounded-full object-cover ring-2 ring-offset-2 ring-offset-ink-900 ${medal.ring}`}
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate font-semibold text-strong">{user.displayName}</span>
+                            {weekly >= HOT_STREAK_THRESHOLD && <HotStreak />}
+                          </div>
+                          <div className="truncate font-mono text-sm text-mist-500">@{handle}</div>
+                          <SchoolTag school={user.school} className="mt-1" />
+                        </div>
+                      </div>
 
-                  <DifficultyBar easy={easy} medium={medium} hard={hard} />
+                      <DifficultyBar easy={easy} medium={medium} hard={hard} />
 
-                  <div className="flex items-baseline justify-between border-t border-line pt-3 text-sm">
-                    <span className="text-mist-400">
-                      <span className="font-semibold tabular-nums">{solved}</span> solved
-                    </span>
-                    <span className="text-teal-300">
-                      <span className="font-semibold tabular-nums">+{weekly}</span> this week
-                    </span>
-                  </div>
-                </button>
-              ))}
+                      <div>
+                        <div className="mb-1 flex justify-between font-mono text-[10px] uppercase tracking-widest text-mist-500">
+                          <span>vs leader</span>
+                          <span>{vsLeader}%</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-tint">
+                          <div
+                            className={`h-full rounded-full bg-gradient-to-r ${medal.bar}`}
+                            style={{ width: `${vsLeader}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-baseline justify-between border-t border-line pt-3 font-mono text-sm">
+                        <span className="text-mist-400">
+                          <span className="font-bold tabular-nums text-strong">{solved}</span> solved
+                        </span>
+                        <span className="text-emerald-400">
+                          <span className="font-bold tabular-nums">+{weekly}</span> this week
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}
