@@ -63,7 +63,7 @@ export default function Podium({
   return (
     <ol
       aria-label="Top three"
-      className="relative grid grid-cols-3 items-end gap-2 overflow-hidden border-b border-line bg-gradient-to-b from-transparent to-ink-950/50 px-3 pt-8 sm:gap-4 sm:px-8"
+      className="scanlines relative grid grid-cols-3 items-end gap-2 overflow-hidden border-b border-line bg-gradient-to-b from-transparent to-ink-950/50 px-3 pt-8 sm:gap-4 sm:px-8"
     >
       {/* Spotlight cone above the winner */}
       <div
@@ -115,9 +115,9 @@ export default function Podium({
                 </span>
                 <RankMovement movement={movements?.[user.id]} />
               </span>
-              <span className="w-full truncate text-xs text-mist-500">@{user.leetcodeUsername}</span>
+              <span className="w-full truncate font-mono text-xs text-mist-500">@{user.leetcodeUsername}</span>
               <SchoolTag school={user.school} />
-              <span className={`mt-0.5 text-base font-bold tabular-nums sm:text-lg ${style.text}`}>
+              <span className={`mt-0.5 font-mono text-base font-bold tabular-nums sm:text-lg ${style.text}`}>
                 {value} <span className="text-xs font-normal text-mist-500">{label}</span>
               </span>
             </button>
@@ -126,7 +126,7 @@ export default function Podium({
               aria-hidden="true"
             >
               {i === 0 && <div className="gold-sheen absolute inset-0" />}
-              <span className={`relative text-4xl font-bold tabular-nums opacity-80 font-logo ${style.text}`}>
+              <span className={`relative font-mono text-4xl font-bold tabular-nums opacity-80 ${style.text}`}>
                 {i + 1}
               </span>
             </div>

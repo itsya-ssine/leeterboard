@@ -34,6 +34,8 @@
   --animate-shimmer: shimmer 2.8s linear infinite;
   --animate-rise: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-glow: glow 3.2s ease-in-out infinite;
+  --animate-blink: blink 1.05s steps(1) infinite;
+  --animate-marquee: marquee 48s linear infinite;
 
   @keyframes float {
     0%, 100% { transform: translateY(0); }
@@ -50,6 +52,26 @@
     0%, 100% { opacity: 0.55; }
     50% { opacity: 1; }
   }
+  @keyframes blink {
+    0%, 50% { opacity: 1; }
+    50.01%, 100% { opacity: 0; }
+  }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+}
+
+/* Codeforces-style rating tiers, scaled to LeetCode's contest range.
+   Used inline as var(--tier-*) so the colour follows the theme. */
+:root {
+  --tier-newbie: #9ca3af;
+  --tier-pupil: #4ade80;
+  --tier-specialist: #22d3ee;
+  --tier-expert: #60a5fa;
+  --tier-cm: #c084fc;
+  --tier-master: #fb923c;
+  --tier-gm: #f87171;
 }
 
 /* Light theme. Dark is the default above; the theme provider (src/theme.tsx)
@@ -78,6 +100,14 @@ html[data-theme="light"] {
   --color-aurora-a: #0f766e;
   --color-aurora-b: #0369a1;
   --color-aurora-c: #6d28d9;
+
+  --tier-newbie: #6b7280;
+  --tier-pupil: #15803d;
+  --tier-specialist: #0e7490;
+  --tier-expert: #1d4ed8;
+  --tier-cm: #7e22ce;
+  --tier-master: #c2410c;
+  --tier-gm: #b91c1c;
 
   --color-teal-300: #115e59;
   --color-teal-400: #0f766e;
@@ -196,6 +226,51 @@ html[data-theme="light"] ::selection {
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
+}
+
+/* CRT scanlines, drawn behind content. */
+.scanlines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 2px,
+    color-mix(in srgb, var(--color-strong) 5%, transparent) 3px
+  );
+}
+
+/* Scrolling submission ticker. Pauses on hover. */
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: var(--animate-marquee);
+}
+.ticker:hover .ticker-track {
+  animation-play-state: paused;
+}
+
+/* ICPC-style balloon: a rounded body with a tiny string. */
+.balloon {
+  position: relative;
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.7rem;
+  border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
+  background: currentColor;
+  box-shadow: inset -2px -2px 0 rgb(0 0 0 / 0.18), inset 1.5px 1.5px 0 rgb(255 255 255 / 0.35);
+}
+.balloon::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 0.28rem;
+  background: currentColor;
+  opacity: 0.6;
 }
 
 /* Medal shimmer for the #1 spot. */

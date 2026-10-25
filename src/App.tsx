@@ -15,8 +15,8 @@ import {
   Swords,
   Trophy,
   UserRound,
-  Sparkles,
-  Zap
+  Zap,
+  Timer
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -77,6 +77,98 @@ const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 const PINNED_STORAGE_KEY = "leeterboard:pinned";
 
 type SortKey = "weekly" | "allTime" | "rating";
+
+/* ---------- Competitive-programming flavour ---------- */
+
+// Codeforces-style rating tiers, with thresholds scaled to LeetCode's contest
+// range (most members sit between 1400 and 2000). Colours come from CSS
+// variables in index.css so they follow the light / dark theme.
+const RATING_TIERS = [
+  { min: 2150, name: "Grandmaster", color: "var(--tier-gm)" },
+  { min: 2000, name: "Master", color: "var(--tier-master)" },
+  { min: 1850, name: "Candidate", color: "var(--tier-cm)" },
+  { min: 1700, name: "Expert", color: "var(--tier-expert)" },
+  { min: 1550, name: "Specialist", color: "var(--tier-specialist)" },
+  { min: 1400, name: "Pupil", color: "var(--tier-pupil)" },
+  { min: 0, name: "Newbie", color: "var(--tier-newbie)" }
+] as const;
+
+const ratingTier = (rating: number) => RATING_TIERS.find((t) => rating >= t.min) ?? RATING_TIERS[RATING_TIERS.length - 1];
+
+// The board's week runs Monday to Sunday (UTC), so the "round" ends at the
+// next Monday 00:00 UTC.
+function nextRoundStartMs(nowMs: number): number {
+  const d = new Date(nowMs);
+  const sinceMonday = (d.getUTCDay() + 6) % 7;
+  const today = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return today + (7 - sinceMonday) * 86_400_000;
+}
+
+function isoWeek(nowMs: number): number {
+  const d = new Date(nowMs);
+  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
+  return Math.ceil(((date.getTime() - yearStart) / 86_400_000 + 1) / 7);
+}
+
+// Contest-style clock: how long until this week's round closes. It owns its
+// one-second tick so the rest of the board doesn't re-render every second.
+function RoundTimer() {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const left = Math.max(0, nextRoundStartMs(nowMs) - nowMs);
+  const days = Math.floor(left / 86_400_000);
+  const hms = [Math.floor(left / 3_600_000) % 24, Math.floor(left / 60_000) % 60, Math.floor(left / 1000) % 60]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
+  return (
+    <div
+      className="flex items-center gap-2 rounded-full bg-ink-900/70 px-3 py-1.5 font-mono text-sm ring-1 ring-line"
+      title="The weekly round closes Monday 00:00 UTC"
+    >
+      <Timer className="size-3.5 text-amber-300" aria-hidden="true" />
+      <span className="text-xs uppercase tracking-widest text-mist-500">Round ends</span>
+      <span className="font-semibold tabular-nums text-strong">
+        {days}d {hms}
+      </span>
+    </div>
+  );
+}
+
+// A scrolling "judge feed" of this week's solvers. Decorative: the same data
+// is in the table, so it is hidden from assistive tech.
+function SubmissionTicker({ users }: { users: User[] }) {
+  const solvers = [...users]
+    .filter((u) => u.weeklyProgress > 0)
+    .sort((a, b) => b.weeklyProgress - a.weeklyProgress)
+    .slice(0, 14);
+  if (solvers.length < 2) return null;
+  const items = [...solvers, ...solvers]; // doubled so the loop is seamless
+  return (
+    <div
+      aria-hidden="true"
+      className="ticker relative z-10 overflow-hidden border-b border-line bg-ink-950/60 py-1.5 font-mono text-xs"
+    >
+      <div className="ticker-track">
+        {items.map((u, i) => (
+          <span key={`${u.id}-${i}`} className="mx-5 inline-flex shrink-0 items-center gap-2 whitespace-nowrap">
+            <span className="rounded-[3px] bg-emerald-400/15 px-1.5 py-px font-bold text-emerald-400 ring-1 ring-emerald-400/30">
+              AC
+            </span>
+            <span className="text-mist-100">{u.displayName}</span>
+            <span className="font-semibold tabular-nums text-emerald-400">+{u.weeklyProgress}</span>
+            <span className="text-mist-500">/ {u.allTimeSolved} total</span>
+            <span className="text-mist-500/60">//</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /* ---------- Pages + navbar ---------- */
 
@@ -259,9 +351,9 @@ function DifficultyBar({
   const total = Math.max(1, easy + medium + hard);
   const lg = size === "lg";
   const segments = [
-    { label: "Easy", value: easy, bar: "bg-gradient-to-r from-emerald-500 to-emerald-300", dot: "bg-emerald-400", text: "text-emerald-300" },
-    { label: "Medium", value: medium, bar: "bg-gradient-to-r from-amber-500 to-amber-300", dot: "bg-amber-400", text: "text-amber-300" },
-    { label: "Hard", value: hard, bar: "bg-gradient-to-r from-rose-500 to-rose-300", dot: "bg-rose-400", text: "text-rose-300" }
+    { label: "Easy", letter: "E", value: easy, bar: "bg-gradient-to-r from-emerald-500 to-emerald-300", dot: "bg-emerald-400", text: "text-emerald-300" },
+    { label: "Medium", letter: "M", value: medium, bar: "bg-gradient-to-r from-amber-500 to-amber-300", dot: "bg-amber-400", text: "text-amber-300" },
+    { label: "Hard", letter: "H", value: hard, bar: "bg-gradient-to-r from-rose-500 to-rose-300", dot: "bg-rose-400", text: "text-rose-300" }
   ];
 
   return (
@@ -286,9 +378,11 @@ function DifficultyBar({
       <div className={`flex items-center tabular-nums ${lg ? "gap-5 text-sm" : "gap-3 text-xs"}`}>
         {segments.map((s) => (
           <span key={s.label} className={`inline-flex items-center gap-1.5 ${s.text}`}>
-            <span className={`size-1.5 rounded-full ${s.dot}`} />
-            {lg && <span className="text-mist-400">{s.label}</span>}
-            <span className="font-semibold">{s.value}</span>
+            <span className="balloon mb-0.5" aria-hidden="true" />
+            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-mist-500">
+              {lg ? s.label : s.letter}
+            </span>
+            <span className="font-mono font-semibold">{s.value}</span>
           </span>
         ))}
       </div>
@@ -870,15 +964,18 @@ export default function App() {
         />
       </div>
 
+      {page === "leaderboard" && !loading && <SubmissionTicker users={users} />}
+
       <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
         {/* ---------- Intro (the profile and account pages have their own header) ---------- */}
         {page !== "profile" && page !== "account" && (
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <span className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-teal-400/10 px-2.5 py-1 text-xs font-medium text-teal-300 ring-1 ring-teal-400/25">
-              <Sparkles className="size-3" aria-hidden="true" />
-              {page === "leaderboard" ? "Live this week" : "Leeterboard"}
-            </span>
+            <div className="mb-3 flex items-center gap-2 font-mono text-xs text-mist-500" aria-hidden="true">
+              <span className="font-bold text-emerald-400">&#8250;</span>
+              <span>{`./leeterboard --round W${isoWeek(now)}`}</span>
+              <span className="animate-blink inline-block h-3.5 w-1.5 bg-teal-400" />
+            </div>
             <h1 className="animate-rise font-logo text-3xl font-bold tracking-tight text-strong md:text-5xl">
               {page === "admin"
                 ? "Sync health"
@@ -902,6 +999,8 @@ export default function App() {
                   : "9raa wziid 9ra."}
             </p>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+          {page === "leaderboard" && <RoundTimer />}
           <div className="flex items-center gap-2 rounded-full bg-ink-900/70 px-3 py-1.5 text-sm text-mist-400 ring-1 ring-line">
             <span
               className={`size-2 rounded-full ${boardStale ? "bg-amber-400" : "animate-glow bg-teal-400 shadow-[0_0_8px_var(--color-teal-400)]"}`}
@@ -916,6 +1015,7 @@ export default function App() {
             ) : (
               <span>Waiting for first sync</span>
             )}
+          </div>
           </div>
         </div>
         )}
@@ -998,9 +1098,9 @@ export default function App() {
               className="card-aurora group min-w-0 animate-rise p-5 transition-transform duration-300 hover:-translate-y-0.5"
               style={{ animationDelay: `${statCards.indexOf(s) * 80}ms` }}
             >
-              <div className="text-sm text-mist-500">{s.label}</div>
+              <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// {s.label}</div>
               <div
-                className={`mt-2 truncate font-semibold tracking-tight tabular-nums ${
+                className={`mt-2 truncate font-mono font-bold tracking-tight tabular-nums ${
                   s.isName ? "text-xl leading-9" : "text-3xl"
                 } ${s.accent ? "text-aurora" : "text-strong"}`}
               >
@@ -1134,14 +1234,14 @@ export default function App() {
           )}
 
           {/* Column labels */}
-          <div className="hidden grid-cols-12 gap-x-4 border-b border-line px-5 py-2.5 text-xs font-medium text-mist-500 md:grid">
-            <div className="col-span-1">Rank</div>
-            <div className="col-span-3">Member</div>
+          <div className="hidden grid-cols-12 gap-x-4 border-b border-line bg-ink-950/40 px-5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:grid">
+            <div className="col-span-1">#</div>
+            <div className="col-span-3">Handle</div>
             <div className="col-span-4">
-              {sortBy === "weekly" ? "Solved this week" : "Solved by difficulty"}
+              {sortBy === "weekly" ? "Tests passed (25)" : "Problems  E · M · H"}
             </div>
-            <div className="col-span-2">Contest rating</div>
-            <div className="col-span-2 text-right">Total</div>
+            <div className="col-span-2">Rating</div>
+            <div className="col-span-2 pr-14 text-right">&Sigma; Solved</div>
           </div>
 
           {loading ? (
@@ -1183,8 +1283,7 @@ export default function App() {
                     const isPinned = pinnedUsers.includes(user.id);
                     const actualRank = displayRank(user);
 
-                    // Weekly bar is scaled against 25 problems/week
-                    const progressPercentage = Math.min(100, Math.round((user.weeklyProgress / 25) * 100));
+                    const weeklyFilled = Math.min(25, user.weeklyProgress);
 
                     return (
                       <motion.div
@@ -1203,14 +1302,14 @@ export default function App() {
                         {/* Rank */}
                         <div className="flex flex-col items-start gap-1 md:col-span-1">
                           <span
-                            className={`grid size-8 place-items-center rounded-full text-sm font-bold leading-none tabular-nums ${rankColor(actualRank ?? 0)} ${
+                            className={`grid size-8 place-items-center rounded-full font-mono text-sm font-bold leading-none tabular-nums ${rankColor(actualRank ?? 0)} ${
                               actualRank != null && actualRank <= 3
                                 ? "bg-current/10 ring-1 ring-current/30"
                                 : ""
                             }`}
                           >
                             <span className={actualRank != null && actualRank <= 3 ? "text-strong" : ""}>
-                              {actualRank ?? "–"}
+                              {actualRank == null ? "–" : String(actualRank).padStart(2, "0")}
                             </span>
                           </span>
                         </div>
@@ -1255,13 +1354,24 @@ export default function App() {
                         <div className="order-last col-span-3 md:order-none md:col-span-4 md:pr-4">
                           {sortBy === "weekly" ? (
                             <div className="flex w-full items-center gap-3">
-                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-tint">
-                                <div
-                                  className="h-full rounded-full bg-gradient-to-r from-teal-400 via-sky-400 to-violet-400 shadow-[0_0_10px_rgb(45_212_191/0.5)] transition-[width] duration-700 ease-out"
-                                  style={{ width: `${progressPercentage}%` }}
-                                />
+                              <div
+                                className="flex h-2.5 w-full gap-[2px]"
+                                role="img"
+                                aria-label={`${user.weeklyProgress} solved this week`}
+                              >
+                                {Array.from({ length: 25 }).map((_, i) => (
+                                  <span
+                                    key={i}
+                                    className={`h-full flex-1 rounded-[2px] transition-colors duration-500 ${
+                                      i < weeklyFilled
+                                        ? "bg-gradient-to-b from-emerald-300 to-emerald-500 shadow-[0_0_6px_rgb(52_211_153/0.45)]"
+                                        : "bg-tint"
+                                    }`}
+                                    style={{ transitionDelay: `${i * 12}ms` }}
+                                  />
+                                ))}
                               </div>
-                              <span className="w-10 shrink-0 text-right text-sm font-semibold tabular-nums text-teal-300">
+                              <span className="w-10 shrink-0 text-right font-mono text-sm font-bold tabular-nums text-emerald-400">
                                 +{user.weeklyProgress}
                               </span>
                             </div>
@@ -1282,25 +1392,28 @@ export default function App() {
                           {user.contestRating != null ? (
                             <>
                               <span
-                                className={`text-base font-semibold tabular-nums ${
-                                  sortBy === "rating" ? "text-teal-300" : "text-strong"
-                                }`}
+                                className="font-mono text-base font-bold tabular-nums"
+                                style={{ color: ratingTier(user.contestRating).color }}
                               >
                                 {user.contestRating.toLocaleString()}
                               </span>
-                              <span className="text-xs text-mist-500 md:block">
-                                {user.contestsAttended} {user.contestsAttended === 1 ? "contest" : "contests"}
+                              <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-mist-500 md:block">
+                                <span style={{ color: ratingTier(user.contestRating).color }}>
+                                  {ratingTier(user.contestRating).name}
+                                </span>{" "}
+                                · {user.contestsAttended}x
                               </span>
                             </>
                           ) : (
-                            <span className="text-sm text-mist-500">Unrated</span>
+                            <span className="font-mono text-xs uppercase tracking-wider text-mist-500">Unrated</span>
                           )}
                         </div>
 
                         {/* Total & controls */}
                         <div className="flex items-center justify-end gap-1 md:col-span-2">
-                          <div className="pr-2 text-xl font-semibold tabular-nums text-strong">
-                            {user.allTimeSolved}
+                          <div className="pr-2 text-right leading-none">
+                            <div className="font-mono text-xl font-bold tabular-nums text-strong">{user.allTimeSolved}</div>
+                            <div className="mt-1 font-mono text-[10px] font-bold tracking-widest text-emerald-400">AC</div>
                           </div>
 
                           <button
@@ -1473,7 +1586,10 @@ export default function App() {
       {/* ---------- Footer ---------- */}
       <footer className="relative z-10 border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-mist-500 md:px-8">
-          <span className="text-aurora font-semibold">Leeterboard</span> · Weekly LeetCode leaderboard · keep the streak alive
+          <span className="font-mono">
+            <span className="text-emerald-400">&#10003;</span>{" "}
+            <span className="text-aurora font-semibold">leeterboard</span> · weekly LeetCode leaderboard · exit code 0
+          </span>
         </div>
       </footer>
     </div>
