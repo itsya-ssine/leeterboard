@@ -19,6 +19,9 @@ export const MEDIUM_BELOW = 1700;
 
 const DAY_SECONDS = 86_400;
 
+// How many days of "problems first solved per day" are kept for the profile chart.
+const DAILY_DAYS = 90;
+
 /* ---------- Throttle ---------- */
 
 // Each caller reserves the next free slot, so concurrent callers queue up
@@ -95,7 +98,14 @@ export function summarizeSubmissions(subs: CodeforcesSubmission[], nowMs: number
   const buckets = { easy: 0, medium: 0, hard: 0, unrated: 0 };
   let weekly = 0;
   let monthly = 0;
+  // UTC day (YYYY-MM-DD) -> problems first solved that day; days with none are left out.
+  const daily: Record<string, number> = {};
+  const dailyStart = nowMs / 1000 - DAILY_DAYS * DAY_SECONDS;
   for (const p of firstSolved.values()) {
+    if (p.t >= dailyStart) {
+      const day = new Date(p.t * 1000).toISOString().slice(0, 10);
+      daily[day] = (daily[day] ?? 0) + 1;
+    }
     if (p.t >= weekStart) weekly++;
     if (p.t >= monthStart) monthly++;
     if (typeof p.rating !== "number") buckets.unrated++;
@@ -103,7 +113,7 @@ export function summarizeSubmissions(subs: CodeforcesSubmission[], nowMs: number
     else if (p.rating < MEDIUM_BELOW) buckets.medium++;
     else buckets.hard++;
   }
-  return { solved: firstSolved.size, weekly, monthly, buckets };
+  return { solved: firstSolved.size, weekly, monthly, buckets, daily };
 }
 
 function finiteOrNull(v: unknown): number | null {
@@ -125,6 +135,16 @@ export async function fetchCodeforcesStats(handle: string): Promise<PlatformStat
   const [info] = await call("user.info", { handles: handle }, handle, 8000);
   if (!info) throw new PlatformNotFoundError(NAME, handle);
 
+  // Rated contests entered: the "Contests" number on the Codeforces profile.
+  // Best effort: if this call fails the stored value is kept, the sync goes on.
+  let contests: number | undefined;
+  try {
+    const changes = await call("user.rating", { handle }, handle, 8000);
+    if (Array.isArray(changes)) contests = changes.length;
+  } catch (err) {
+    if (err instanceof PlatformNotFoundError) throw err;
+  }
+
   // Every submission the user ever made (can be several MB for heavy users).
   const subs: CodeforcesSubmission[] = await call("user.status", { handle }, handle, 20000);
   const s = summarizeSubmissions(subs);
@@ -136,8 +156,9 @@ export async function fetchCodeforcesStats(handle: string): Promise<PlatformStat
     rating: finiteOrNull(info.rating),
     maxRating: finiteOrNull(info.maxRating),
     rankTitle: typeof info.rank === "string" ? info.rank : null,
+    contests,
     avatarUrl: normalizeUrl(info.titlePhoto) ?? normalizeUrl(info.avatar),
-    extra: { buckets: s.buckets }
+    extra: { buckets: s.buckets, daily: s.daily }
   };
 }
 

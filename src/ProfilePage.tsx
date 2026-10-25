@@ -529,18 +529,32 @@ function KpiGrid({ user, stats }: { user: User; stats: ProfileStats }) {
 
 type ChartMode = "total" | "daily";
 
-function ProgressChart({ user, stats }: { user: User; stats: ProfileStats }) {
+interface SeriesPoint {
+  date: string;
+  value: number;
+}
+
+// Presentational: draws "total over time" and "per day" for whichever platform
+// supplies the two series (full range, filtered to the chosen window here).
+function ProgressChart({
+  name,
+  today,
+  totalsAll,
+  perDayAll
+}: {
+  name: string;
+  today: string;
+  totalsAll: SeriesPoint[];
+  perDayAll: SeriesPoint[];
+}) {
   const [range, setRange] = useState<14 | 30 | 60>(30);
   const [mode, setMode] = useState<ChartMode>("total");
   const { theme } = useTheme();
   const c = chartColors(theme);
 
-  const cutoff = addDays(stats.today, -(range - 1));
-  const totals = [...(user.history ?? [])]
-    .filter((h) => h.date >= cutoff)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map((h) => ({ date: h.date, value: h.solvedCount }));
-  const perDay = stats.daily.filter((d) => d.tracked && d.date >= cutoff).map((d) => ({ date: d.date, value: d.solved }));
+  const cutoff = addDays(today, -(range - 1));
+  const totals = totalsAll.filter((h) => h.date >= cutoff);
+  const perDay = perDayAll.filter((d) => d.date >= cutoff);
 
   const series = mode === "total" ? totals : perDay;
   const gained = mode === "total" && totals.length > 1 ? totals[totals.length - 1].value - totals[0].value : null;
@@ -604,7 +618,7 @@ function ProgressChart({ user, stats }: { user: User; stats: ProfileStats }) {
         <div
           className="h-64 w-full"
           role="img"
-          aria-label={`${mode === "total" ? "Total solved" : "Solved per day"} for ${user.displayName} over the last ${range} days`}
+          aria-label={`${mode === "total" ? "Total solved" : "Solved per day"} for ${name} over the last ${range} days`}
         >
           <ResponsiveContainer width="100%" height="100%">
             {mode === "total" ? (
@@ -1255,6 +1269,26 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
 
   const profileUrl = `https://codeforces.com/profile/${encodeURIComponent(account.handle)}`;
 
+  // Exact per-day solves come from the submission timestamps (extra.daily). The
+  // running total is rebuilt backwards from today's total, so the chart has the
+  // full window straight away, not just the days since the account was linked.
+  const dailyRaw = (account.extra as { daily?: Record<string, unknown> } | undefined)?.daily;
+  const today = new Date().toISOString().slice(0, 10);
+  const WINDOW = 60;
+  const perDayAll: SeriesPoint[] = [];
+  const totalsAll: SeriesPoint[] = [];
+  if (dailyRaw && typeof dailyRaw === "object") {
+    let running = account.solved;
+    for (let i = 0; i < WINDOW; i++) {
+      const date = addDays(today, -i);
+      const v = Number(dailyRaw[date]);
+      const n = Number.isFinite(v) && v > 0 ? v : 0;
+      perDayAll.unshift({ date, value: n });
+      totalsAll.unshift({ date, value: running });
+      running -= n;
+    }
+  }
+
   if (!account.lastUpdated) {
     return (
       <div id="profile-codeforces" className="rounded-xl bg-ink-900 px-5 py-12 text-center ring-1 ring-line">
@@ -1346,6 +1380,14 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
           </div>
         ))}
       </section>
+
+      {totalsAll.length > 0 ? (
+        <ProgressChart name={user.displayName} today={today} totalsAll={totalsAll} perDayAll={perDayAll} />
+      ) : (
+        <Panel title="Progress" subtitle="Problems solved over time">
+          <p className="py-12 text-center text-sm text-mist-500">The chart appears after the next Codeforces sync.</p>
+        </Panel>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-5">
         <div className="lg:col-span-3">
@@ -1497,7 +1539,14 @@ export default function ProfilePage({
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Reveal delay={0.1} className="lg:col-span-2">
-          <ProgressChart user={user} stats={stats} />
+          <ProgressChart
+            name={user.displayName}
+            today={stats.today}
+            totalsAll={[...(user.history ?? [])]
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .map((h) => ({ date: h.date, value: h.solvedCount }))}
+            perDayAll={stats.daily.filter((d) => d.tracked).map((d) => ({ date: d.date, value: d.solved }))}
+          />
         </Reveal>
         <Reveal delay={0.12}>
           <MilestoneAndRecords user={user} stats={stats} />
