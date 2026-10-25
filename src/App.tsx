@@ -14,7 +14,9 @@ import {
   ShieldCheck,
   Swords,
   Trophy,
-  UserRound
+  UserRound,
+  Sparkles,
+  Zap
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -47,8 +49,8 @@ const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnPrimary = `${btn} bg-teal-400 text-ink-950 hover:bg-teal-300`;
-const btnSecondary = `${btn} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
+const btnPrimary = `${btn} bg-gradient-to-r from-teal-400 to-sky-400 text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] hover:brightness-110 active:scale-[0.97]`;
+const btnSecondary = `${btn} bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
 
 const inputCls =
   "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
@@ -159,7 +161,9 @@ function NavLinks({
           className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
             NAV_PADDING_CLASS[labelFrom]
           } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
-            page === p ? "bg-ink-800 text-strong ring-1 ring-line" : "text-mist-400 hover:text-strong"
+            page === p
+              ? "bg-ink-800 text-strong shadow-[inset_0_-2px_0_0_var(--color-teal-400)] ring-1 ring-line"
+              : "text-mist-400 hover:bg-tint hover:text-strong"
           }`}
         >
           <Icon className="size-4 shrink-0" aria-hidden="true" />
@@ -255,9 +259,9 @@ function DifficultyBar({
   const total = Math.max(1, easy + medium + hard);
   const lg = size === "lg";
   const segments = [
-    { label: "Easy", value: easy, bar: "bg-emerald-400", text: "text-emerald-300" },
-    { label: "Medium", value: medium, bar: "bg-amber-400", text: "text-amber-300" },
-    { label: "Hard", value: hard, bar: "bg-rose-400", text: "text-rose-300" }
+    { label: "Easy", value: easy, bar: "bg-gradient-to-r from-emerald-500 to-emerald-300", dot: "bg-emerald-400", text: "text-emerald-300" },
+    { label: "Medium", value: medium, bar: "bg-gradient-to-r from-amber-500 to-amber-300", dot: "bg-amber-400", text: "text-amber-300" },
+    { label: "Hard", value: hard, bar: "bg-gradient-to-r from-rose-500 to-rose-300", dot: "bg-rose-400", text: "text-rose-300" }
   ];
 
   return (
@@ -272,7 +276,7 @@ function DifficultyBar({
             s.value > 0 && (
               <div
                 key={s.label}
-                className={`h-full ${s.bar}`}
+                className={`h-full rounded-full ${s.bar} transition-[width] duration-700 ease-out`}
                 style={{ width: `${(s.value / total) * 100}%` }}
                 title={`${s.value} ${s.label}`}
               />
@@ -282,7 +286,7 @@ function DifficultyBar({
       <div className={`flex items-center tabular-nums ${lg ? "gap-5 text-sm" : "gap-3 text-xs"}`}>
         {segments.map((s) => (
           <span key={s.label} className={`inline-flex items-center gap-1.5 ${s.text}`}>
-            <span className={`size-1.5 rounded-full ${s.bar}`} />
+            <span className={`size-1.5 rounded-full ${s.dot}`} />
             {lg && <span className="text-mist-400">{s.label}</span>}
             <span className="font-semibold">{s.value}</span>
           </span>
@@ -295,7 +299,7 @@ function DifficultyBar({
 function HotStreak({ className = "size-3.5" }: { className?: string }) {
   return (
     <span title="Hot solve streak" className="shrink-0">
-      <Flame className={`${className} text-amber-400`} />
+      <Flame className={`${className} animate-glow fill-amber-400/40 text-amber-400 drop-shadow-[0_0_6px_rgb(251_191_36/0.7)]`} />
     </span>
   );
 }
@@ -327,7 +331,7 @@ function GroupGrowthChart({
     <section
       id="growth-panel"
       aria-label="Group growth"
-      className="mb-8 rounded-xl bg-ink-900 p-5 ring-1 ring-line"
+      className="card-aurora mb-8 animate-rise p-5"
     >
       <div className="mb-4">
         <h2 className="text-base font-semibold tracking-tight text-strong">Group growth</h2>
@@ -344,8 +348,13 @@ function GroupGrowthChart({
             <AreaChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="growthFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={c.accent} stopOpacity={0.35} />
+                  <stop offset="0%" stopColor={c.accent} stopOpacity={0.45} />
                   <stop offset="100%" stopColor={c.accent} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="growthStroke" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#2dd4bf" />
+                  <stop offset="55%" stopColor="#38bdf8" />
+                  <stop offset="100%" stopColor="#a78bfa" />
                 </linearGradient>
               </defs>
               <CartesianGrid stroke={c.grid} vertical={false} />
@@ -382,10 +391,11 @@ function GroupGrowthChart({
               <Area
                 type="monotone"
                 dataKey="solved"
-                stroke={c.accent}
-                strokeWidth={2}
+                stroke="url(#growthStroke)"
+                strokeWidth={3}
                 fill="url(#growthFill)"
-                isAnimationActive={false}
+                isAnimationActive={true}
+                animationDuration={900}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -787,9 +797,10 @@ export default function App() {
     : stats;
 
   return (
-    <div className="min-h-screen bg-ink-950 text-mist-100">
+    <div className="relative min-h-screen bg-ink-950 text-mist-100">
+      <div className="aurora-bg" aria-hidden="true" />
       {/* ---------- Top bar ---------- */}
-      <header className="border-b border-line">
+      <header className="glass sticky top-0 z-30 border-b border-line">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
           <div className="flex min-w-0 items-center gap-4 lg:gap-6">
             <a href="#/" className={`flex shrink-0 items-center rounded-lg ${focusRing}`} aria-label="Leeterboard home">
@@ -797,8 +808,9 @@ export default function App() {
                   strong text colour (white in dark mode, near-black in light mode
                   so it stays readable on both themes). */}
               <span className="flex items-baseline font-logo font-bold leading-none tracking-tight">
-                <span className="text-2xl text-teal-400 sm:text-[1.75rem]">Leet</span>
+                <span className="text-aurora text-2xl sm:text-[1.75rem]">Leet</span>
                 <span className="text-base text-strong sm:text-lg">erboard</span>
+                <Zap className="ml-1 size-3.5 self-center fill-amber-300 text-amber-300" aria-hidden="true" />
               </span>
             </a>
             <NavLinks
@@ -848,7 +860,7 @@ export default function App() {
           </div>
         </div>
       </header>
-      <div className="border-b border-line md:hidden">
+      <div className="glass sticky top-16 z-20 border-b border-line md:hidden">
         <NavLinks
           page={page}
           isAdmin={!!currentUser?.isAdmin}
@@ -858,12 +870,16 @@ export default function App() {
         />
       </div>
 
-      <main className="mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
+      <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
         {/* ---------- Intro (the profile and account pages have their own header) ---------- */}
         {page !== "profile" && page !== "account" && (
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">
+            <span className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-teal-400/10 px-2.5 py-1 text-xs font-medium text-teal-300 ring-1 ring-teal-400/25">
+              <Sparkles className="size-3" aria-hidden="true" />
+              {page === "leaderboard" ? "Live this week" : "Leeterboard"}
+            </span>
+            <h1 className="animate-rise font-logo text-3xl font-bold tracking-tight text-strong md:text-5xl">
               {page === "admin"
                 ? "Sync health"
                 : page === "compare"
@@ -886,9 +902,9 @@ export default function App() {
                   : "9raa wziid 9ra."}
             </p>
           </div>
-          <div className="flex items-center gap-2 text-sm text-mist-400">
+          <div className="flex items-center gap-2 rounded-full bg-ink-900/70 px-3 py-1.5 text-sm text-mist-400 ring-1 ring-line">
             <span
-              className={`size-2 rounded-full ${boardStale ? "bg-amber-400" : "bg-teal-400"}`}
+              className={`size-2 rounded-full ${boardStale ? "bg-amber-400" : "animate-glow bg-teal-400 shadow-[0_0_8px_var(--color-teal-400)]"}`}
               aria-hidden="true"
             />
             {boardStale ? (
@@ -974,15 +990,19 @@ export default function App() {
         <section
           id="stats-banner"
           aria-label="Roster statistics"
-          className="mb-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line lg:grid-cols-4"
+          className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4"
         >
           {statCards.map((s) => (
-            <div key={s.label} className="min-w-0 bg-ink-900 p-5">
+            <div
+              key={s.label}
+              className="card-aurora group min-w-0 animate-rise p-5 transition-transform duration-300 hover:-translate-y-0.5"
+              style={{ animationDelay: `${statCards.indexOf(s) * 80}ms` }}
+            >
               <div className="text-sm text-mist-500">{s.label}</div>
               <div
                 className={`mt-2 truncate font-semibold tracking-tight tabular-nums ${
                   s.isName ? "text-xl leading-9" : "text-3xl"
-                } ${s.accent ? "text-teal-300" : "text-strong"}`}
+                } ${s.accent ? "text-aurora" : "text-strong"}`}
               >
                 {s.value}
               </div>
@@ -1001,7 +1021,8 @@ export default function App() {
                   key={user.id}
                   type="button"
                   onClick={() => setSelectedUser(user)}
-                  className={`flex cursor-pointer flex-col gap-4 rounded-xl bg-ink-900 p-4 text-left ring-1 ring-line transition-colors hover:ring-line-strong ${focusRing}`}
+                  className={`card-aurora flex animate-rise cursor-pointer flex-col gap-4 p-4 text-left transition-transform duration-300 hover:-translate-y-1 ${focusRing}`}
+                  style={{ animationDelay: `${i * 100}ms` }}
                 >
                   <div className="flex items-center gap-3">
                     <span className={`w-5 text-2xl font-semibold tabular-nums ${rankColor(i + 1)}`}>{i + 1}</span>
@@ -1061,7 +1082,7 @@ export default function App() {
         <section
           id="leaderboard-panel"
           aria-label="Leaderboard"
-          className="overflow-hidden rounded-xl bg-ink-900 ring-1 ring-line"
+          className="card-aurora animate-rise overflow-hidden"
         >
           {/* Toolbar */}
           <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center md:p-4">
@@ -1081,7 +1102,7 @@ export default function App() {
             <div
               role="group"
               aria-label="Sort leaderboard"
-              className="inline-flex shrink-0 rounded-lg bg-ink-950 p-1 ring-1 ring-line"
+              className="inline-flex shrink-0 rounded-xl bg-ink-950/80 p-1 ring-1 ring-line"
             >
               {(
                 [
@@ -1098,7 +1119,7 @@ export default function App() {
                   id={opt.id}
                   className={`h-8 flex-1 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors sm:flex-none ${focusRing} ${
                     sortBy === opt.key
-                      ? "bg-ink-700 text-strong"
+                      ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong shadow-sm ring-1 ring-line-strong"
                       : "text-mist-400 hover:text-strong"
                   }`}
                 >
@@ -1145,7 +1166,7 @@ export default function App() {
                     animate={{ opacity: 1 }}
                     className="px-6 py-16 text-center"
                   >
-                    <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-ink-800 text-mist-500">
+                    <div className="animate-float mx-auto mb-3 grid size-12 place-items-center rounded-full bg-ink-800 text-mist-500 ring-1 ring-line">
                       <Search className="size-4" />
                     </div>
                     <p className="font-medium text-strong">
@@ -1174,17 +1195,23 @@ export default function App() {
                         exit={{ opacity: 0 }}
                         className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 px-4 py-4 transition-colors md:grid-cols-12 md:gap-x-4 md:px-5 ${
                           isPinned
-                            ? "bg-teal-400/[0.06] shadow-[inset_2px_0_0_0_var(--color-teal-400)]"
-                            : "bg-ink-900 hover:bg-ink-800/60"
+                            ? "bg-teal-400/[0.07] shadow-[inset_3px_0_0_0_var(--color-teal-400)]"
+                            : "bg-transparent hover:bg-ink-800/60 hover:shadow-[inset_3px_0_0_0_var(--color-aurora-c)]"
                         }`}
                         id={`member-row-${user.id}`}
                       >
                         {/* Rank */}
                         <div className="flex flex-col items-start gap-1 md:col-span-1">
                           <span
-                            className={`text-lg font-semibold leading-none tabular-nums ${rankColor(actualRank ?? 0)}`}
+                            className={`grid size-8 place-items-center rounded-full text-sm font-bold leading-none tabular-nums ${rankColor(actualRank ?? 0)} ${
+                              actualRank != null && actualRank <= 3
+                                ? "bg-current/10 ring-1 ring-current/30"
+                                : ""
+                            }`}
                           >
-                            {actualRank ?? "–"}
+                            <span className={actualRank != null && actualRank <= 3 ? "text-strong" : ""}>
+                              {actualRank ?? "–"}
+                            </span>
                           </span>
                         </div>
 
@@ -1198,7 +1225,7 @@ export default function App() {
                           <img
                             src={user.avatarUrl}
                             alt=""
-                            className="size-10 shrink-0 rounded-full object-cover ring-1 ring-line-strong transition group-hover/member:ring-teal-400/70"
+                            className="size-11 shrink-0 rounded-full object-cover ring-2 ring-line-strong ring-offset-2 ring-offset-ink-900 transition duration-300 group-hover/member:scale-105 group-hover/member:ring-teal-400/80"
                             referrerPolicy="no-referrer"
                           />
                           <div className="min-w-0">
@@ -1230,7 +1257,7 @@ export default function App() {
                             <div className="flex w-full items-center gap-3">
                               <div className="h-1.5 w-full overflow-hidden rounded-full bg-tint">
                                 <div
-                                  className="h-full rounded-full bg-teal-400 transition-[width] duration-500"
+                                  className="h-full rounded-full bg-gradient-to-r from-teal-400 via-sky-400 to-violet-400 shadow-[0_0_10px_rgb(45_212_191/0.5)] transition-[width] duration-700 ease-out"
                                   style={{ width: `${progressPercentage}%` }}
                                 />
                               </div>
@@ -1444,9 +1471,9 @@ export default function App() {
       </main>
 
       {/* ---------- Footer ---------- */}
-      <footer className="border-t border-line">
+      <footer className="relative z-10 border-t border-line">
         <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-mist-500 md:px-8">
-          Leeterboard · Weekly LeetCode leaderboard
+          <span className="text-aurora font-semibold">Leeterboard</span> · Weekly LeetCode leaderboard · keep the streak alive
         </div>
       </footer>
     </div>
