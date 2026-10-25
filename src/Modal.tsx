@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
 
@@ -32,7 +33,9 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", child
     };
   }, []);
 
-  return (
+  // Rendered into <body> so a transformed or clipped ancestor (an animated
+  // card, say) can't turn `fixed` into "fixed inside that card".
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0 }}
@@ -64,6 +67,7 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", child
         </button>
         {children}
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 }
