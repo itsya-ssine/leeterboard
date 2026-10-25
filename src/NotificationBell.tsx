@@ -15,9 +15,9 @@ const POLL_MS = 60_000;
 const MIN_RELOAD_GAP_MS = 5_000;
 
 const TYPE_UI: Record<NotificationType, { Icon: typeof Bell; cls: string; label: string }> = {
-  badge: { Icon: Award, cls: "bg-teal-400/10 text-teal-300", label: "Badge" },
-  achievement: { Icon: Trophy, cls: "bg-amber-400/10 text-amber-300", label: "Achievement" },
-  admin: { Icon: Megaphone, cls: "bg-sky-400/10 text-sky-300", label: "Message from an admin" }
+  badge: { Icon: Award, cls: "bg-teal-400/10 text-teal-300 ring-teal-400/30", label: "Badge" },
+  achievement: { Icon: Trophy, cls: "bg-amber-400/10 text-amber-300 ring-amber-300/30", label: "Achievement" },
+  admin: { Icon: Megaphone, cls: "bg-sky-400/10 text-sky-300 ring-sky-400/30", label: "Message from an admin" }
 };
 
 function timeAgo(iso: string, now: number): string {
@@ -191,7 +191,7 @@ export default function NotificationBell() {
         {unread > 0 && (
           <span
             aria-hidden="true"
-            className="absolute -right-1.5 -top-1.5 grid min-w-[1.125rem] place-items-center rounded-full bg-teal-400 px-1 text-[0.6875rem] font-semibold leading-[1.125rem] text-ink-950 tabular-nums ring-2 ring-ink-950"
+            className="absolute -right-1.5 -top-1.5 grid min-w-[1.125rem] place-items-center rounded-full bg-gradient-to-r from-teal-400 to-sky-400 px-1 font-mono text-[0.6875rem] font-bold leading-[1.125rem] text-ink-950 tabular-nums ring-2 ring-ink-950"
           >
             {unread > 9 ? "9+" : unread}
           </span>
@@ -203,96 +203,127 @@ export default function NotificationBell() {
           id={panelId}
           role="region"
           aria-label="Notifications"
-          className="fixed inset-x-3 top-[4.25rem] z-50 overflow-hidden rounded-xl bg-ink-900 shadow-xl ring-1 ring-line-strong sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96"
+          className="fixed inset-x-3 top-[4.25rem] z-50 shadow-2xl shadow-black/60 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96"
         >
-          <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
-            <h2 className="text-sm font-semibold text-strong">
-              Notifications{unread > 0 && <span className="ml-1.5 font-normal text-mist-500">({unread} unread)</span>}
-            </h2>
-            <button
-              type="button"
-              onClick={markAllRead}
-              disabled={unread === 0}
-              className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-teal-300 transition-colors hover:bg-teal-400/10 disabled:cursor-not-allowed disabled:text-mist-500 disabled:hover:bg-transparent ${focusRing}`}
-            >
-              <CheckCheck className="size-3.5" aria-hidden="true" />
-              Mark all read
-            </button>
-          </div>
-
-          {error && (
-            <div role="alert" className="flex items-start gap-2 border-b border-line bg-rose-500/10 px-4 py-2.5 text-xs text-rose-300">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              <span className="min-w-0 flex-1">{error}</span>
-              <button type="button" onClick={load} className={`shrink-0 cursor-pointer rounded font-medium underline ${focusRing}`}>
-                Retry
-              </button>
-            </div>
-          )}
-
-          {feed === null && !error ? (
-            <p className="px-4 py-8 text-center text-sm text-mist-500">Loading…</p>
-          ) : items.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-              <Inbox className="size-6 text-mist-500" aria-hidden="true" />
-              <p className="text-sm text-mist-400">You're all caught up.</p>
-              <p className="text-xs text-mist-500">New badges, weekly wins and messages from admins show up here.</p>
-            </div>
-          ) : (
-            <ul className="max-h-[min(28rem,70vh)] divide-y divide-line overflow-y-auto overscroll-contain">
-              {items.map((n) => {
-                const { Icon, cls, label } = TYPE_UI[n.type] ?? TYPE_UI.admin;
-                return (
-                  <li key={n.id} className={`flex items-start gap-3 px-4 py-3 ${n.read ? "" : "bg-teal-400/5"}`}>
-                    <span className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-full ${cls}`} title={label}>
-                      <Icon className="size-4" aria-hidden="true" />
-                      <span className="sr-only">{label}</span>
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => markRead(n)}
-                      aria-label={n.read ? undefined : `Mark as read: ${n.title}`}
-                      className={`block min-w-0 flex-1 rounded text-left ${n.read ? "cursor-default" : "cursor-pointer"} ${focusRing}`}
-                    >
-                      <span className="flex items-baseline justify-between gap-2">
-                        <span className={`block min-w-0 break-words text-sm font-medium ${n.read ? "text-mist-400" : "text-strong"}`}>
-                          {n.title}
-                        </span>
-                        {!n.read && <span className="size-2 shrink-0 rounded-full bg-teal-400" aria-hidden="true" />}
-                      </span>
-                      {n.body && (
-                        <span className="mt-0.5 block whitespace-pre-wrap break-words text-sm text-mist-400">{n.body}</span>
-                      )}
-                      <span className="mt-1 block text-xs text-mist-500">{timeAgo(n.createdAt, now)}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => dismiss(n)}
-                      aria-label={`Dismiss: ${n.title}`}
-                      title="Dismiss"
-                      className={`-mr-1 grid size-7 shrink-0 cursor-pointer place-items-center rounded-md text-mist-500 transition-colors hover:bg-tint hover:text-strong ${focusRing}`}
-                    >
-                      <X className="size-3.5" aria-hidden="true" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {hasRead && (
-            <div className="border-t border-line px-4 py-2 text-right">
+          <div className="card-aurora animate-rise overflow-hidden">
+            <div className="flex items-center justify-between gap-2 border-b border-line bg-gradient-to-r from-teal-400/10 via-sky-400/5 to-transparent px-4 py-3">
+              <h2 className="font-mono text-[11px] font-semibold uppercase tracking-widest text-strong">
+                <span aria-hidden="true" className="text-aurora-a">{"// "}</span>
+                Notifications
+                {unread > 0 && (
+                  <span className="ml-2 rounded-full bg-teal-400/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-teal-300 ring-1 ring-teal-400/30">
+                    {unread} new
+                  </span>
+                )}
+              </h2>
               <button
                 type="button"
-                onClick={clearRead}
-                className={`cursor-pointer rounded text-xs font-medium text-mist-400 transition-colors hover:text-strong ${focusRing}`}
+                onClick={markAllRead}
+                disabled={unread === 0}
+                className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-teal-300 transition-colors hover:bg-teal-400/10 disabled:cursor-not-allowed disabled:text-mist-500 disabled:hover:bg-transparent ${focusRing}`}
               >
-                Clear read
+                <CheckCheck className="size-3.5" aria-hidden="true" />
+                Mark all read
               </button>
             </div>
-          )}
+
+            {error && (
+              <div role="alert" className="flex items-start gap-2 border-b border-line bg-rose-500/10 px-4 py-2.5 text-xs text-rose-300">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{error}</span>
+                <button type="button" onClick={load} className={`shrink-0 cursor-pointer rounded font-medium underline ${focusRing}`}>
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {feed === null && !error ? (
+              <p className="px-4 py-8 text-center font-mono text-xs uppercase tracking-widest text-mist-500">Loading…</p>
+            ) : items.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+                <span className="grid size-10 place-items-center rounded-lg bg-tint text-mist-500 ring-1 ring-line">
+                  <Inbox className="size-5" aria-hidden="true" />
+                </span>
+                <p className="mt-1 text-sm font-medium text-strong">You're all caught up.</p>
+                <p className="text-xs text-mist-500">New badges, weekly wins and messages from admins show up here.</p>
+              </div>
+            ) : (
+              <ul className="max-h-[min(28rem,70vh)] divide-y divide-line overflow-y-auto overscroll-contain">
+                {items.map((n) => {
+                  const { Icon, cls, label } = TYPE_UI[n.type] ?? TYPE_UI.admin;
+                  return (
+                    <li
+                      key={n.id}
+                      className={`relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-tint ${
+                        n.read ? "" : "bg-gradient-to-r from-teal-400/[0.07] to-transparent"
+                      }`}
+                    >
+                      {!n.read && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute inset-y-0 left-0 w-0.5 bg-gradient-to-b from-teal-300 to-sky-400"
+                        />
+                      )}
+                      <span
+                        className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg ring-1 ${cls} ${n.read ? "opacity-60" : ""}`}
+                        title={label}
+                      >
+                        <Icon className="size-4" aria-hidden="true" />
+                        <span className="sr-only">{label}</span>
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => markRead(n)}
+                        aria-label={n.read ? undefined : `Mark as read: ${n.title}`}
+                        className={`block min-w-0 flex-1 rounded text-left ${n.read ? "cursor-default" : "cursor-pointer"} ${focusRing}`}
+                      >
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className={`block min-w-0 break-words text-sm font-semibold ${n.read ? "text-mist-400" : "text-strong"}`}>
+                            {n.title}
+                          </span>
+                          {!n.read && (
+                            <span
+                              className="size-2 shrink-0 rounded-full bg-teal-300 shadow-[0_0_8px_rgb(45_212_191/0.8)]"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </span>
+                        {n.body && (
+                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-sm text-mist-400">{n.body}</span>
+                        )}
+                        <span className="mt-1 block font-mono text-[11px] uppercase tracking-wider text-mist-500">
+                          {timeAgo(n.createdAt, now)}
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => dismiss(n)}
+                        aria-label={`Dismiss: ${n.title}`}
+                        title="Dismiss"
+                        className={`-mr-1 grid size-7 shrink-0 cursor-pointer place-items-center rounded-lg text-mist-500 transition-colors hover:bg-tint hover:text-strong ${focusRing}`}
+                      >
+                        <X className="size-3.5" aria-hidden="true" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            {hasRead && (
+              <div className="border-t border-line bg-ink-950/40 px-4 py-2 text-right">
+                <button
+                  type="button"
+                  onClick={clearRead}
+                  className={`cursor-pointer rounded font-mono text-[11px] font-semibold uppercase tracking-wider text-mist-400 transition-colors hover:text-strong ${focusRing}`}
+                >
+                  Clear read
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

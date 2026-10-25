@@ -53,12 +53,12 @@ import { useAuth } from "./AuthContext.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
-const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-colors ${focusRing}`;
-const btnSecondary = `${btn} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
+const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSecondary = `${btn} bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
 
 // The profile's action row: a square icon button on small screens, icon plus
 // label from the lg breakpoint (so five of them never overflow the hero card).
-const btnAction = `inline-flex size-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 lg:w-auto lg:px-3.5 ${focusRing}`;
+const btnAction = `inline-flex size-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800/80 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] lg:w-auto lg:px-3.5 ${focusRing}`;
 
 const HOT_STREAK_THRESHOLD = 12;
 const HEATMAP_WEEKS = 10;
@@ -134,11 +134,14 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section aria-label={title} className={`h-full rounded-xl bg-ink-900 p-5 ring-1 ring-line ${className}`}>
+    <section aria-label={title} className={`card-aurora h-full overflow-hidden p-5 ${className}`}>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold tracking-tight text-strong">{title}</h2>
-          {subtitle && <p className="mt-0.5 text-sm text-mist-500">{subtitle}</p>}
+          <h2 className="font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500">
+            <span aria-hidden="true" className="text-aurora-a">{"// "}</span>
+            {title}
+          </h2>
+          {subtitle && <p className="mt-1.5 text-sm text-mist-400">{subtitle}</p>}
         </div>
         {right}
       </div>
@@ -159,15 +162,17 @@ function SegmentedToggle<T extends string | number>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line">
+    <div role="group" aria-label={label} className="inline-flex rounded-xl bg-ink-950/80 p-1 ring-1 ring-line">
       {options.map((opt) => (
         <button
           key={String(opt.value)}
           type="button"
           aria-pressed={value === opt.value}
           onClick={() => onChange(opt.value)}
-          className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${focusRing} ${
-            value === opt.value ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+          className={`h-7 cursor-pointer rounded-lg px-3 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors ${focusRing} ${
+            value === opt.value
+              ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong ring-1 ring-line-strong"
+              : "text-mist-400 hover:text-strong"
           }`}
         >
           {opt.label}
@@ -197,7 +202,7 @@ function ProfileLinks({ user }: { user: User }) {
             target="_blank"
             rel="noopener noreferrer nofollow ugc"
             title={e.href}
-            className={`inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 text-mist-400 ring-1 ring-line transition-colors hover:text-teal-300 ${focusRing}`}
+            className={`inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 font-mono text-mist-400 ring-1 ring-line transition-colors hover:text-teal-300 hover:ring-line-strong ${focusRing}`}
           >
             {e.icon}
             {e.label}
@@ -245,13 +250,24 @@ function Hero({
     <section
       id="profile-hero"
       aria-label={`${user.displayName} profile`}
-      className="relative overflow-hidden rounded-2xl bg-ink-900 ring-1 ring-line"
+      className="card-aurora animate-rise overflow-hidden"
     >
-      <div
-        aria-hidden="true"
-        className="h-24 bg-linear-to-r from-teal-400/30 via-teal-400/5 to-amber-400/20 md:h-32"
-      />
-      <div className="px-5 pb-6 md:px-8">
+      <div aria-hidden="true" className="relative h-24 overflow-hidden md:h-32">
+        <div className="absolute inset-0 bg-linear-to-r from-teal-400/30 via-sky-400/10 to-violet-400/25" />
+        <div
+          className="absolute inset-0 opacity-60"
+          style={{
+            backgroundImage: "radial-gradient(var(--color-line-strong) 1px, transparent 1px)",
+            backgroundSize: "22px 22px",
+            maskImage: "linear-gradient(to bottom, #000, transparent)",
+            WebkitMaskImage: "linear-gradient(to bottom, #000, transparent)"
+          }}
+        />
+        <span className="absolute left-5 top-3 font-mono text-[11px] uppercase tracking-widest text-mist-500 md:left-8">
+          {"// profile"}
+        </span>
+      </div>
+      <div className="relative px-5 pb-6 md:px-8">
         {/* Row 1: avatar (overlapping the banner) on the left, actions on the right. */}
         <div className="-mt-12 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 md:-mt-14">
           <div className="relative shrink-0">
@@ -259,7 +275,7 @@ function Hero({
               src={user.avatarUrl}
               alt=""
               referrerPolicy="no-referrer"
-              className="size-24 rounded-full bg-ink-800 object-cover ring-4 ring-ink-900 md:size-28"
+              className="size-24 rounded-full bg-ink-800 object-cover ring-4 ring-ink-900 shadow-[0_0_32px_-6px_rgb(45_212_191/0.55)] md:size-28"
             />
             {overall.rank != null && overall.rank <= 3 && (
               <span
@@ -328,7 +344,7 @@ function Hero({
         {/* Row 2: identity. Sits fully below the banner so nothing overlaps it. */}
         <div className="mt-4 min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight text-strong md:text-3xl">
+            <h1 className="min-w-0 truncate text-2xl font-bold tracking-tight text-strong md:text-3xl">
               {user.displayName}
             </h1>
             {hot && (
@@ -341,7 +357,7 @@ function Hero({
             href={`https://leetcode.com/${encodeURIComponent(user.leetcodeUsername)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className={`mt-0.5 inline-flex items-center gap-1 rounded text-sm text-mist-400 transition-colors hover:text-teal-300 ${focusRing}`}
+            className={`mt-0.5 inline-flex items-center gap-1 rounded font-mono text-sm text-mist-400 transition-colors hover:text-teal-300 ${focusRing}`}
           >
             @{user.leetcodeUsername}
             <ArrowUpRight className="size-3.5" aria-hidden="true" />
@@ -357,25 +373,25 @@ function Hero({
           <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 md:flex-row md:flex-wrap md:items-center md:gap-x-6">
             <ul className="flex flex-wrap items-center gap-2 text-xs font-medium" aria-label="Standing">
               {overall.rank != null && (
-                <li className="inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 ring-1 ring-line">
+                <li className="inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 font-mono ring-1 ring-line">
                   <Trophy className={`size-3 ${rankColor(overall.rank)}`} aria-hidden="true" />
                   <span className={`tabular-nums ${rankColor(overall.rank)}`}>#{overall.rank}</span>
                   <span className="text-mist-400">of {usersCount} all time</span>
                 </li>
               )}
               {overall.topPercent != null && usersCount > 1 && (
-                <li className="rounded-full bg-teal-400/10 px-2.5 py-1 text-teal-300 ring-1 ring-teal-400/30">
+                <li className="rounded-full bg-teal-400/10 px-2.5 py-1 font-mono text-teal-300 ring-1 ring-teal-400/30">
                   Top {overall.topPercent}%
                 </li>
               )}
               {stats.wins.length > 0 && (
-                <li className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-amber-300 ring-1 ring-amber-300/30">
+                <li className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 font-mono text-amber-300 ring-1 ring-amber-300/30">
                   <Crown className="size-3" aria-hidden="true" />
                   {stats.wins.length} weekly {stats.wins.length === 1 ? "win" : "wins"}
                 </li>
               )}
               {stats.joinedOrder != null && (
-                <li className="rounded-full bg-tint px-2.5 py-1 text-mist-400 ring-1 ring-line">
+                <li className="rounded-full bg-tint px-2.5 py-1 font-mono text-mist-400 ring-1 ring-line">
                   Member #{stats.joinedOrder}
                 </li>
               )}
@@ -402,6 +418,14 @@ function Hero({
 }
 
 /* ---------- KPI cards ---------- */
+
+// Accent colours cycled across the stat tiles, same palette as the leaderboard's.
+const KPI_TONES = [
+  { text: "text-sky-400", bar: "from-sky-400" },
+  { text: "text-emerald-400", bar: "from-emerald-400" },
+  { text: "text-teal-300", bar: "from-teal-300" },
+  { text: "text-amber-300", bar: "from-amber-300" }
+] as const;
 
 interface Kpi {
   label: string;
@@ -499,29 +523,36 @@ function KpiGrid({ user, stats }: { user: User; stats: ProfileStats }) {
   ];
 
   return (
-    <section
-      id="profile-stats"
-      aria-label="Key stats"
-      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line lg:grid-cols-4"
-    >
-      {kpis.map((k) => (
-        <div key={k.label} className="min-w-0 bg-ink-900 p-5">
-          <div className="flex items-center justify-between gap-2 text-sm text-mist-500">
-            <span className="truncate">{k.label}</span>
-            <span className="shrink-0 text-mist-500/70" aria-hidden="true">
-              {k.icon}
-            </span>
-          </div>
+    <section id="profile-stats" aria-label="Key stats" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {kpis.map((k, i) => {
+        const tone = KPI_TONES[i % KPI_TONES.length];
+        return (
           <div
-            className={`mt-2 truncate text-3xl font-semibold tracking-tight tabular-nums ${
-              k.accent ? "text-teal-300" : "text-strong"
-            }`}
+            key={k.label}
+            className="card-aurora group relative min-w-0 animate-rise overflow-hidden p-5 transition-transform duration-300 hover:-translate-y-0.5"
+            style={{ animationDelay: `${i * 60}ms` }}
           >
-            {k.value}
+            <div className="flex items-start justify-between gap-2">
+              <div className="truncate font-mono text-[11px] uppercase tracking-widest text-mist-500">{k.label}</div>
+              <span
+                className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${tone.text}`}
+                aria-hidden="true"
+              >
+                {k.icon}
+              </span>
+            </div>
+            <div
+              className={`mt-3 truncate font-mono text-3xl font-bold tracking-tight tabular-nums ${
+                k.accent ? "text-aurora" : "text-strong"
+              }`}
+            >
+              {k.value}
+            </div>
+            <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
+            <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
           </div>
-          <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
-        </div>
-      ))}
+        );
+      })}
     </section>
   );
 }
@@ -1111,7 +1142,7 @@ function NeighbourCard({
   return (
     <a
       href={profileHref(user)}
-      className={`group flex items-center gap-3 rounded-lg bg-ink-950 p-3 ring-1 ring-line transition-colors hover:ring-line-strong ${focusRing}`}
+      className={`group flex items-center gap-3 rounded-xl bg-ink-950/80 p-3 ring-1 ring-line transition-all hover:-translate-y-0.5 hover:ring-line-strong ${focusRing}`}
     >
       <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="size-10 shrink-0 rounded-full bg-ink-800 object-cover ring-1 ring-line-strong" />
       <div className="min-w-0 flex-1">
@@ -1292,8 +1323,8 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
 
   if (!account.lastUpdated) {
     return (
-      <div id="profile-codeforces" className="rounded-xl bg-ink-900 px-5 py-12 text-center ring-1 ring-line">
-        <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-ink-800 text-mist-500">
+      <div id="profile-codeforces" className="card-aurora animate-rise px-5 py-12 text-center">
+        <div className="mx-auto mb-3 grid size-10 place-items-center rounded-lg bg-tint text-mist-500 ring-1 ring-line">
           <Clock className="size-4" aria-hidden="true" />
         </div>
         <p className="font-medium text-strong">Codeforces stats are on their way</p>
@@ -1360,7 +1391,7 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
       {account.hidden && (
         <p
           id="profile-cf-hidden"
-          className="flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-3 text-sm text-mist-400 ring-1 ring-line"
+          className="flex items-center gap-2 rounded-xl bg-ink-900/70 px-4 py-3 font-mono text-xs text-mist-400 ring-1 ring-line"
         >
           <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
           Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still count on the leaderboard.
@@ -1369,26 +1400,37 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
       <section
         id="profile-cf-stats"
         aria-label="Codeforces key stats"
-        className="grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line lg:grid-cols-4"
+        className="grid grid-cols-2 gap-3 lg:grid-cols-4"
       >
-        {kpis.map((k) => (
-          <div key={k.label} className="min-w-0 bg-ink-900 p-5">
-            <div className="flex items-center justify-between gap-2 text-sm text-mist-500">
-              <span className="truncate">{k.label}</span>
-              <span className="shrink-0 text-mist-500/70" aria-hidden="true">
-                {k.icon}
-              </span>
-            </div>
+        {kpis.map((k, i) => {
+          const tone = KPI_TONES[i % KPI_TONES.length];
+          return (
             <div
-              className={`mt-2 truncate text-3xl font-semibold tracking-tight tabular-nums ${
-                k.accent ? "text-teal-300" : "text-strong"
-              }`}
+              key={k.label}
+              className="card-aurora group relative min-w-0 animate-rise overflow-hidden p-5 transition-transform duration-300 hover:-translate-y-0.5"
+              style={{ animationDelay: `${i * 60}ms` }}
             >
-              {k.value}
+              <div className="flex items-start justify-between gap-2">
+                <div className="truncate font-mono text-[11px] uppercase tracking-widest text-mist-500">{k.label}</div>
+                <span
+                  className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${tone.text}`}
+                  aria-hidden="true"
+                >
+                  {k.icon}
+                </span>
+              </div>
+              <div
+                className={`mt-3 truncate font-mono text-3xl font-bold tracking-tight tabular-nums ${
+                  k.accent ? "text-aurora" : "text-strong"
+                }`}
+              >
+                {k.value}
+              </div>
+              <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
+              <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
             </div>
-            <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
-          </div>
-        ))}
+          );
+        })}
       </section>
 
       {totalsAll.length > 0 ? (
@@ -1500,7 +1542,7 @@ export default function ProfilePage({
 
   if (!user || !stats) {
     return (
-      <div className="rounded-xl bg-ink-900 px-5 py-14 text-center ring-1 ring-line" id="profile-missing">
+      <div className="card-aurora animate-rise px-5 py-14 text-center" id="profile-missing">
         <p className="font-medium text-strong">Member not found</p>
         <p className="mt-1 text-sm text-mist-500">
           {username ? `Nobody on the board is called @${username}. They may have left or changed their username.` : "No member selected."}
@@ -1550,8 +1592,8 @@ export default function ProfilePage({
 
       {activeView === null ? (
         <Reveal key="private">
-          <div id="profile-private" className="rounded-xl bg-ink-900 px-5 py-14 text-center ring-1 ring-line">
-            <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-ink-800 text-mist-500">
+          <div id="profile-private" className="card-aurora animate-rise px-5 py-14 text-center">
+            <div className="mx-auto mb-3 grid size-10 place-items-center rounded-lg bg-tint text-mist-500 ring-1 ring-line">
               <EyeOff className="size-4" aria-hidden="true" />
             </div>
             <p className="font-medium text-strong">{user.displayName} keeps their stats private</p>
@@ -1567,7 +1609,7 @@ export default function ProfilePage({
       {user.hideLeetcodeStats && (
         <p
           id="profile-lc-hidden"
-          className="flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-3 text-sm text-mist-400 ring-1 ring-line"
+          className="flex items-center gap-2 rounded-xl bg-ink-900/70 px-4 py-3 font-mono text-xs text-mist-400 ring-1 ring-line"
         >
           <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
           Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still
@@ -1628,7 +1670,7 @@ export default function ProfilePage({
       )}
 
       {activeView !== null && (
-        <p className="flex items-center justify-end gap-2 pt-2 text-sm text-mist-500">
+        <p className="flex items-center justify-end gap-2 pt-2 font-mono text-xs text-mist-500">
           <Clock className="size-3.5" aria-hidden="true" />
           {synced ? `Stats last synced ${formatAge(synced, nowMs)}` : "Waiting for first sync"}
         </p>

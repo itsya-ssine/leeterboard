@@ -28,17 +28,17 @@ const inputCls =
   "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
 
 const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnPrimary = `${btnBase} w-full bg-teal-400 text-ink-950 hover:bg-teal-300`;
-const btnSecondary = `${btnBase} w-full bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
-const btnDanger = `${btnBase} w-full bg-rose-500 text-white hover:bg-rose-400`;
-const btnLink = `${btnBase} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
+const btnPrimary = `${btnBase} w-full bg-gradient-to-r from-teal-400 to-sky-400 text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] hover:brightness-110 active:scale-[0.97]`;
+const btnSecondary = `${btnBase} w-full bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
+const btnDanger = `${btnBase} w-full bg-rose-500 text-white shadow-[0_6px_20px_-8px_rgb(244_63_94/0.6)] hover:bg-rose-400 active:scale-[0.97]`;
+const btnLink = `${btnBase} bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
 // Header actions: a square icon button on phones, icon plus label from sm.
-const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 sm:w-auto sm:px-4 ${focusRing}`;
+const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800/80 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] sm:w-auto sm:px-4 ${focusRing}`;
 
 // Compact button for the rows in the Linked accounts card.
-const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-ink-800 px-3 text-xs font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-ink-800/80 px-3 text-xs font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 
-const labelCls = "mb-1.5 block text-sm font-medium text-mist-400";
+const labelCls = "mb-1.5 block font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500";
 
 type Notice = { kind: "error" | "success"; message: string } | null;
 
@@ -74,13 +74,19 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} aria-label={title} className="min-w-0 rounded-xl bg-ink-900 p-4 ring-1 ring-line sm:p-5">
-      <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-strong">
-        {icon}
-        {title}
-      </h2>
-      {description && <p className="mt-1 text-sm text-mist-500">{description}</p>}
+    <section id={id} aria-label={title} className="card-aurora min-w-0 animate-rise overflow-hidden p-4 sm:p-5">
+      <div className="flex items-center gap-3">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line" aria-hidden="true">
+          {icon}
+        </span>
+        <h2 className="min-w-0 font-mono text-[11px] font-semibold uppercase tracking-widest text-strong">
+          <span aria-hidden="true" className="text-aurora-a">{"// "}</span>
+          {title}
+        </h2>
+      </div>
+      {description && <p className="mt-3 text-sm text-mist-400">{description}</p>}
       <div className="mt-4">{children}</div>
+      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-teal-300/70 to-transparent" />
     </section>
   );
 }
@@ -164,7 +170,7 @@ function HideSwitch({
         disabled={busy}
         id={id}
         className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
-          hidden ? "bg-teal-400" : "bg-ink-700 ring-1 ring-line"
+          hidden ? "bg-gradient-to-r from-teal-400 to-sky-400" : "bg-ink-700 ring-1 ring-line"
         }`}
       >
         <span
@@ -294,7 +300,7 @@ function PlatformRow({
   };
 
   return (
-    <div id={`account-platform-${platform}`} className="min-w-0 rounded-lg bg-ink-950 p-3 ring-1 ring-line">
+    <div id={`account-platform-${platform}`} className="min-w-0 rounded-xl bg-ink-950/80 p-3 ring-1 ring-line">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-strong">{ui.label}</p>
@@ -453,7 +459,7 @@ function PlatformRow({
           <ol className="list-decimal space-y-2 break-words pl-5 text-sm leading-relaxed text-mist-400">
             <li>Copy this code:</li>
           </ol>
-          <div className="flex items-center gap-2 rounded-lg bg-ink-900 p-2 pl-3 ring-1 ring-line">
+          <div className="flex items-center gap-2 rounded-lg bg-ink-900 p-2 pl-3 font-mono ring-1 ring-line">
             <code className="min-w-0 flex-1 select-all truncate font-mono text-xs text-teal-300 sm:text-sm">
               {challenge.code}
             </code>
@@ -546,7 +552,7 @@ function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
     >
       <div className="flex flex-col gap-3">
         {/* LeetCode is the main account: always linked, never removable here. */}
-        <div id="account-platform-leetcode" className="rounded-lg bg-ink-950 p-3 ring-1 ring-line">
+        <div id="account-platform-leetcode" className="rounded-xl bg-ink-950/80 p-3 ring-1 ring-line">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-strong">LeetCode</p>
@@ -648,7 +654,7 @@ export default function AccountPage({
     return (
       <div
         id="account-signed-out"
-        className="mx-auto max-w-xl rounded-xl bg-ink-900 px-5 py-12 text-center ring-1 ring-line"
+        className="card-aurora mx-auto max-w-xl animate-rise px-5 py-12 text-center"
       >
         <p className="font-medium text-strong">You're not signed in</p>
         <p className="mt-1 text-sm text-mist-500">Log in to change your name, school, links or password.</p>
@@ -810,7 +816,10 @@ export default function AccountPage({
     <div id="account-page" className="mx-auto w-full min-w-0 max-w-4xl space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-strong sm:text-3xl md:text-4xl">Account settings</h1>
+          <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-mist-500">{"// account.settings"}</div>
+          <h1 className="text-2xl font-bold tracking-tight text-strong sm:text-3xl md:text-4xl">
+            Account <span className="text-aurora">settings</span>
+          </h1>
           <p className="mt-2 max-w-xl text-base text-mist-400">
             Choose how you appear on the board, and manage your password and account.
           </p>
@@ -827,16 +836,16 @@ export default function AccountPage({
         </div>
       </div>
 
-      <div className="flex min-w-0 items-center gap-3 rounded-xl bg-ink-900 p-4 ring-1 ring-line">
+      <div className="card-aurora flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
         <img
           src={user.avatarUrl}
           alt=""
           referrerPolicy="no-referrer"
-          className="size-12 shrink-0 rounded-full bg-ink-800 object-cover"
+          className="size-14 shrink-0 rounded-full bg-ink-800 object-cover ring-2 ring-line-strong shadow-[0_0_24px_-6px_rgb(45_212_191/0.55)]"
         />
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-strong">@{user.leetcodeUsername}</p>
-          <p className="text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
+          <p className="truncate font-mono text-sm font-bold text-strong">@{user.leetcodeUsername}</p>
+          <p className="mt-0.5 text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
         </div>
       </div>
 
