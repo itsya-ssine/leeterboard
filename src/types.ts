@@ -33,6 +33,9 @@ export interface PlatformAccount {
 
 export interface User {
   id: string;
+  // The member hid their LeetCode stats on their profile (they still count on
+  // the leaderboard and in the global stats). Admins and the member see them anyway.
+  hideLeetcodeStats?: boolean;
   displayName: string;
   leetcodeUsername: string;
   avatarUrl: string;

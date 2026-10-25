@@ -27,6 +27,7 @@ CREATE TABLE users (
   github_url         TEXT NOT NULL DEFAULT '',     -- optional, validated https://github.com/... link
   linkedin_url       TEXT NOT NULL DEFAULT '',     -- optional, validated https://...linkedin.com/... link
   website_url        TEXT NOT NULL DEFAULT '',     -- optional http(s) link to a portfolio / site
+  hide_leetcode_stats INTEGER NOT NULL DEFAULT 0,  -- 1 = LeetCode stats hidden on the profile (still on the board)
 
   -- Current stats, refreshed by every sync.
   all_time_solved    INTEGER NOT NULL DEFAULT 0,

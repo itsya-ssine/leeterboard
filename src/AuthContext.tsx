@@ -49,6 +49,7 @@ interface AuthContextValue {
   verifyPlatformLink: (platform: PlatformId) => Promise<User>;
   unlinkPlatform: (platform: PlatformId) => Promise<User>;
   setPlatformHidden: (platform: PlatformId, hidden: boolean) => Promise<User>;
+  setHideLeetcodeStats: (hidden: boolean) => Promise<User>;
 }
 
 // Thrown for any non-2xx response; `expired` is set when the server says the
@@ -197,6 +198,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
+  // Hide the member's LeetCode stats on their profile. They still count on the
+  // leaderboard and in the global stats.
+  const setHideLeetcodeStats = useCallback(async (hidden: boolean) => {
+    const data = await requestJson<User>("PATCH", "/api/account/profile", { hideLeetcodeStats: hidden });
+    setUser(data);
+    return data;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await fetch("/api/logout", { method: "POST" });
@@ -224,7 +233,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         startPlatformLink,
         verifyPlatformLink,
         unlinkPlatform,
-        setPlatformHidden
+        setPlatformHidden,
+        setHideLeetcodeStats
       }}
     >
       {children}

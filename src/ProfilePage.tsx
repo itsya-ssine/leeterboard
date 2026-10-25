@@ -1513,13 +1513,21 @@ export default function ProfilePage({
     );
   }
 
-  // A member can hide a platform on their profile. Everyone else then sees only
-  // the LeetCode stats; the member and admins still get the Codeforces tab.
+  // A member can hide any platform on their profile (LeetCode included). The
+  // member and admins still see everything; everyone else only gets the
+  // platforms that aren't hidden, and when none is left, just the header.
   const canSeeHidden = !!viewer && (viewer.isAdmin || viewer.id === user.id);
-  const cfAccount = user.platforms?.codeforces && (!user.platforms.codeforces.hidden || canSeeHidden)
-    ? user.platforms.codeforces
-    : undefined;
-  const activeView: ProfileView = cfAccount ? view : "leetcode";
+  const leetcodeVisible = !user.hideLeetcodeStats || canSeeHidden;
+  const cfAccount =
+    user.platforms?.codeforces && (!user.platforms.codeforces.hidden || canSeeHidden)
+      ? user.platforms.codeforces
+      : undefined;
+  const available: { value: ProfileView; label: string }[] = [];
+  if (leetcodeVisible) available.push({ value: "leetcode", label: "LeetCode" });
+  if (cfAccount) available.push({ value: "codeforces", label: "Codeforces" });
+  const activeView: ProfileView | null = available.some((a) => a.value === view)
+    ? view
+    : (available[0]?.value ?? null);
   const synced =
     activeView === "codeforces" && cfAccount ? cfAccount.lastUpdated : user.lastUpdated || lastSyncAll;
 
@@ -1529,26 +1537,43 @@ export default function ProfilePage({
         <Hero user={user} users={users} stats={stats} usersCount={users.length} />
       </Reveal>
 
-      {cfAccount && (
+      {available.length > 1 && activeView && (
         <div id="profile-view-toggle" className="flex items-center gap-3">
           <SegmentedToggle<ProfileView>
             label="Stats platform"
             value={activeView}
             onChange={setView}
-            options={[
-              { value: "leetcode", label: "LeetCode" },
-              { value: "codeforces", label: "Codeforces" }
-            ]}
+            options={available}
           />
         </div>
       )}
 
-      {activeView === "codeforces" && cfAccount ? (
+      {activeView === null ? (
+        <Reveal key="private">
+          <div id="profile-private" className="rounded-xl bg-ink-900 px-5 py-14 text-center ring-1 ring-line">
+            <div className="mx-auto mb-3 grid size-10 place-items-center rounded-full bg-ink-800 text-mist-500">
+              <EyeOff className="size-4" aria-hidden="true" />
+            </div>
+            <p className="font-medium text-strong">{user.displayName} keeps their stats private</p>
+            <p className="mt-1 text-sm text-mist-500">They still appear on the leaderboards.</p>
+          </div>
+        </Reveal>
+      ) : activeView === "codeforces" && cfAccount ? (
         <Reveal key="codeforces">
           <CodeforcesView user={user} account={cfAccount} users={users} />
         </Reveal>
       ) : (
         <div key="leetcode" className="space-y-4">
+      {user.hideLeetcodeStats && (
+        <p
+          id="profile-lc-hidden"
+          className="flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-3 text-sm text-mist-400 ring-1 ring-line"
+        >
+          <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
+          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still
+          count on the leaderboard.
+        </p>
+      )}
       <Reveal delay={0.05}>
         <KpiGrid user={user} stats={stats} />
       </Reveal>
@@ -1602,10 +1627,12 @@ export default function ProfilePage({
         </div>
       )}
 
-      <p className="flex items-center justify-end gap-2 pt-2 text-sm text-mist-500">
-        <Clock className="size-3.5" aria-hidden="true" />
-        {synced ? `Stats last synced ${formatAge(synced, nowMs)}` : "Waiting for first sync"}
-      </p>
+      {activeView !== null && (
+        <p className="flex items-center justify-end gap-2 pt-2 text-sm text-mist-500">
+          <Clock className="size-3.5" aria-hidden="true" />
+          {synced ? `Stats last synced ${formatAge(synced, nowMs)}` : "Waiting for first sync"}
+        </p>
+      )}
     </div>
   );
 }

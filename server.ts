@@ -44,6 +44,7 @@ import {
   insertPlatformAccount,
   removePlatformAccount,
   setPlatformHidden,
+  setHideLeetcodeStats,
   type UserWithAuth
 } from "./db.js";
 import {
@@ -1312,13 +1313,19 @@ app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) 
       details[f.key] = result.value;
     }
 
-    if (!hasName && !hasSchool && Object.keys(details).length === 0) {
+    const hasHideLeetcode = body.hideLeetcodeStats !== undefined;
+    if (hasHideLeetcode && typeof body.hideLeetcodeStats !== "boolean") {
+      return res.status(400).json({ error: "hideLeetcodeStats must be true or false." });
+    }
+
+    if (!hasName && !hasSchool && !hasHideLeetcode && Object.keys(details).length === 0) {
       return res.status(400).json({ error: "Nothing to update." });
     }
 
     if (hasName) await updateDisplayName(id, cleanedName);
     if (hasSchool) await updateSchool(id, cleanSchool(body.school));
     await updateProfileDetails(id, details);
+    if (hasHideLeetcode) await setHideLeetcodeStats(id, body.hideLeetcodeStats);
 
     const updated = await getUserById(id);
     if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });

@@ -155,6 +155,7 @@ export async function initDb(): Promise<void> {
         github_url TEXT NOT NULL DEFAULT '',
         linkedin_url TEXT NOT NULL DEFAULT '',
         website_url TEXT NOT NULL DEFAULT '',
+        hide_leetcode_stats INTEGER NOT NULL DEFAULT 0,
         all_time_solved INTEGER NOT NULL DEFAULT 0,
         easy_solved INTEGER NOT NULL DEFAULT 0,
         medium_solved INTEGER NOT NULL DEFAULT 0,
@@ -242,7 +243,8 @@ const MIGRATIONS: Migration[] = [
   { version: 5, name: "user_school", up: migrateUserSchool },
   { version: 6, name: "user_profile_details", up: migrateUserProfileDetails },
   { version: 7, name: "platform_accounts", up: migratePlatformAccounts },
-  { version: 8, name: "platform_account_hidden", up: migratePlatformAccountHidden }
+  { version: 8, name: "platform_account_hidden", up: migratePlatformAccountHidden },
+  { version: 9, name: "user_hide_leetcode_stats", up: migrateUserHideLeetcodeStats }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -462,6 +464,19 @@ async function migratePlatformAccountHidden(): Promise<void> {
   }
 }
 
+// v9 — lets a member hide their LeetCode stats on their profile.
+async function migrateUserHideLeetcodeStats(): Promise<void> {
+  if (await columnExists("users", "hide_leetcode_stats")) return;
+  try {
+    await client.execute("ALTER TABLE users ADD COLUMN hide_leetcode_stats INTEGER NOT NULL DEFAULT 0");
+  } catch (err: any) {
+    // Another cold-started instance may have added it a moment ago.
+    if (!(await columnExists("users", "hide_leetcode_stats"))) {
+      throw new Error(`Couldn't add users.hide_leetcode_stats: ${err.message}`);
+    }
+  }
+}
+
 /* ---------- Users ---------- */
 
 const HISTORY_COLUMNS = `user_id, date, solved_count, easy_solved, medium_solved, hard_solved, weekly_progress`;
@@ -488,6 +503,7 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
     githubUrl: (row.github_url as string) || "",
     linkedinUrl: (row.linkedin_url as string) || "",
     websiteUrl: (row.website_url as string) || "",
+    hideLeetcodeStats: Number(row.hide_leetcode_stats ?? 0) === 1,
     allTimeSolved: Number(row.all_time_solved),
     easySolved: Number(row.easy_solved),
     mediumSolved: Number(row.medium_solved),
@@ -1001,6 +1017,14 @@ export async function insertPlatformAccount(
 
 // Unlinks the account together with everything stored for it. Returns false
 // when the member had nothing linked on that platform.
+// Shows or hides the member's LeetCode stats on their profile.
+export async function setHideLeetcodeStats(userId: string, hidden: boolean): Promise<void> {
+  await client.execute({
+    sql: "UPDATE users SET hide_leetcode_stats = ? WHERE id = ?",
+    args: [hidden ? 1 : 0, userId]
+  });
+}
+
 // Shows or hides a linked account from other members. false = no such account.
 export async function setPlatformHidden(userId: string, platform: PlatformId, hidden: boolean): Promise<boolean> {
   const res = await client.execute({

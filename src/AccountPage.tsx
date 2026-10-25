@@ -123,6 +123,61 @@ const PLATFORM_UI: Record<
 
 const PLATFORM_ORDER: PlatformId[] = ["codeforces", "codingame"];
 
+// "Hide on my profile" switch, shared by every platform row (LeetCode included).
+// Hidden stats still count on the leaderboards and in the global stats.
+function HideSwitch({
+  id,
+  hidden,
+  busy,
+  label,
+  onToggle
+}: {
+  id: string;
+  hidden: boolean;
+  busy: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
+      <div className="min-w-0">
+        <p className="flex items-center gap-1.5 text-sm text-mist-100">
+          {hidden ? (
+            <EyeOff className="size-3.5 shrink-0 text-mist-500" aria-hidden="true" />
+          ) : (
+            <Eye className="size-3.5 shrink-0 text-mist-500" aria-hidden="true" />
+          )}
+          Hide on my profile
+        </p>
+        <p className="mt-0.5 text-xs text-mist-500">
+          {hidden
+            ? "Other members can't see these stats on your profile. They still count on the leaderboard and in the global stats."
+            : "Everyone can see these stats on your profile."}
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={hidden}
+        aria-label={label}
+        onClick={onToggle}
+        disabled={busy}
+        id={id}
+        className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
+          hidden ? "bg-teal-400" : "bg-ink-700 ring-1 ring-line"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+            hidden ? "translate-x-5" : "translate-x-0"
+          }`}
+          aria-hidden="true"
+        />
+      </button>
+    </div>
+  );
+}
+
 function PlatformRow({
   platform,
   account,
@@ -318,42 +373,13 @@ function PlatformRow({
 
       {/* Visibility */}
       {account && !confirmingRemove && (
-        <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
-          <div className="min-w-0">
-            <p className="flex items-center gap-1.5 text-sm text-mist-100">
-              {account.hidden ? (
-                <EyeOff className="size-3.5 shrink-0 text-mist-500" aria-hidden="true" />
-              ) : (
-                <Eye className="size-3.5 shrink-0 text-mist-500" aria-hidden="true" />
-              )}
-              Hide on my profile
-            </p>
-            <p className="mt-0.5 text-xs text-mist-500">
-              {account.hidden
-                ? "Other members can't see these stats on your profile. They still count on the leaderboard and in the global stats."
-                : "Everyone can see these stats on your profile."}
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={account.hidden}
-            aria-label={`Hide ${ui.label} stats on my profile`}
-            onClick={handleHidden}
-            disabled={busy}
-            id={`account-platform-${platform}-hidden`}
-            className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
-              account.hidden ? "bg-teal-400" : "bg-ink-700 ring-1 ring-line"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                account.hidden ? "translate-x-5" : "translate-x-0"
-              }`}
-              aria-hidden="true"
-            />
-          </button>
-        </div>
+        <HideSwitch
+          id={`account-platform-${platform}-hidden`}
+          hidden={account.hidden}
+          busy={busy}
+          label={`Hide ${ui.label} stats on my profile`}
+          onToggle={handleHidden}
+        />
       )}
 
       {/* Remove confirmation */}
@@ -493,8 +519,23 @@ function PlatformRow({
 }
 
 function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
-  const { user } = useAuth();
+  const { user, setHideLeetcodeStats } = useAuth();
+  const [lcBusy, setLcBusy] = useState(false);
+  const [lcError, setLcError] = useState<string | null>(null);
   if (!user) return null;
+
+  const toggleLeetcodeHidden = async () => {
+    setLcError(null);
+    setLcBusy(true);
+    try {
+      await setHideLeetcodeStats(!user.hideLeetcodeStats);
+      onChanged?.();
+    } catch (err: any) {
+      setLcError(err.message || "Couldn't change who can see this.");
+    } finally {
+      setLcBusy(false);
+    }
+  };
 
   return (
     <Card
@@ -519,6 +560,14 @@ function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
               Locked
             </span>
           </div>
+          <HideSwitch
+            id="account-platform-leetcode-hidden"
+            hidden={!!user.hideLeetcodeStats}
+            busy={lcBusy}
+            label="Hide LeetCode stats on my profile"
+            onToggle={toggleLeetcodeHidden}
+          />
+          {lcError && <p className="mt-2 text-xs text-rose-300">{lcError}</p>}
         </div>
 
         {PLATFORM_ORDER.map((platform) => (
