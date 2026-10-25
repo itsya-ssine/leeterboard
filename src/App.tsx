@@ -4,6 +4,7 @@ import {
   RefreshCw,
   Trash2,
   Flame,
+  Gamepad2,
   ArrowUpRight,
   Pin,
   LogIn,
@@ -37,6 +38,7 @@ import ComparePage from "./ComparePage.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
 import ProfilePage from "./ProfilePage.js";
+import CodinGamePage from "./CodinGamePage.js";
 import CodeforcesPage, { codeforcesBuckets, codeforcesMembers, compareCodeforces } from "./CodeforcesPage.js";
 
 /* ---------- Shared style tokens ---------- */
@@ -79,10 +81,10 @@ type SortKey = "weekly" | "allTime" | "rating";
 // The pages share one app shell. They are switched with the URL hash
 // (#/ = leaderboard, #/stats = stats, #/compare/<a>/<b> = head to head,
 // #/u/<username> = member profile, #/account = account settings,
-// #/codeforces = Codeforces board, #/admin = sync health for admins) so no
+// #/codeforces = Codeforces board, #/codingame = CodinGame board, #/admin = sync health for admins) so no
 // server rewrite is needed: a plain
 // static host or Vercel serves "/" for all.
-type Page = "leaderboard" | "stats" | "codeforces" | "compare" | "profile" | "account" | "admin";
+type Page = "leaderboard" | "stats" | "codeforces" | "codingame" | "compare" | "profile" | "account" | "admin";
 
 // Which platform the Stats page is showing.
 type StatsPlatform = "leetcode" | "codeforces";
@@ -94,6 +96,7 @@ function readPage(): Page {
   if (hash.startsWith("#/u/")) return "profile";
   if (hash.startsWith("#/account")) return "account";
   if (hash.startsWith("#/codeforces")) return "codeforces";
+  if (hash.startsWith("#/codingame")) return "codingame";
   return hash.startsWith("#/stats") ? "stats" : "leaderboard";
 }
 
@@ -111,6 +114,7 @@ function readProfileName(): string | null {
 const NAV_ITEMS = [
   { page: "leaderboard", href: "#/", label: "Leaderboard", Icon: ListOrdered },
   { page: "codeforces", href: "#/codeforces", label: "Codeforces", Icon: Trophy },
+  { page: "codingame", href: "#/codingame", label: "CodinGame", Icon: Gamepad2 },
   { page: "stats", href: "#/stats", label: "Stats", Icon: Activity },
   { page: "compare", href: "#/compare", label: "Compare", Icon: Swords }
 ] as const;
@@ -819,7 +823,9 @@ export default function App() {
                     ? "Roster stats"
                     : page === "codeforces"
                       ? "Codeforces ladder"
-                      : "Weekly LeetCode sprint"}
+                      : page === "codingame"
+                        ? "CodinGame ladder"
+                        : "Weekly LeetCode sprint"}
             </h1>
             <p className="mt-2 max-w-xl text-base text-mist-400">
               {page === "admin"
@@ -830,7 +836,9 @@ export default function App() {
                   ? "tachou makaynch f top 3."
                   : page === "codeforces"
                     ? "Members who linked their Codeforces account, by problems solved, this week or rating."
-                    : "9raa wziid 9ra."}
+                    : page === "codingame"
+                      ? "Members who linked their CodinGame account, by total XP, XP earned this week or level."
+                      : "9raa wziid 9ra."}
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-mist-400">
@@ -883,6 +891,9 @@ export default function App() {
 
         {/* ======== Codeforces page ======== */}
         {page === "codeforces" && <CodeforcesPage users={users} loading={loading} />}
+
+        {/* ======== CodinGame page ======== */}
+        {page === "codingame" && <CodinGamePage users={users} loading={loading} />}
 
         {/* ======== Stats page ======== */}
         {page === "stats" && (

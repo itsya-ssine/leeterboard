@@ -1,4 +1,4 @@
-// Sync for the extra platforms (Codeforces now, CodinGame later) that members
+// Sync for the extra platforms (Codeforces and CodinGame) that members
 // link on top of their LeetCode account. Kept out of server.ts, and kept
 // separate from the LeetCode sync on purpose: a failure here is recorded in
 // platform_sync_status and never touches a member's LeetCode stats.
@@ -11,13 +11,51 @@ import {
   recordPlatformSyncResult,
   type PlatformAccountRow
 } from "./db.js";
+import { client } from "./db.js";
 import { PlatformNotFoundError, type PlatformStats } from "./platforms/common.js";
-import { fetchCodeforcesStats } from "./platforms/codeforces.js";
+import { fetchCodeforcesStats, startOfUtcWeekSeconds } from "./platforms/codeforces.js";
+import { fetchCodingameStats } from "./platforms/codingame.js";
 
-// A platform without a provider yet (CodinGame) is skipped, not an error.
+// A platform without a provider is skipped, not an error.
 const PROVIDERS: Partial<Record<PlatformId, (handle: string) => Promise<PlatformStats>>> = {
-  codeforces: fetchCodeforcesStats
+  codeforces: fetchCodeforcesStats,
+  codingame: fetchCodingameStats
 };
+
+// Platforms that expose no submission timestamps: weekly and monthly progress
+// is the difference between today's total and the total in our own daily
+// snapshots (platform_history). Codeforces computes both exactly itself.
+const PROGRESS_FROM_HISTORY = new Set<PlatformId>(["codingame"]);
+
+// The member's total on or before `date`; if tracking started after that date,
+// their first snapshot (they only earn progress from when they linked). null =
+// no snapshots yet (first sync).
+async function totalAtOrBefore(userId: string, platform: PlatformId, date: string): Promise<number | null> {
+  const before = await client.execute({
+    sql: "SELECT solved FROM platform_history WHERE user_id = ? AND platform = ? AND date <= ? ORDER BY date DESC LIMIT 1",
+    args: [userId, platform, date]
+  });
+  if (before.rows.length) return Number(before.rows[0].solved);
+  const first = await client.execute({
+    sql: "SELECT solved FROM platform_history WHERE user_id = ? AND platform = ? ORDER BY date ASC LIMIT 1",
+    args: [userId, platform]
+  });
+  return first.rows.length ? Number(first.rows[0].solved) : null;
+}
+
+async function withHistoryProgress(a: AccountRef, stats: PlatformStats, now: Date = new Date()): Promise<PlatformStats> {
+  const weekStart = new Date(startOfUtcWeekSeconds(now.getTime()) * 1000).toISOString().slice(0, 10);
+  const monthStart = new Date(now.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const [weekBase, monthBase] = await Promise.all([
+    totalAtOrBefore(a.userId, a.platform, weekStart),
+    totalAtOrBefore(a.userId, a.platform, monthStart)
+  ]);
+  return {
+    ...stats,
+    weekly: weekBase === null ? 0 : Math.max(0, stats.solved - weekBase),
+    monthly: monthBase === null ? 0 : Math.max(0, stats.solved - monthBase)
+  };
+}
 
 interface AccountRef {
   userId: string;
@@ -46,6 +84,7 @@ export async function syncPlatformAccount(a: AccountRef): Promise<boolean> {
   }
 
   try {
+    if (PROGRESS_FROM_HISTORY.has(a.platform)) stats = await withHistoryProgress(a, stats);
     await savePlatformStats(a.userId, a.platform, stats);
   } catch (err: any) {
     // The fetch worked but the database write didn't: not the platform's fault,

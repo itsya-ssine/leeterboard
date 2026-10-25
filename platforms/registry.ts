@@ -1,6 +1,7 @@
 import type { PlatformId } from "../src/types.js";
 import type { PlatformProfile } from "./common.js";
 import { fetchCodeforcesProfile } from "./codeforces.js";
+import { fetchCodingameProfile } from "./codingame.js";
 
 // What the link / unlink routes need to know about each extra platform.
 export interface PlatformInfo {
@@ -28,9 +29,11 @@ export const PLATFORMS: Record<PlatformId, PlatformInfo> = {
   codingame: {
     id: "codingame",
     label: "CodinGame",
+    // The hex id in the profile URL (codingame.com/profile/<handle>), not the pseudo.
     handlePattern: /^[A-Za-z0-9]{1,64}$/,
-    fetchProfile: undefined, // not supported yet
-    proofHelp: ""
+    fetchProfile: fetchCodingameProfile,
+    proofHelp:
+      "On CodinGame open your profile and edit it, then paste the code into your Tagline (any text field such as Company or School also works) and save. Then press Verify. You can remove the code afterwards."
   }
 };
 

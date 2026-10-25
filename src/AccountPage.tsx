@@ -95,7 +95,7 @@ const PLATFORM_UI: Record<
     placeholder: string;
     profileUrl: (handle: string) => string;
     // Where the member pastes the proof code.
-    settingsUrl: string;
+    settingsUrl: (handle: string) => string;
     settingsLabel: string;
   }
 > = {
@@ -104,15 +104,15 @@ const PLATFORM_UI: Record<
     available: true,
     placeholder: "your Codeforces handle",
     profileUrl: (h) => `https://codeforces.com/profile/${encodeURIComponent(h)}`,
-    settingsUrl: "https://codeforces.com/settings/social",
+    settingsUrl: () => "https://codeforces.com/settings/social",
     settingsLabel: "Settings > Social"
   },
   codingame: {
     label: "CodinGame",
-    available: false,
-    placeholder: "profile id from your CodinGame URL",
+    available: true,
+    placeholder: "id from codingame.com/profile/<id>",
     profileUrl: (h) => `https://www.codingame.com/profile/${encodeURIComponent(h)}`,
-    settingsUrl: "https://www.codingame.com/profile",
+    settingsUrl: (h) => `https://www.codingame.com/profile/${encodeURIComponent(h)}`,
     settingsLabel: "your profile"
   }
 };
@@ -237,14 +237,23 @@ function PlatformRow({
               {account.lastUpdated ? (
                 <>
                   {" "}
-                  · {account.solved} solved
-                  {account.rating != null && (
+                  {platform === "codingame" ? (
                     <>
-                      {" "}
-                      · <span className={rankTextClass(account.rankTitle)}>{account.rating}</span>{" "}
-                      <span className={rankTextClass(account.rankTitle)}>
-                        {platform === "codeforces" ? formatRankTitle(account.rankTitle) : ""}
-                      </span>
+                      · {account.solved.toLocaleString()} XP
+                      {account.rating != null && <> · Level {account.rating}</>}
+                    </>
+                  ) : (
+                    <>
+                      · {account.solved} solved
+                      {account.rating != null && (
+                        <>
+                          {" "}
+                          · <span className={rankTextClass(account.rankTitle)}>{account.rating}</span>{" "}
+                          <span className={rankTextClass(account.rankTitle)}>
+                            {formatRankTitle(account.rankTitle)}
+                          </span>
+                        </>
+                      )}
                     </>
                   )}
                 </>
@@ -380,7 +389,7 @@ function PlatformRow({
                 <>Paste the code into a profile field of that account and save it. </>
               )}
               <a
-                href={ui.settingsUrl}
+                href={ui.settingsUrl(challenge.handle)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={`inline-flex items-center gap-1 rounded font-medium text-teal-300 hover:underline ${focusRing}`}
