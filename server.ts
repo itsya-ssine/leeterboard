@@ -63,6 +63,7 @@ import {
 import { syncAllPlatformAccounts, syncPlatformAccount, syncPlatformAccountsForUser } from "./platformSync.js";
 import { PLATFORMS, isPlatformId, type PlatformInfo } from "./platforms/registry.js";
 import { PlatformNotFoundError } from "./platforms/common.js";
+import { buildPlatformTrend } from "./platformTrends.js";
 import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
@@ -1858,6 +1859,13 @@ app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
 app.get("/api/trends", async (req, res) => {
   try {
     const users = await listUsers();
+
+    // ?platform=codeforces: the same shape, built from that platform's linked
+    // accounts only. Without the parameter this is the LeetCode trend below.
+    if (req.query.platform !== undefined) {
+      if (!isPlatformId(req.query.platform)) return res.status(400).json({ error: "Unknown platform." });
+      return res.json(await buildPlatformTrend(req.query.platform, users));
+    }
 
     // Group growth: how many problems the roster has solved SINCE TRACKING
     // BEGAN, not the sum of everyone's lifetime totals. Each member is measured

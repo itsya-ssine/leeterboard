@@ -3,15 +3,21 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  Copy,
+  ExternalLink,
   GraduationCap,
   KeyRound,
   Link2,
+  Lock,
   LogOut,
+  Plus,
   RefreshCw,
   Trash2,
   UserRound
 } from "lucide-react";
-import { useAuth } from "./AuthContext.js";
+import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
+import type { PlatformAccount, PlatformId } from "./types.js";
+import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -24,6 +30,9 @@ const btnPrimary = `${btnBase} w-full bg-teal-400 text-ink-950 hover:bg-teal-300
 const btnSecondary = `${btnBase} w-full bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
 const btnDanger = `${btnBase} w-full bg-rose-500 text-white hover:bg-rose-400`;
 const btnLink = `${btnBase} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
+
+// Compact button for the rows in the Linked accounts card.
+const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-ink-800 px-3 text-xs font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 
 const labelCls = "mb-1.5 block text-sm font-medium text-mist-400";
 
@@ -69,6 +78,385 @@ function Card({
       {description && <p className="mt-1 text-sm text-mist-500">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+
+/* ---------- Linked accounts ---------- */
+
+// What the UI needs to know about each extra platform. `available: false`
+// shows the row but keeps Add disabled (the server rejects linking until the
+// platform has a provider); flip it when the provider lands.
+const PLATFORM_UI: Record<
+  PlatformId,
+  {
+    label: string;
+    available: boolean;
+    placeholder: string;
+    profileUrl: (handle: string) => string;
+    // Where the member pastes the proof code.
+    settingsUrl: string;
+    settingsLabel: string;
+  }
+> = {
+  codeforces: {
+    label: "Codeforces",
+    available: true,
+    placeholder: "your Codeforces handle",
+    profileUrl: (h) => `https://codeforces.com/profile/${encodeURIComponent(h)}`,
+    settingsUrl: "https://codeforces.com/settings/social",
+    settingsLabel: "Settings > Social"
+  },
+  codingame: {
+    label: "CodinGame",
+    available: false,
+    placeholder: "profile id from your CodinGame URL",
+    profileUrl: (h) => `https://www.codingame.com/profile/${encodeURIComponent(h)}`,
+    settingsUrl: "https://www.codingame.com/profile",
+    settingsLabel: "your profile"
+  }
+};
+
+const PLATFORM_ORDER: PlatformId[] = ["codeforces", "codingame"];
+
+function PlatformRow({
+  platform,
+  account,
+  onChanged
+}: {
+  platform: PlatformId;
+  account: PlatformAccount | undefined;
+  onChanged?: () => void;
+}) {
+  const { startPlatformLink, verifyPlatformLink, unlinkPlatform } = useAuth();
+  const ui = PLATFORM_UI[platform];
+
+  const [step, setStep] = useState<"idle" | "handle" | "verify">("idle");
+  const [handle, setHandle] = useState("");
+  const [challenge, setChallenge] = useState<PlatformLinkChallenge | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
+
+  const reset = () => {
+    setStep("idle");
+    setHandle("");
+    setChallenge(null);
+    setNotice(null);
+    setCopied(false);
+  };
+
+  const handleStart = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNotice(null);
+    const trimmed = handle.trim();
+    if (!trimmed) {
+      setNotice({ kind: "error", message: `Enter your ${ui.label} handle.` });
+      return;
+    }
+    setBusy(true);
+    try {
+      setChallenge(await startPlatformLink(platform, trimmed));
+      setStep("verify");
+    } catch (err: any) {
+      setNotice({ kind: "error", message: err.message || `Couldn't start linking ${ui.label}.` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    setNotice(null);
+    setBusy(true);
+    try {
+      const updated = await verifyPlatformLink(platform);
+      const linked = updated.platforms?.[platform];
+      reset();
+      setNotice({
+        kind: "success",
+        message: linked?.lastUpdated
+          ? `${ui.label} linked.`
+          : `${ui.label} linked. Your stats will show up after the next sync.`
+      });
+      onChanged?.();
+    } catch (err: any) {
+      if (err.expired) {
+        // The request is gone on the server: back to the handle form.
+        setChallenge(null);
+        setStep("handle");
+      }
+      setNotice({ kind: "error", message: err.message || `Couldn't verify your ${ui.label} account.` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    setNotice(null);
+    setBusy(true);
+    try {
+      await unlinkPlatform(platform);
+      setConfirmingRemove(false);
+      setNotice({ kind: "success", message: `${ui.label} removed.` });
+      onChanged?.();
+    } catch (err: any) {
+      setNotice({ kind: "error", message: err.message || `Couldn't remove ${ui.label}.` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyCode = async () => {
+    if (!challenge) return;
+    try {
+      await navigator.clipboard.writeText(challenge.code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard blocked: the code is selectable on screen.
+    }
+  };
+
+  return (
+    <div id={`account-platform-${platform}`} className="rounded-lg bg-ink-950 p-3 ring-1 ring-line">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-strong">{ui.label}</p>
+          {account ? (
+            <p className="truncate text-xs text-mist-500">
+              <a
+                href={ui.profileUrl(account.handle)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center gap-1 rounded font-medium text-teal-300 hover:underline ${focusRing}`}
+              >
+                @{account.handle}
+                <ExternalLink className="size-3" aria-hidden="true" />
+              </a>
+              {account.lastUpdated ? (
+                <>
+                  {" "}
+                  · {account.solved} solved
+                  {account.rating != null && (
+                    <>
+                      {" "}
+                      · <span className={rankTextClass(account.rankTitle)}>{account.rating}</span>{" "}
+                      <span className={rankTextClass(account.rankTitle)}>
+                        {platform === "codeforces" ? formatRankTitle(account.rankTitle) : ""}
+                      </span>
+                    </>
+                  )}
+                </>
+              ) : (
+                " · not synced yet"
+              )}
+            </p>
+          ) : (
+            <p className="text-xs text-mist-500">{ui.available ? "Not linked" : "Coming soon"}</p>
+          )}
+        </div>
+
+        {account && !confirmingRemove && (
+          <button
+            type="button"
+            onClick={() => {
+              setNotice(null);
+              setConfirmingRemove(true);
+            }}
+            disabled={busy}
+            className={btnSmall}
+          >
+            <Trash2 className="size-3.5" aria-hidden="true" />
+            Remove
+          </button>
+        )}
+        {!account && step === "idle" && (
+          <button
+            type="button"
+            onClick={() => {
+              setNotice(null);
+              setStep("handle");
+            }}
+            disabled={!ui.available}
+            className={btnSmall}
+          >
+            <Plus className="size-3.5" aria-hidden="true" />
+            Add
+          </button>
+        )}
+      </div>
+
+      {/* Remove confirmation */}
+      {account && confirmingRemove && (
+        <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
+          <p className="text-sm leading-relaxed text-rose-300">
+            Remove <span className="font-semibold">@{account.handle}</span>? Its stats and history are deleted from
+            the board. You can link it again later.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmingRemove(false)}
+              disabled={busy}
+              className={btnSecondary}
+            >
+              Cancel
+            </button>
+            <button type="button" onClick={handleRemove} disabled={busy} className={btnDanger}>
+              {busy ? <RefreshCw className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              {busy ? "Removing…" : "Remove"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 1: handle */}
+      {!account && step === "handle" && (
+        <form onSubmit={handleStart} className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
+          <div>
+            <label htmlFor={`acct-${platform}-handle`} className={labelCls}>
+              {ui.label} handle
+            </label>
+            <input
+              id={`acct-${platform}-handle`}
+              type="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              maxLength={64}
+              placeholder={ui.placeholder}
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+              className={inputCls}
+              disabled={busy}
+            />
+            <p className="mt-1.5 text-xs text-mist-500">
+              Next you'll prove the account is yours by saving a short code on its profile.
+            </p>
+          </div>
+          <NoticeBox notice={notice} />
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={reset} disabled={busy} className={btnSecondary}>
+              Cancel
+            </button>
+            <button type="submit" disabled={busy} className={btnPrimary}>
+              {busy && <RefreshCw className="size-4 animate-spin" />}
+              {busy ? "Checking…" : "Continue"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Step 2: prove ownership */}
+      {!account && step === "verify" && challenge && (
+        <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
+          <p className="text-sm text-mist-400">
+            Proving that <span className="font-medium text-strong">@{challenge.handle}</span> is yours.
+          </p>
+
+          <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-mist-400">
+            <li>Copy this code:</li>
+          </ol>
+          <div className="flex items-center gap-2 rounded-lg bg-ink-900 p-2 pl-3 ring-1 ring-line">
+            <code className="min-w-0 flex-1 select-all truncate font-mono text-sm text-teal-300">
+              {challenge.code}
+            </code>
+            <button
+              type="button"
+              onClick={copyCode}
+              className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-ink-800 px-2.5 text-xs font-medium text-mist-100 ring-1 ring-line hover:bg-ink-700 ${focusRing}`}
+            >
+              {copied ? <Check className="size-3.5 text-teal-300" /> : <Copy className="size-3.5" />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+
+          <ol start={2} className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-mist-400">
+            <li>
+              {challenge.instructions ? (
+                <>{challenge.instructions} </>
+              ) : (
+                <>Paste the code into a profile field of that account and save it. </>
+              )}
+              <a
+                href={ui.settingsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center gap-1 rounded font-medium text-teal-300 hover:underline ${focusRing}`}
+              >
+                Open {ui.settingsLabel} <ExternalLink className="size-3" />
+              </a>
+            </li>
+          </ol>
+
+          <p className="text-xs text-mist-500">The code expires in {challenge.expiresInMinutes} minutes.</p>
+
+          <NoticeBox notice={notice} />
+
+          <button type="button" onClick={handleVerify} disabled={busy} className={btnPrimary}>
+            {busy ? <RefreshCw className="size-4 animate-spin" /> : <Check className="size-4" />}
+            {busy ? "Checking your profile…" : "Verify & link"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStep("handle");
+              setChallenge(null);
+              setNotice(null);
+            }}
+            disabled={busy}
+            className={btnSecondary}
+          >
+            Back
+          </button>
+        </div>
+      )}
+
+      {/* Result of the last action when no form is open */}
+      {step === "idle" && notice && (
+        <div className="mt-3">
+          <NoticeBox notice={notice} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
+  const { user } = useAuth();
+  if (!user) return null;
+
+  return (
+    <Card
+      icon={<Link2 className="size-4 text-teal-300" />}
+      title="Linked accounts"
+      description="Add other platforms to appear on their boards. You prove each account is yours with a short code."
+      id="account-platforms-card"
+    >
+      <div className="flex flex-col gap-3">
+        {/* LeetCode is the main account: always linked, never removable here. */}
+        <div id="account-platform-leetcode" className="rounded-lg bg-ink-950 p-3 ring-1 ring-line">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-strong">LeetCode</p>
+              <p className="truncate text-xs text-mist-500">@{user.leetcodeUsername} · main account</p>
+            </div>
+            <span
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-ink-800 px-3 text-xs font-medium text-mist-400 ring-1 ring-line"
+              title="LeetCode is your main account and can't be removed."
+            >
+              <Lock className="size-3.5" aria-hidden="true" />
+              Locked
+            </span>
+          </div>
+        </div>
+
+        {PLATFORM_ORDER.map((platform) => (
+          <PlatformRow key={platform} platform={platform} account={user.platforms?.[platform]} onChanged={onChanged} />
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -482,6 +870,8 @@ export default function AccountPage({
 
         {/* ---------- Right column: security and account ---------- */}
         <div className="flex flex-col gap-6">
+          <LinkedAccountsCard onChanged={onChanged} />
+
           <Card icon={<KeyRound className="size-4 text-teal-300" />} title="Change password" id="account-password-card">
             <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
               {/* Lets password managers attach the new password to the right account. */}

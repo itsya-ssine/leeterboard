@@ -12,6 +12,7 @@ import {
   ListOrdered,
   ShieldCheck,
   Swords,
+  Trophy,
   UserRound
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -36,6 +37,7 @@ import ComparePage from "./ComparePage.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
 import ProfilePage from "./ProfilePage.js";
+import CodeforcesPage, { codeforcesBuckets, codeforcesMembers, compareCodeforces } from "./CodeforcesPage.js";
 
 /* ---------- Shared style tokens ---------- */
 
@@ -77,10 +79,13 @@ type SortKey = "weekly" | "allTime" | "rating";
 // The pages share one app shell. They are switched with the URL hash
 // (#/ = leaderboard, #/stats = stats, #/compare/<a>/<b> = head to head,
 // #/u/<username> = member profile, #/account = account settings,
-// #/admin = sync health for admins) so no
+// #/codeforces = Codeforces board, #/admin = sync health for admins) so no
 // server rewrite is needed: a plain
 // static host or Vercel serves "/" for all.
-type Page = "leaderboard" | "stats" | "compare" | "profile" | "account" | "admin";
+type Page = "leaderboard" | "stats" | "codeforces" | "compare" | "profile" | "account" | "admin";
+
+// Which platform the Stats page is showing.
+type StatsPlatform = "leetcode" | "codeforces";
 
 function readPage(): Page {
   const hash = window.location.hash;
@@ -88,6 +93,7 @@ function readPage(): Page {
   if (hash.startsWith("#/compare")) return "compare";
   if (hash.startsWith("#/u/")) return "profile";
   if (hash.startsWith("#/account")) return "account";
+  if (hash.startsWith("#/codeforces")) return "codeforces";
   return hash.startsWith("#/stats") ? "stats" : "leaderboard";
 }
 
@@ -104,6 +110,7 @@ function readProfileName(): string | null {
 
 const NAV_ITEMS = [
   { page: "leaderboard", href: "#/", label: "Leaderboard", Icon: ListOrdered },
+  { page: "codeforces", href: "#/codeforces", label: "Codeforces", Icon: Trophy },
   { page: "stats", href: "#/stats", label: "Stats", Icon: Activity },
   { page: "compare", href: "#/compare", label: "Compare", Icon: Swords }
 ] as const;
@@ -271,7 +278,15 @@ interface TrendPoint {
   activeUsers: number;
 }
 
-function GroupGrowthChart({ trend }: { trend: any }) {
+function GroupGrowthChart({
+  trend,
+  description = "Problems the whole roster has solved since tracking began",
+  breakdownLabel = "Solved by difficulty, whole roster"
+}: {
+  trend: any;
+  description?: string;
+  breakdownLabel?: string;
+}) {
   const series: TrendPoint[] = trend?.historyTrend ?? [];
   const breakdown: { name: string; value: number }[] = trend?.difficultyBreakdown ?? [];
   const pick = (name: string) => breakdown.find((b) => b.name === name)?.value ?? 0;
@@ -286,7 +301,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
     >
       <div className="mb-4">
         <h2 className="text-base font-semibold tracking-tight text-strong">Group growth</h2>
-        <p className="mt-0.5 text-sm text-mist-500">Problems the whole roster has solved since tracking began</p>
+        <p className="mt-0.5 text-sm text-mist-500">{description}</p>
       </div>
 
       {series.length < 2 ? (
@@ -349,7 +364,7 @@ function GroupGrowthChart({ trend }: { trend: any }) {
 
       {breakdown.length > 0 && (
         <div className="mt-4 border-t border-line pt-4">
-          <div className="mb-3 text-sm font-medium text-mist-400">Solved by difficulty, whole roster</div>
+          <div className="mb-3 text-sm font-medium text-mist-400">{breakdownLabel}</div>
           <DifficultyBar easy={pick("Easy")} medium={pick("Medium")} hard={pick("Hard")} size="lg" />
         </div>
       )}
@@ -389,6 +404,12 @@ export default function App() {
 
   // Trend analysis state
   const [trendData, setTrendData] = useState<any>(null);
+
+  // Stats page: which platform is shown, and the Codeforces trend. The
+  // Codeforces trend is only fetched while that view is open (and re-fetched
+  // whenever the board data refreshes), so the LeetCode view costs nothing extra.
+  const [statsPlatform, setStatsPlatform] = useState<StatsPlatform>("leetcode");
+  const [cfTrendData, setCfTrendData] = useState<any>(null);
 
   // Fetch users and metrics
   const loadData = async () => {
@@ -472,6 +493,20 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (page !== "stats" || statsPlatform !== "codeforces") return;
+    let cancelled = false;
+    fetch("/api/trends?platform=codeforces")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setCfTrendData(data);
+      })
+      .catch((err) => console.warn("Couldn't load Codeforces trends:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [page, statsPlatform, users]);
 
   // Mirror the view into the address bar (?sort=weekly&q=ali) so it can be
   // shared. replaceState, not pushState, so typing doesn't flood the back
@@ -583,6 +618,41 @@ export default function App() {
   // by total solved), independent of the leaderboard's sort or search.
   const topWeekly = [...users].sort(compareUsers("weekly")).slice(0, 3);
 
+  // Stats page, Codeforces view: only members who linked an account count.
+  const cfMembers = codeforcesMembers(users);
+  const cfSolvedTotal = cfMembers.reduce((acc, m) => acc + m.account.solved, 0);
+  const cfWeeklyTotal = cfMembers.reduce((acc, m) => acc + m.account.weeklySolved, 0);
+  const cfTopWeekly = [...cfMembers].sort(compareCodeforces("weekly"))[0];
+
+  const isCf = statsPlatform === "codeforces";
+
+  // The three members who solved the most this week on the selected platform.
+  const topCards = isCf
+    ? [...cfMembers]
+        .sort(compareCodeforces("weekly"))
+        .slice(0, 3)
+        .map(({ user, account }) => {
+          const b = codeforcesBuckets(account);
+          return {
+            user,
+            handle: account.handle,
+            easy: b.easy,
+            medium: b.medium,
+            hard: b.hard,
+            solved: account.solved,
+            weekly: account.weeklySolved
+          };
+        })
+    : topWeekly.map((user) => ({
+        user,
+        handle: user.leetcodeUsername,
+        easy: user.easySolved,
+        medium: user.mediumSolved,
+        hard: user.hardSolved,
+        solved: user.allTimeSolved,
+        weekly: user.weeklyProgress
+      }));
+
   // Formatting Last Sync time
   const formatSyncTime = (isoString: string) => {
     if (!isoString) return "";
@@ -639,6 +709,40 @@ export default function App() {
       isName: true
     }
   ];
+
+  interface StatCard {
+    label: string;
+    value: string;
+    hint: string;
+    accent?: boolean;
+    isName?: boolean;
+  }
+  const statCards: StatCard[] = isCf
+    ? [
+        {
+          label: "Members on Codeforces",
+          value: String(cfMembers.length),
+          hint: `of ${users.length} on the board`
+        },
+        {
+          label: "Problems solved",
+          value: cfSolvedTotal.toLocaleString(),
+          hint: `${cfMembers.length ? Math.round(cfSolvedTotal / cfMembers.length) : 0} per member on average`
+        },
+        {
+          label: "Solved this week",
+          value: `+${cfWeeklyTotal}`,
+          hint: "Across linked members",
+          accent: true
+        },
+        {
+          label: "Top solver this week",
+          value: cfTopWeekly && cfTopWeekly.account.weeklySolved > 0 ? cfTopWeekly.user.displayName : "N/A",
+          hint: `+${cfTopWeekly?.account.weeklySolved ?? 0} problems`,
+          isName: true
+        }
+      ]
+    : stats;
 
   return (
     <div className="min-h-screen bg-ink-950 text-mist-100">
@@ -713,7 +817,9 @@ export default function App() {
                   ? "Head to head"
                   : page === "stats"
                     ? "Roster stats"
-                    : "Weekly LeetCode sprint"}
+                    : page === "codeforces"
+                      ? "Codeforces ladder"
+                      : "Weekly LeetCode sprint"}
             </h1>
             <p className="mt-2 max-w-xl text-base text-mist-400">
               {page === "admin"
@@ -722,7 +828,9 @@ export default function App() {
                   ? "Pick two members and see who is ahead, stat by stat and over time."
                   : page === "stats"
                   ? "tachou makaynch f top 3."
-                  : "9raa wziid 9ra."}
+                  : page === "codeforces"
+                    ? "Members who linked their Codeforces account, by problems solved, this week or rating."
+                    : "9raa wziid 9ra."}
             </p>
           </div>
           <div className="flex items-center gap-2 text-sm text-mist-400">
@@ -773,16 +881,46 @@ export default function App() {
             </p>
           ))}
 
+        {/* ======== Codeforces page ======== */}
+        {page === "codeforces" && <CodeforcesPage users={users} loading={loading} />}
+
         {/* ======== Stats page ======== */}
         {page === "stats" && (
           <>
+        {/* ---------- Platform switcher ---------- */}
+        <div
+          role="group"
+          aria-label="Stats platform"
+          className="mb-6 inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line"
+        >
+          {(
+            [
+              { key: "leetcode", label: "LeetCode", id: "stats-platform-leetcode-btn" },
+              { key: "codeforces", label: "Codeforces", id: "stats-platform-codeforces-btn" }
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setStatsPlatform(opt.key)}
+              aria-pressed={statsPlatform === opt.key}
+              id={opt.id}
+              className={`h-8 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors ${focusRing} ${
+                statsPlatform === opt.key ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         {/* ---------- Roster stats ---------- */}
         <section
           id="stats-banner"
           aria-label="Roster statistics"
           className="mb-8 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line lg:grid-cols-4"
         >
-          {stats.map((s) => (
+          {statCards.map((s) => (
             <div key={s.label} className="min-w-0 bg-ink-900 p-5">
               <div className="text-sm text-mist-500">{s.label}</div>
               <div
@@ -798,11 +936,11 @@ export default function App() {
         </section>
 
         {/* ---------- Top solvers this week (weekly progress only) ---------- */}
-        {!loading && topWeekly.length > 0 && (
+        {!loading && topCards.length > 0 && (
           <section aria-label="Top solvers this week" className="mb-8">
             <h2 className="mb-3 text-base font-semibold tracking-tight text-strong">Top solvers this week</h2>
             <div className="grid gap-3 md:grid-cols-3">
-              {topWeekly.map((user, i) => (
+              {topCards.map(({ user, handle, easy, medium, hard, solved, weekly }, i) => (
                 <button
                   key={user.id}
                   type="button"
@@ -820,21 +958,21 @@ export default function App() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-semibold text-strong">{user.displayName}</span>
-                        {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
+                        {weekly >= HOT_STREAK_THRESHOLD && <HotStreak />}
                       </div>
-                      <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
+                      <div className="truncate text-sm text-mist-500">@{handle}</div>
                       <SchoolTag school={user.school} className="mt-1" />
                     </div>
                   </div>
 
-                  <DifficultyBar easy={user.easySolved} medium={user.mediumSolved} hard={user.hardSolved} />
+                  <DifficultyBar easy={easy} medium={medium} hard={hard} />
 
                   <div className="flex items-baseline justify-between border-t border-line pt-3 text-sm">
                     <span className="text-mist-400">
-                      <span className="font-semibold tabular-nums">{user.allTimeSolved}</span> solved
+                      <span className="font-semibold tabular-nums">{solved}</span> solved
                     </span>
                     <span className="text-teal-300">
-                      <span className="font-semibold tabular-nums">+{user.weeklyProgress}</span> this week
+                      <span className="font-semibold tabular-nums">+{weekly}</span> this week
                     </span>
                   </div>
                 </button>
@@ -844,10 +982,17 @@ export default function App() {
         )}
 
         {/* ---------- Group growth ---------- */}
-        {!loading && <GroupGrowthChart trend={trendData} />}
+        {!loading && !isCf && <GroupGrowthChart trend={trendData} />}
+        {!loading && isCf && (
+          <GroupGrowthChart
+            trend={cfTrendData}
+            description="Codeforces problems the linked members have solved since they linked their account"
+            breakdownLabel="Solved by problem rating: under 1200, 1200 to 1699, 1700 and up"
+          />
+        )}
 
-        {/* ---------- Group activity heatmap ---------- */}
-        {!loading && <ActivityHeatmap users={users} />}
+        {/* ---------- Group activity heatmap (LeetCode submissions only) ---------- */}
+        {!loading && !isCf && <ActivityHeatmap users={users} />}
 
           </>
         )}

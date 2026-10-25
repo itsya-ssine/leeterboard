@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { User } from "./types.js";
+import { User, PlatformId } from "./types.js";
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
 
@@ -11,6 +11,16 @@ export interface RegistrationChallenge {
   // password yet · "reset": existing account, setting a new password.
   purpose: "create" | "claim" | "reset";
   leetcodeUsername: string;
+  expiresInMinutes: number;
+}
+
+// Returned when linking an extra platform account is started: the code the
+// member must paste into a profile field of that account to prove it is theirs.
+export interface PlatformLinkChallenge {
+  code: string;
+  platform: PlatformId;
+  handle: string; // the platform's own spelling of the handle
+  instructions: string; // where to put the code, written by the server per platform
   expiresInMinutes: number;
 }
 
@@ -35,6 +45,9 @@ interface AuthContextValue {
   updateProfileDetails: (details: ProfileDetails) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   deleteAccount: (password: string) => Promise<void>;
+  startPlatformLink: (platform: PlatformId, handle: string) => Promise<PlatformLinkChallenge>;
+  verifyPlatformLink: (platform: PlatformId) => Promise<User>;
+  unlinkPlatform: (platform: PlatformId) => Promise<User>;
 }
 
 // Thrown for any non-2xx response; `expired` is set when the server says the
@@ -153,6 +166,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus("guest");
   }, []);
 
+  // Linked Codeforces / CodinGame accounts. Start asks the server for a proof
+  // code, verify checks it on the public profile and links the account, unlink
+  // removes it. The server answers with the updated member, so the session user
+  // (and its `platforms`) stays current without another fetch.
+  const startPlatformLink = useCallback(
+    (platform: PlatformId, handle: string) =>
+      postJson<PlatformLinkChallenge>(`/api/account/platforms/${platform}/start`, { handle }),
+    []
+  );
+
+  const verifyPlatformLink = useCallback(async (platform: PlatformId) => {
+    const data = await postJson<User>(`/api/account/platforms/${platform}/verify`);
+    setUser(data);
+    return data;
+  }, []);
+
+  const unlinkPlatform = useCallback(async (platform: PlatformId) => {
+    const data = await requestJson<User>("DELETE", `/api/account/platforms/${platform}`);
+    setUser(data);
+    return data;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await fetch("/api/logout", { method: "POST" });
@@ -176,7 +211,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updateSchool,
         updateProfileDetails,
         changePassword,
-        deleteAccount
+        deleteAccount,
+        startPlatformLink,
+        verifyPlatformLink,
+        unlinkPlatform
       }}
     >
       {children}
