@@ -1,45 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Download, ImageIcon, Linkedin, RefreshCw, Share2 } from "lucide-react";
+import { Check, Copy, Download, ImageIcon, Linkedin, Share2 } from "lucide-react";
 import Modal from "./Modal.js";
+import { btnPrimary, btnSecondary, CardHeader, focusRing, PreviewStage, Segmented, StatusLine } from "./CardDialog.js";
 import type { User } from "./types.js";
 import { renderShareCard, type CardFormat, type CardTheme } from "./shareCard.js";
-
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
-
-const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnPrimary = `${btnBase} bg-teal-400 text-ink-950 hover:bg-teal-300`;
-const btnSecondary = `${btnBase} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
-
-function Segmented<T extends string>({
-  label,
-  value,
-  options,
-  onChange
-}: {
-  label: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div role="group" aria-label={label} className="inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line">
-      {options.map((opt) => (
-        <button
-          key={opt.value}
-          type="button"
-          aria-pressed={value === opt.value}
-          onClick={() => onChange(opt.value)}
-          className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${focusRing} ${
-            value === opt.value ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
-          }`}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -222,10 +186,12 @@ export default function ShareCardModal({
 
   return (
     <Modal onClose={onClose} label="Share card" maxWidth="max-w-2xl" id="share-card-modal">
-      <h2 className="mr-8 text-lg font-semibold tracking-tight text-strong">Share your card</h2>
-      <p className="mt-1 text-sm text-mist-500">
-        A picture of your stats to post on LinkedIn or send to friends.
-      </p>
+      <CardHeader
+        icon={<Share2 className="size-5" />}
+        eyebrow="share.card"
+        title="Share your card"
+        description="A picture of your stats to post on LinkedIn or send to friends."
+      />
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Segmented<CardFormat>
@@ -248,28 +214,14 @@ export default function ShareCardModal({
         />
       </div>
 
-      <div
-        className="mt-4 grid place-items-center overflow-hidden rounded-xl bg-ink-950 p-2 ring-1 ring-line"
-        style={{ minHeight: "12rem" }}
-      >
-        {error ? (
-          <p role="alert" className="px-4 py-10 text-center text-sm text-rose-300">
-            {error}
-          </p>
-        ) : previewUrl ? (
-          <img
-            src={previewUrl}
-            alt={`Share card for ${user.displayName}`}
-            className={`max-h-[50vh] w-auto max-w-full rounded-lg object-contain transition-opacity ${
-              rendering ? "opacity-40" : "opacity-100"
-            }`}
-          />
-        ) : (
-          <div className="flex items-center gap-2 py-10 text-sm text-mist-500">
-            <RefreshCw className="size-4 animate-spin" aria-hidden="true" />
-            Drawing your card…
-          </div>
-        )}
+      <div className="mt-4">
+        <PreviewStage
+          error={error}
+          previewUrl={previewUrl}
+          rendering={rendering}
+          alt={`Share card for ${user.displayName}`}
+          loadingText="Drawing your card…"
+        />
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -295,19 +247,17 @@ export default function ShareCardModal({
         )}
       </div>
 
-      <p role="status" aria-live="polite" className="mt-3 min-h-5 text-sm text-teal-300">
-        {notice}
-      </p>
+      <StatusLine>{notice}</StatusLine>
 
-      <div className="mt-3 border-t border-line pt-4">
+      <div className="mt-4 border-t border-line pt-4">
         <div className="mb-1.5 flex items-center justify-between gap-3">
-          <label htmlFor="share-caption" className="text-sm font-medium text-mist-400">
+          <label htmlFor="share-caption" className="font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500">
             Caption
           </label>
           <button
             type="button"
             onClick={handleCopyCaption}
-            className={`inline-flex cursor-pointer items-center gap-1.5 rounded text-xs font-medium text-mist-400 transition-colors hover:text-teal-300 ${focusRing}`}
+            className={`inline-flex cursor-pointer items-center gap-1.5 rounded font-mono text-[11px] font-semibold uppercase tracking-wider text-mist-400 transition-colors hover:text-teal-300 ${focusRing}`}
           >
             {captionCopied ? (
               <Check className="size-3.5 text-teal-300" aria-hidden="true" />
@@ -323,7 +273,7 @@ export default function ShareCardModal({
           onChange={(e) => setCaption(e.target.value)}
           rows={4}
           maxLength={1500}
-          className="w-full resize-y rounded-lg bg-ink-950 px-3 py-2 text-sm text-mist-100 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400"
+          className="w-full resize-y rounded-xl bg-ink-950/80 px-3.5 py-3 text-sm leading-relaxed text-mist-100 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400"
         />
         <p className="mt-1.5 text-xs text-mist-500">
           LinkedIn can't attach an image from a link, so the card is copied or downloaded for you to add to the post.
