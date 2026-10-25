@@ -18,6 +18,7 @@ import {
   Swords,
   Target,
   Trophy,
+  UserX,
   Zap
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -48,6 +49,9 @@ import {
   type CodeforcesSort
 } from "./CodeforcesPage.js";
 import { useAuth } from "./AuthContext.js";
+import EmptyState from "./EmptyState.js";
+import AnimatedNumber from "./AnimatedNumber.js";
+import { useToast } from "./Toast.js";
 
 /* ---------- Shared bits ---------- */
 
@@ -228,6 +232,7 @@ function Hero({
   const [copied, setCopied] = useState(false);
   const [sharing, setSharing] = useState(false);
   const { user: me } = useAuth();
+  const { toast } = useToast();
   const isOwnProfile = !!me && me.id === user.id;
   const badgesEarned = useMemo(
     () => computeBadges(user, computeGroupAwards(users, Date.now())).filter((b) => b.earned).length,
@@ -240,9 +245,11 @@ function Hero({
     try {
       await navigator.clipboard.writeText(window.location.href);
       setCopied(true);
+      toast("success", "Profile link copied.");
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
       // Clipboard blocked: the address bar already holds the shareable link.
+      toast("error", "Couldn't copy the link. Copy it from the address bar instead.");
     }
   };
 
@@ -546,7 +553,7 @@ function KpiGrid({ user, stats }: { user: User; stats: ProfileStats }) {
                 k.accent ? "text-aurora" : "text-strong"
               }`}
             >
-              {k.value}
+              {typeof k.value === "string" ? <AnimatedNumber value={k.value} /> : k.value}
             </div>
             <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
             <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
@@ -1323,15 +1330,12 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
 
   if (!account.lastUpdated) {
     return (
-      <div id="profile-codeforces" className="card-aurora animate-rise px-5 py-12 text-center">
-        <div className="mx-auto mb-3 grid size-10 place-items-center rounded-lg bg-tint text-mist-500 ring-1 ring-line">
-          <Clock className="size-4" aria-hidden="true" />
-        </div>
-        <p className="font-medium text-strong">Codeforces stats are on their way</p>
-        <p className="mt-1 text-sm text-mist-500">
-          @{account.handle} is linked but hasn't been synced yet. The numbers show up after the next sync.
-        </p>
-      </div>
+      <EmptyState
+        id="profile-codeforces"
+        icon={<Clock className="size-5" aria-hidden="true" />}
+        title="Codeforces stats are on their way"
+        description={`@${account.handle} is linked but hasn't been synced yet. The numbers show up after the next sync.`}
+      />
     );
   }
 
@@ -1424,7 +1428,7 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
                   k.accent ? "text-aurora" : "text-strong"
                 }`}
               >
-                {k.value}
+                {typeof k.value === "string" ? <AnimatedNumber value={k.value} /> : k.value}
               </div>
               <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
               <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
@@ -1542,16 +1546,17 @@ export default function ProfilePage({
 
   if (!user || !stats) {
     return (
-      <div className="card-aurora animate-rise px-5 py-14 text-center" id="profile-missing">
-        <p className="font-medium text-strong">Member not found</p>
-        <p className="mt-1 text-sm text-mist-500">
-          {username ? `Nobody on the board is called @${username}. They may have left or changed their username.` : "No member selected."}
-        </p>
-        <a href="#/" className={`${btnSecondary} mt-5`}>
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to the leaderboard
-        </a>
-      </div>
+      <EmptyState
+        id="profile-missing"
+        icon={<UserX className="size-5" aria-hidden="true" />}
+        title="Member not found"
+        description={
+          username
+            ? `Nobody on the board is called @${username}. They may have left or changed their username.`
+            : "No member selected."
+        }
+        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+      />
     );
   }
 
@@ -1592,13 +1597,12 @@ export default function ProfilePage({
 
       {activeView === null ? (
         <Reveal key="private">
-          <div id="profile-private" className="card-aurora animate-rise px-5 py-14 text-center">
-            <div className="mx-auto mb-3 grid size-10 place-items-center rounded-lg bg-tint text-mist-500 ring-1 ring-line">
-              <EyeOff className="size-4" aria-hidden="true" />
-            </div>
-            <p className="font-medium text-strong">{user.displayName} keeps their stats private</p>
-            <p className="mt-1 text-sm text-mist-500">They still appear on the leaderboards.</p>
-          </div>
+          <EmptyState
+            id="profile-private"
+            icon={<EyeOff className="size-5" aria-hidden="true" />}
+            title={`${user.displayName} keeps their stats private`}
+            description="They still appear on the leaderboards."
+          />
         </Reveal>
       ) : activeView === "codeforces" && cfAccount ? (
         <Reveal key="codeforces">

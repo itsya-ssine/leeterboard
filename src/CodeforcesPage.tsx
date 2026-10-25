@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ArrowUpRight, Clock, Link2 } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
+import EmptyState from "./EmptyState.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -336,19 +337,13 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
             ))}
           </div>
         ) : members.length === 0 ? (
-          <div className="px-6 py-16 text-center">
-            <div className="animate-float mx-auto mb-3 grid size-12 place-items-center rounded-full bg-ink-800 text-mist-500 ring-1 ring-line">
-              <Link2 className="size-4" />
-            </div>
-            <p className="font-medium text-strong">Nobody has linked Codeforces yet</p>
-            <p className="mt-1 text-sm text-mist-500">
-              Add your handle under{" "}
-              <a href="#/account" className={`rounded font-medium text-teal-300 hover:underline ${focusRing}`}>
-                Account settings &gt; Linked accounts
-              </a>{" "}
-              to appear here.
-            </p>
-          </div>
+          <EmptyState
+            bare
+            icon={<Link2 className="size-5" aria-hidden="true" />}
+            title="Nobody has linked Codeforces yet"
+            description="Add your handle under Account settings > Linked accounts to appear here."
+            action={{ label: "Link my account", href: "#/account" }}
+          />
         ) : (
           <div className="divide-y divide-line">
             {members.map(({ user, account }, index) => {

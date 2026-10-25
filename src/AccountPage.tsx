@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -20,6 +20,10 @@ import {
 import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
 import type { PlatformAccount, PlatformId } from "./types.js";
 import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
+import PageHeader from "./PageHeader.js";
+import EmptyState from "./EmptyState.js";
+import { AccountSkeleton } from "./Skeleton.js";
+import { useToast } from "./Toast.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -42,8 +46,23 @@ const labelCls = "mb-1.5 block font-mono text-[11px] font-semibold uppercase tra
 
 type Notice = { kind: "error" | "success"; message: string } | null;
 
+// Notice state for a form. Errors stay inline next to the form that caused
+// them; successes pop up as a toast instead of taking up room in the card.
+function useNoticeState() {
+  const { toast } = useToast();
+  const [notice, setNotice] = useState<Notice>(null);
+  const set = useCallback(
+    (next: Notice) => {
+      if (next?.kind === "success") toast("success", next.message);
+      setNotice(next);
+    },
+    [toast]
+  );
+  return [notice, set] as const;
+}
+
 function NoticeBox({ notice }: { notice: Notice }) {
-  if (!notice) return null;
+  if (!notice || notice.kind === "success") return null;
   const isError = notice.kind === "error";
   return (
     <div
@@ -200,7 +219,7 @@ function PlatformRow({
   const [handle, setHandle] = useState("");
   const [challenge, setChallenge] = useState<PlatformLinkChallenge | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<Notice>(null);
+  const [notice, setNotice] = useNoticeState();
   const [copied, setCopied] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
@@ -608,29 +627,29 @@ export default function AccountPage({
 
   const [name, setName] = useState("");
   const [nameBusy, setNameBusy] = useState(false);
-  const [nameNotice, setNameNotice] = useState<Notice>(null);
+  const [nameNotice, setNameNotice] = useNoticeState();
 
   const [school, setSchool] = useState("");
   const [schoolBusy, setSchoolBusy] = useState(false);
-  const [schoolNotice, setSchoolNotice] = useState<Notice>(null);
+  const [schoolNotice, setSchoolNotice] = useNoticeState();
 
   const [bio, setBio] = useState("");
   const [github, setGithub] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [website, setWebsite] = useState("");
   const [aboutBusy, setAboutBusy] = useState(false);
-  const [aboutNotice, setAboutNotice] = useState<Notice>(null);
+  const [aboutNotice, setAboutNotice] = useNoticeState();
 
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
-  const [pwNotice, setPwNotice] = useState<Notice>(null);
+  const [pwNotice, setPwNotice] = useNoticeState();
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletePw, setDeletePw] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteNotice, setDeleteNotice] = useState<Notice>(null);
+  const [deleteNotice, setDeleteNotice] = useNoticeState();
 
   // Fill the forms once, when the signed-in member is first known — not every
   // time the user object changes, which would overwrite what they are typing.
@@ -647,22 +666,19 @@ export default function AccountPage({
   }, [userId]);
 
   if (status === "loading") {
-    return <p className="py-10 text-center text-sm text-mist-500">Checking your session…</p>;
+    return <AccountSkeleton />;
   }
 
   if (!user) {
     return (
-      <div
+      <EmptyState
         id="account-signed-out"
-        className="card-aurora mx-auto max-w-xl animate-rise px-5 py-12 text-center"
-      >
-        <p className="font-medium text-strong">You're not signed in</p>
-        <p className="mt-1 text-sm text-mist-500">Log in to change your name, school, links or password.</p>
-        <a href="#/" className={`${btnLink} mt-5`}>
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to the leaderboard
-        </a>
-      </div>
+        className="mx-auto max-w-xl"
+        icon={<Lock className="size-5" aria-hidden="true" />}
+        title="You're not signed in"
+        description="Log in to change your name, school, links or password."
+        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+      />
     );
   }
 
@@ -814,27 +830,23 @@ export default function AccountPage({
 
   return (
     <div id="account-page" className="mx-auto w-full min-w-0 max-w-4xl space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="mb-2 font-mono text-[11px] uppercase tracking-widest text-mist-500">{"// account.settings"}</div>
-          <h1 className="text-2xl font-bold tracking-tight text-strong sm:text-3xl md:text-4xl">
-            Account <span className="text-aurora">settings</span>
-          </h1>
-          <p className="mt-2 max-w-xl text-base text-mist-400">
-            Choose how you appear on the board, and manage your password and account.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <a href={profileHref} className={btnLinkResponsive} id="account-view-profile" aria-label="View my profile" title="View my profile">
-            <UserRound className="size-4" aria-hidden="true" />
-            <span className="hidden sm:inline">View my profile</span>
-          </a>
-          <a href="#/" className={btnLinkResponsive} aria-label="Back to the leaderboard" title="Leaderboard">
-            <ArrowLeft className="size-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Leaderboard</span>
-          </a>
-        </div>
-      </div>
+      <PageHeader
+        command="./leeterboard account --settings"
+        title="Account settings"
+        description="Choose how you appear on the board, and manage your password and account."
+        actions={
+          <>
+            <a href={profileHref} className={btnLinkResponsive} id="account-view-profile" aria-label="View my profile" title="View my profile">
+              <UserRound className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">View my profile</span>
+            </a>
+            <a href="#/" className={btnLinkResponsive} aria-label="Back to the leaderboard" title="Leaderboard">
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Leaderboard</span>
+            </a>
+          </>
+        }
+      />
 
       <div className="card-aurora flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
         <img

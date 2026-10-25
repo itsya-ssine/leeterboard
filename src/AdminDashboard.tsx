@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Megaphone, RefreshCw, Send, Trash2, UserX } from "lucide-react";
 import type { AdminSyncMember, AdminSyncReport, SentMessage } from "./types.js";
+import { ListSkeleton } from "./Skeleton.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -241,7 +242,7 @@ function MessagesPanel({ members }: { members: AdminSyncMember[] }) {
           )}
 
           {sent === null ? (
-            <p className="px-5 py-10 text-center text-sm text-mist-500">{loadError ? "" : "Loading…"}</p>
+            loadError ? null : <ListSkeleton bare label="Loading messages" rows={3} />
           ) : sent.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-mist-500">No messages sent yet.</p>
           ) : (
@@ -353,7 +354,7 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
   };
 
   if (loading && !report) {
-    return <p className="py-10 text-center text-sm text-mist-500">Loading sync status…</p>;
+    return <ListSkeleton label="Loading sync status" rows={6} />;
   }
 
   if (!report) {

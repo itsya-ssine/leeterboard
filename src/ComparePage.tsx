@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowLeftRight, Crown, ImageIcon, Swords } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, Crown, ImageIcon, Swords } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { User } from "./types.js";
 import { chartColors, useTheme } from "./theme.js";
@@ -11,6 +11,8 @@ import {
   type HistoryMode
 } from "./compare.js";
 import CompareCardModal from "./CompareCardModal.js";
+import EmptyState from "./EmptyState.js";
+import { CompareSkeleton } from "./Skeleton.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -209,11 +211,16 @@ export default function ComparePage({ users }: { users: User[] }) {
   const { theme } = useTheme();
   const c = chartColors(theme);
 
+  if (users.length === 0) return <CompareSkeleton />;
+
   if (users.length < 2) {
     return (
-      <p className="card-aurora px-5 py-10 text-center text-sm text-mist-500">
-        {users.length === 0 ? "Loading members…" : "You need at least two members on the board to compare."}
-      </p>
+      <EmptyState
+        icon={<Swords className="size-5" aria-hidden="true" />}
+        title="Nobody to compare with yet"
+        description="You need at least two members on the board to compare."
+        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+      />
     );
   }
 

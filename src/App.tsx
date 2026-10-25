@@ -19,7 +19,8 @@ import {
   Users,
   CheckCheck,
   TrendingUp,
-  Crown
+  Crown,
+  Lock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -44,6 +45,9 @@ import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
 import ProfilePage from "./ProfilePage.js";
 import CodinGamePage from "./CodinGamePage.js";
+import EmptyState from "./EmptyState.js";
+import AnimatedNumber from "./AnimatedNumber.js";
+import { CompareSkeleton, ListSkeleton, ProfileSkeleton } from "./Skeleton.js";
 import CodeforcesPage, { codeforcesBuckets, codeforcesMembers, compareCodeforces } from "./CodeforcesPage.js";
 
 /* ---------- Shared style tokens ---------- */
@@ -1068,11 +1072,7 @@ export default function App() {
         {/* ======== Profile page ======== */}
         {page === "profile" &&
           (loading ? (
-            <div className="space-y-4" aria-busy="true">
-              <span className="sr-only">Loading profile</span>
-              <div className="h-56 animate-pulse rounded-2xl bg-ink-900 ring-1 ring-line" />
-              <div className="h-32 animate-pulse rounded-xl bg-ink-900 ring-1 ring-line" />
-            </div>
+            <ProfileSkeleton />
           ) : (
             <ProfilePage users={users} winners={winners} username={profileName} lastSyncAll={lastSyncAll} />
           ))}
@@ -1081,18 +1081,25 @@ export default function App() {
         {page === "account" && <AccountPage onChanged={loadData} />}
 
         {/* ======== Compare page ======== */}
-        {page === "compare" && !loading && <ComparePage users={users} />}
+        {page === "compare" && (loading ? <CompareSkeleton /> : <ComparePage users={users} />)}
 
         {/* ======== Admin page ======== */}
         {page === "admin" &&
           (currentUser?.isAdmin ? (
             <AdminDashboard onChanged={loadData} />
           ) : authStatus === "loading" ? (
-            <p className="py-10 text-center text-sm text-mist-500">Checking your access…</p>
+            <ListSkeleton label="Checking your access" />
           ) : (
-            <p className="rounded-xl bg-ink-900 px-5 py-10 text-center text-sm text-mist-400 ring-1 ring-line">
-              This page is for admins. Sign in with an admin account to see it.
-            </p>
+            <EmptyState
+              icon={<Lock className="size-5" aria-hidden="true" />}
+              title="This page is for admins"
+              description="Sign in with an admin account to see it."
+              action={
+                authStatus === "authenticated"
+                  ? { label: "Back to the leaderboard", href: "#/" }
+                  : { label: "Log in", onClick: () => setIsLoginOpen(true), icon: <LogIn className="size-4" aria-hidden="true" /> }
+              }
+            />
           ))}
 
         {/* ======== Codeforces page ======== */}
@@ -1162,7 +1169,7 @@ export default function App() {
                     s.isName ? "text-xl leading-9" : "text-3xl"
                   } ${s.accent ? "text-aurora" : "text-strong"}`}
                 >
-                  {s.value}
+                  {s.isName ? s.value : <AnimatedNumber value={s.value} />}
                 </div>
                 <div className="mt-1 truncate text-sm text-mist-500">{s.hint}</div>
                 <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${bar} to-transparent`} />
@@ -1188,7 +1195,7 @@ export default function App() {
                     key={user.id}
                     type="button"
                     onClick={() => setSelectedUser(user)}
-                    className={`card-aurora flex animate-rise cursor-pointer flex-col overflow-hidden text-left transition-transform duration-300 hover:-translate-y-1 ${focusRing}`}
+                    className={`card-aurora flex animate-rise cursor-pointer flex-col overflow-hidden text-left transition-transform duration-300 hover:-translate-y-1 active:scale-[0.98] ${focusRing}`}
                     style={{ animationDelay: `${i * 100}ms` }}
                   >
                     <div
@@ -1354,19 +1361,24 @@ export default function App() {
                     key="empty"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="px-6 py-16 text-center"
                   >
-                    <div className="animate-float mx-auto mb-3 grid size-12 place-items-center rounded-full bg-ink-800 text-mist-500 ring-1 ring-line">
-                      <Search className="size-4" />
-                    </div>
-                    <p className="font-medium text-strong">
-                      {searchQuery ? "No members match your search" : "No members on the board yet"}
-                    </p>
-                    <p className="mt-1 text-sm text-mist-500">
-                      {searchQuery
-                        ? "Try a different name or LeetCode username."
-                        : "Sign up to add yourself."}
-                    </p>
+                    <EmptyState
+                      bare
+                      icon={<Search className="size-5" aria-hidden="true" />}
+                      title={searchQuery ? "No members match your search" : "No members on the board yet"}
+                      description={
+                        searchQuery
+                          ? "Try a different name or LeetCode username."
+                          : "Sign up to add yourself."
+                      }
+                      action={
+                        searchQuery
+                          ? { label: "Clear search", onClick: () => setSearchQuery("") }
+                          : authStatus === "authenticated"
+                            ? undefined
+                            : { label: "Log in", onClick: () => setIsLoginOpen(true), icon: <LogIn className="size-4" aria-hidden="true" /> }
+                      }
+                    />
                   </motion.div>
                 ) : (
                   sortedUsers.map((user) => {
@@ -1382,6 +1394,7 @@ export default function App() {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
+                        transition={{ layout: { type: "spring", stiffness: 420, damping: 38 }, opacity: { duration: 0.18 } }}
                         className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 px-4 py-4 transition-colors md:grid-cols-12 md:gap-x-4 md:px-5 ${
                           isPinned
                             ? "bg-teal-400/[0.07] shadow-[inset_3px_0_0_0_var(--color-teal-400)]"
@@ -1409,7 +1422,7 @@ export default function App() {
                           type="button"
                           onClick={() => setSelectedUser(user)}
                           title="View full profile"
-                          className={`group/member flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left md:col-span-3 ${focusRing}`}
+                          className={`group/member flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left transition-transform active:scale-[0.97] md:col-span-3 ${focusRing}`}
                         >
                           <img
                             src={user.avatarUrl}
