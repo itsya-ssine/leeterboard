@@ -72,7 +72,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} aria-label={title} className="rounded-xl bg-ink-900 p-4 ring-1 ring-line sm:p-5">
+    <section id={id} aria-label={title} className="min-w-0 rounded-xl bg-ink-900 p-4 ring-1 ring-line sm:p-5">
       <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-strong">
         {icon}
         {title}
@@ -221,9 +221,9 @@ function PlatformRow({
   };
 
   return (
-    <div id={`account-platform-${platform}`} className="rounded-lg bg-ink-950 p-3 ring-1 ring-line">
+    <div id={`account-platform-${platform}`} className="min-w-0 rounded-lg bg-ink-950 p-3 ring-1 ring-line">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-strong">{ui.label}</p>
           {account ? (
             <p className="truncate text-xs text-mist-500">
@@ -366,11 +366,11 @@ function PlatformRow({
             Proving that <span className="font-medium text-strong">@{challenge.handle}</span> is yours.
           </p>
 
-          <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-mist-400">
+          <ol className="list-decimal space-y-2 break-words pl-5 text-sm leading-relaxed text-mist-400">
             <li>Copy this code:</li>
           </ol>
           <div className="flex items-center gap-2 rounded-lg bg-ink-900 p-2 pl-3 ring-1 ring-line">
-            <code className="min-w-0 flex-1 select-all truncate font-mono text-sm text-teal-300">
+            <code className="min-w-0 flex-1 select-all truncate font-mono text-xs text-teal-300 sm:text-sm">
               {challenge.code}
             </code>
             <button
@@ -383,7 +383,7 @@ function PlatformRow({
             </button>
           </div>
 
-          <ol start={2} className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-mist-400">
+          <ol start={2} className="list-decimal space-y-2 break-words pl-5 text-sm leading-relaxed text-mist-400">
             <li>
               {challenge.instructions ? (
                 <>{challenge.instructions} </>
@@ -700,7 +700,7 @@ export default function AccountPage({
   };
 
   return (
-    <div id="account-page" className="mx-auto max-w-4xl space-y-6">
+    <div id="account-page" className="mx-auto w-full min-w-0 max-w-4xl space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-strong sm:text-3xl md:text-4xl">Account settings</h1>
@@ -733,9 +733,9 @@ export default function AccountPage({
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 md:items-start">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-start">
         {/* ---------- Left column: how you appear ---------- */}
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           <Card icon={<UserRound className="size-4 text-teal-300" />} title="Display name" id="account-name-card">
             <form onSubmit={handleRename} className="flex flex-col gap-3">
               <div>
@@ -880,7 +880,7 @@ export default function AccountPage({
         </div>
 
         {/* ---------- Right column: security and account ---------- */}
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
           <LinkedAccountsCard onChanged={onChanged} />
 
           <Card icon={<KeyRound className="size-4 text-teal-300" />} title="Change password" id="account-password-card">
