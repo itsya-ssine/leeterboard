@@ -95,6 +95,7 @@ const PLATFORM_DDL = [
     extra TEXT NOT NULL DEFAULT '{}',
     linked_at TEXT NOT NULL,
     last_updated TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, platform)
   ) WITHOUT ROWID`,
   // A handle can belong to only one member (case-insensitive).
@@ -240,7 +241,8 @@ const MIGRATIONS: Migration[] = [
   { version: 4, name: "notification_dismissed", up: migrateNotificationDismissed },
   { version: 5, name: "user_school", up: migrateUserSchool },
   { version: 6, name: "user_profile_details", up: migrateUserProfileDetails },
-  { version: 7, name: "platform_accounts", up: migratePlatformAccounts }
+  { version: 7, name: "platform_accounts", up: migratePlatformAccounts },
+  { version: 8, name: "platform_account_hidden", up: migratePlatformAccountHidden }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -450,6 +452,14 @@ async function migrateUserProfileDetails(): Promise<void> {
 // IF NOT EXISTS, so it is safe to run twice.
 async function migratePlatformAccounts(): Promise<void> {
   await client.batch(PLATFORM_DDL, "write");
+}
+
+// v8 — lets a member hide a linked platform from other members. Tables created
+// by migration 7 after this change already have the column, so check first.
+async function migratePlatformAccountHidden(): Promise<void> {
+  if (!(await columnExists("platform_accounts", "hidden"))) {
+    await client.execute("ALTER TABLE platform_accounts ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0");
+  }
 }
 
 /* ---------- Users ---------- */
@@ -783,7 +793,8 @@ function rowToPlatformAccount(row: Record<string, unknown>): PlatformAccount {
     avatarUrl: (row.avatar_url as string | null) ?? null,
     extra: parseExtra(row.extra),
     linkedAt: row.linked_at as string,
-    lastUpdated: (row.last_updated as string | null) ?? null
+    lastUpdated: (row.last_updated as string | null) ?? null,
+    hidden: Number(row.hidden ?? 0) === 1
   };
 }
 
@@ -990,6 +1001,15 @@ export async function insertPlatformAccount(
 
 // Unlinks the account together with everything stored for it. Returns false
 // when the member had nothing linked on that platform.
+// Shows or hides a linked account from other members. false = no such account.
+export async function setPlatformHidden(userId: string, platform: PlatformId, hidden: boolean): Promise<boolean> {
+  const res = await client.execute({
+    sql: "UPDATE platform_accounts SET hidden = ? WHERE user_id = ? AND platform = ?",
+    args: [hidden ? 1 : 0, userId, platform]
+  });
+  return res.rowsAffected > 0;
+}
+
 export async function removePlatformAccount(userId: string, platform: PlatformId): Promise<boolean> {
   const results = await client.batch(
     [

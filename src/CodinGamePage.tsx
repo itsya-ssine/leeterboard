@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowUpRight, Clock, Link2 } from "lucide-react";
+import { ArrowUpRight, Clock, EyeOff, Link2 } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 
 const focusRing =
@@ -215,6 +215,15 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
                       <span>CodinGame</span>
                       <ArrowUpRight className="size-3 shrink-0" aria-hidden="true" />
                     </a>
+                    {account.hidden && (
+                      <div
+                        className="mt-1 inline-flex items-center gap-1 rounded bg-ink-800 px-1.5 py-0.5 text-xs text-mist-400 ring-1 ring-line"
+                        title="Hidden from other members. Only this member and admins see this row."
+                      >
+                        <EyeOff className="size-3" aria-hidden="true" />
+                        Hidden
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

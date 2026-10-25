@@ -7,6 +7,7 @@ import {
   Check,
   Clock,
   Crown,
+  EyeOff,
   Flame,
   Github,
   Globe,
@@ -1356,6 +1357,15 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
 
   return (
     <div id="profile-codeforces" className="space-y-4">
+      {account.hidden && (
+        <p
+          id="profile-cf-hidden"
+          className="flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-3 text-sm text-mist-400 ring-1 ring-line"
+        >
+          <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
+          Hidden from other members. Only this member and admins can see the Codeforces stats.
+        </p>
+      )}
       <section
         id="profile-cf-stats"
         aria-label="Codeforces key stats"

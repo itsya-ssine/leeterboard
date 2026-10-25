@@ -26,6 +26,9 @@ export interface PlatformAccount {
   extra: Record<string, unknown>;
   linkedAt: string;
   lastUpdated: string | null; // last successful sync; null = linked but not synced yet
+  // The member chose to hide this platform from other members. Only the member
+  // and admins ever receive a hidden account, so for everyone else it is absent.
+  hidden: boolean;
 }
 
 export interface User {

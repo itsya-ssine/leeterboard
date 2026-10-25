@@ -460,6 +460,18 @@ export default function App() {
     }
   };
 
+  // What the board shows depends on who is looking (members can hide a linked
+  // platform from others; they and admins still see it), so load it again when
+  // someone signs in or out, not only on the next poll.
+  const viewerId = authStatus === "authenticated" ? (currentUser?.id ?? null) : authStatus === "loading" ? undefined : null;
+  const lastViewerId = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (viewerId === undefined) return; // still checking the session
+    const previous = lastViewerId.current;
+    lastViewerId.current = viewerId;
+    if (previous !== undefined && previous !== viewerId) loadData();
+  }, [viewerId]);
+
   // Ask the server to refresh the board if it's stale. On Vercel there is no
   // background job, so visiting is what triggers the sync. The server decides
   // whether anything needs doing (fresh boards return immediately) and works

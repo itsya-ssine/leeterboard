@@ -148,6 +148,7 @@ CREATE TABLE platform_accounts (
   extra           TEXT NOT NULL DEFAULT '{}',
   linked_at       TEXT NOT NULL,
   last_updated    TEXT,                            -- last successful sync (NULL = never)
+  hidden          INTEGER NOT NULL DEFAULT 0,      -- 1 = hidden from other members (owner and admins still see it)
   PRIMARY KEY (user_id, platform)
 ) WITHOUT ROWID;
 -- A handle belongs to at most one member.

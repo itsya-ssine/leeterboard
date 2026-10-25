@@ -5,6 +5,8 @@ import {
   Check,
   Copy,
   ExternalLink,
+  Eye,
+  EyeOff,
   GraduationCap,
   KeyRound,
   Link2,
@@ -130,7 +132,7 @@ function PlatformRow({
   account: PlatformAccount | undefined;
   onChanged?: () => void;
 }) {
-  const { startPlatformLink, verifyPlatformLink, unlinkPlatform } = useAuth();
+  const { startPlatformLink, verifyPlatformLink, unlinkPlatform, setPlatformHidden } = useAuth();
   const ui = PLATFORM_UI[platform];
 
   const [step, setStep] = useState<"idle" | "handle" | "verify">("idle");
@@ -189,6 +191,22 @@ function PlatformRow({
         setStep("handle");
       }
       setNotice({ kind: "error", message: err.message || `Couldn't verify your ${ui.label} account.` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Hide / show this platform for other members. The server only sends a hidden
+  // account to its owner and to admins.
+  const handleHidden = async () => {
+    if (!account) return;
+    setNotice(null);
+    setBusy(true);
+    try {
+      await setPlatformHidden(platform, !account.hidden);
+      onChanged?.();
+    } catch (err: any) {
+      setNotice({ kind: "error", message: err.message || "Couldn't change who can see this." });
     } finally {
       setBusy(false);
     }
@@ -297,6 +315,46 @@ function PlatformRow({
           </button>
         )}
       </div>
+
+      {/* Visibility */}
+      {account && !confirmingRemove && (
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-sm text-mist-100">
+              {account.hidden ? (
+                <EyeOff className="size-3.5 shrink-0 text-mist-500" aria-hidden="true" />
+              ) : (
+                <Eye className="size-3.5 shrink-0 text-mist-500" aria-hidden="true" />
+              )}
+              Hide from other members
+            </p>
+            <p className="mt-0.5 text-xs text-mist-500">
+              {account.hidden
+                ? "Only you and admins can see these stats."
+                : "Everyone can see these stats on the board and on your profile."}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={account.hidden}
+            aria-label={`Hide ${ui.label} stats from other members`}
+            onClick={handleHidden}
+            disabled={busy}
+            id={`account-platform-${platform}-hidden`}
+            className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing} ${
+              account.hidden ? "bg-teal-400" : "bg-ink-700 ring-1 ring-line"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 size-5 rounded-full bg-white shadow transition-transform ${
+                account.hidden ? "translate-x-5" : "translate-x-0"
+              }`}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      )}
 
       {/* Remove confirmation */}
       {account && confirmingRemove && (

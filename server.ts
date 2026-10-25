@@ -3,7 +3,7 @@ import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import path from "path";
 import "dotenv/config";
-import { User, HistoryRecord, AdminSyncMember, AdminSyncReport } from "./src/types.js";
+import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./src/types.js";
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
@@ -43,6 +43,7 @@ import {
   findPlatformAccountOwner,
   insertPlatformAccount,
   removePlatformAccount,
+  setPlatformHidden,
   type UserWithAuth
 } from "./db.js";
 import {
@@ -679,10 +680,45 @@ async function resolveWinners(users: User[]): Promise<WeeklyWinner[]> {
   }
 }
 
+/* ---------- Hidden platform stats ---------- */
+//
+// A member can hide a linked platform (Codeforces / CodinGame) from other
+// members. The server enforces it: a hidden account is removed from the
+// response itself, so it can't be read from the network tab either. Only the
+// member who owns it and admins receive it (with hidden: true).
+
+interface Viewer {
+  id: string | null;
+  isAdmin: boolean;
+}
+
+async function viewerOf(req: express.Request): Promise<Viewer> {
+  try {
+    const session = await resolveSession(req);
+    return session ? { id: session.user.id, isAdmin: session.isAdmin } : { id: null, isAdmin: false };
+  } catch {
+    return { id: null, isAdmin: false };
+  }
+}
+
+function withVisiblePlatforms<T extends { id: string; platforms?: Partial<Record<PlatformId, PlatformAccount>> }>(
+  user: T,
+  viewer: Viewer
+): T {
+  if (!user.platforms || viewer.isAdmin || user.id === viewer.id) return user;
+  const visible: Partial<Record<PlatformId, PlatformAccount>> = {};
+  for (const [id, account] of Object.entries(user.platforms) as [PlatformId, PlatformAccount][]) {
+    if (!account.hidden) visible[id] = account;
+  }
+  return { ...user, platforms: visible };
+}
+
 // GET all users (with automatic ranking update)
 app.get("/api/users", async (req, res) => {
   try {
-    const users = await listUsers();
+    const viewer = await viewerOf(req);
+    res.vary("Cookie"); // the answer depends on who is asking
+    const users = (await listUsers()).map((u) => withVisiblePlatforms(u, viewer));
     sortAndRankUsers(users);
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
     const winners = await resolveWinners(users);
@@ -1452,6 +1488,28 @@ app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, asyn
   }
 });
 
+// PATCH — show or hide a linked account from other members. Body: { hidden: boolean }.
+app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    if (!isPlatformId(req.params.platform)) return res.status(404).json({ error: "Unknown platform." });
+    const platform = PLATFORMS[req.params.platform];
+
+    const hidden = req.body?.hidden;
+    if (typeof hidden !== "boolean") return res.status(400).json({ error: "hidden must be true or false." });
+
+    if (!(await setPlatformHidden(id, platform.id, hidden))) {
+      return res.status(404).json({ error: `You don't have a ${platform.label} account linked.` });
+    }
+    const updated = await userJson(id);
+    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    res.json(updated);
+  } catch (error: any) {
+    console.error(`[Account] platform visibility failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
 // POST — change password. Needs the current one; signs out every other
 // session and keeps this one signed in with a fresh cookie.
 app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) => {
@@ -1614,7 +1672,8 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
     }
     user.platforms = await getPlatformAccounts(user.id);
 
-    res.json(user);
+    res.vary("Cookie");
+    res.json(withVisiblePlatforms(user, await viewerOf(req)));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1858,7 +1917,9 @@ app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
 // GET aggregated monthly trend metrics
 app.get("/api/trends", async (req, res) => {
   try {
-    const users = await listUsers();
+    const viewer = await viewerOf(req);
+    res.vary("Cookie");
+    const users = (await listUsers()).map((u) => withVisiblePlatforms(u, viewer));
 
     // ?platform=codeforces: the same shape, built from that platform's linked
     // accounts only. Without the parameter this is the LeetCode trend below.

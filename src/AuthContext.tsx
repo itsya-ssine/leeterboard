@@ -48,6 +48,7 @@ interface AuthContextValue {
   startPlatformLink: (platform: PlatformId, handle: string) => Promise<PlatformLinkChallenge>;
   verifyPlatformLink: (platform: PlatformId) => Promise<User>;
   unlinkPlatform: (platform: PlatformId) => Promise<User>;
+  setPlatformHidden: (platform: PlatformId, hidden: boolean) => Promise<User>;
 }
 
 // Thrown for any non-2xx response; `expired` is set when the server says the
@@ -188,6 +189,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
+  // Hide a linked platform from other members (or show it again). Admins and
+  // the member themself always see it; the server enforces this.
+  const setPlatformHidden = useCallback(async (platform: PlatformId, hidden: boolean) => {
+    const data = await requestJson<User>("PATCH", `/api/account/platforms/${platform}`, { hidden });
+    setUser(data);
+    return data;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await fetch("/api/logout", { method: "POST" });
@@ -214,7 +223,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         deleteAccount,
         startPlatformLink,
         verifyPlatformLink,
-        unlinkPlatform
+        unlinkPlatform,
+        setPlatformHidden
       }}
     >
       {children}
