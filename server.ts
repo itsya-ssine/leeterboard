@@ -33,6 +33,8 @@ import {
   setMeta,
   recordSyncResult,
   listSyncStatus,
+  loadPlatformsByUser,
+  getPlatformAccounts,
   type UserWithAuth
 } from "./db.js";
 import {
@@ -50,6 +52,7 @@ import {
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH
 } from "./auth.js";
+import { syncAllPlatformAccounts, syncPlatformAccountsForUser } from "./platformSync.js";
 import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
@@ -1424,6 +1427,15 @@ app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
     await recordSyncResult(user.id, { ok: true });
     await checkNewAwards();
 
+    // Linked Codeforces / CodinGame accounts. Failures are recorded per account
+    // and never turn a successful LeetCode refresh into an error.
+    try {
+      await syncPlatformAccountsForUser(user.id);
+    } catch (err: any) {
+      console.warn(`[Refresh] Linked accounts failed for ${user.leetcodeUsername}: ${err.message}`);
+    }
+    user.platforms = await getPlatformAccounts(user.id);
+
     res.json(user);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1544,6 +1556,21 @@ async function syncAllUsers(
         error: err.message
       });
     }
+  }
+
+  // Linked Codeforces / CodinGame accounts, after LeetCode and on whatever is
+  // left of the time budget. Their failures are handled inside and never
+  // affect the LeetCode stats above.
+  try {
+    const left = opts.budgetMs === undefined ? undefined : Math.max(0, opts.budgetMs - (Date.now() - startedAt));
+    const platformPass = await syncAllPlatformAccounts({ onlyStaleMs: opts.onlyStaleMs, budgetMs: left });
+    if (platformPass.partial) partial = true;
+    if (platformPass.synced > 0) {
+      const byUser = await loadPlatformsByUser();
+      for (const u of users) u.platforms = byUser.get(u.id) ?? {};
+    }
+  } catch (err: any) {
+    console.warn(`[Sync All] Linked accounts pass failed: ${err.message}`);
   }
 
   // Anything earned during this pass (nothing to check if nobody was stale).

@@ -7,6 +7,27 @@ export interface HistoryRecord {
   weeklyProgress: number; // weekly counter as of that day
 }
 
+// Extra platforms a member can link on top of their (required) LeetCode account.
+export type PlatformId = "codeforces" | "codingame";
+
+// One linked account and its current stats. rating null = unrated.
+export interface PlatformAccount {
+  platform: PlatformId;
+  handle: string;
+  solved: number;
+  weeklySolved: number; // solved this calendar week (Monday-Sunday, UTC)
+  monthlySolved: number; // solved in the last 30 days
+  rating: number | null;
+  maxRating: number | null;
+  rankTitle: string | null; // e.g. Codeforces "specialist"
+  contests: number;
+  avatarUrl: string | null;
+  // Platform-specific details (Codeforces: { buckets: { easy, medium, hard, unrated } }).
+  extra: Record<string, unknown>;
+  linkedAt: string;
+  lastUpdated: string | null; // last successful sync; null = linked but not synced yet
+}
+
 export interface User {
   id: string;
   displayName: string;
@@ -47,6 +68,9 @@ export interface User {
   // other way.
   joinOrder?: number;
   isPinned?: boolean;
+  // Codeforces / CodinGame accounts the member has linked, keyed by platform.
+  // Empty object = none. Optional so records built by hand don't need it.
+  platforms?: Partial<Record<PlatformId, PlatformAccount>>;
   // Present only on the currently-authenticated user's own record (see
   // /api/auth/session, /api/auth/login and /api/auth/register/verify) —
   // never trust a client-supplied value for this, it's always derived

@@ -1,6 +1,7 @@
 import { createClient, type Client, type InStatement } from "@libsql/client";
 import { randomUUID } from "crypto";
-import { User, HistoryRecord, SyncState, NotificationType, AppNotification, NotificationFeed, SentMessage } from "./src/types.js";
+import { User, HistoryRecord, SyncState, NotificationType, AppNotification, NotificationFeed, SentMessage, PlatformAccount, PlatformId } from "./src/types.js";
+import type { PlatformStats } from "./platforms/common.js";
 
 // If TURSO_DATABASE_URL is set, connect to a real Turso cloud database.
 // Otherwise fall back to a local SQLite file (no signup needed) so the
@@ -522,7 +523,7 @@ export interface UserWithAuth {
 
 async function rowToUserWithAuth(row: Record<string, unknown>): Promise<UserWithAuth> {
   return {
-    user: rowToUser(row, await loadHistory(row.id as string)),
+    user: { ...rowToUser(row, await loadHistory(row.id as string)), platforms: await getPlatformAccounts(row.id as string) },
     auth: {
       passwordHash: (row.password_hash as string) || "",
       failedLogins: Number(row.failed_logins ?? 0),
@@ -535,13 +536,15 @@ export async function listUsers(): Promise<User[]> {
   // One batch (a single consistent read) for members and all their history.
   // rowid grows with every insert, so ordering by it gives join order — which
   // is what the "First on the board" badge is based on.
-  const [usersRes, historyRes] = await client.batch(
+  const [usersRes, historyRes, platformsRes] = await client.batch(
     [
       "SELECT * FROM users ORDER BY rowid",
-      `SELECT ${HISTORY_COLUMNS} FROM history ORDER BY user_id, date`
+      `SELECT ${HISTORY_COLUMNS} FROM history ORDER BY user_id, date`,
+      "SELECT * FROM platform_accounts ORDER BY linked_at"
     ],
     "read"
   );
+  const platformsByUser = groupPlatformRows(platformsRes.rows as unknown as Record<string, unknown>[]);
 
   const byUser = new Map<string, HistoryRecord[]>();
   for (const r of historyRes.rows as unknown as Record<string, unknown>[]) {
@@ -553,13 +556,22 @@ export async function listUsers(): Promise<User[]> {
 
   return usersRes.rows.map((r, i) => {
     const row = r as unknown as Record<string, unknown>;
-    return { ...rowToUser(row, byUser.get(row.id as string) ?? []), joinOrder: i + 1 };
+    return {
+      ...rowToUser(row, byUser.get(row.id as string) ?? []),
+      platforms: platformsByUser.get(row.id as string) ?? {},
+      joinOrder: i + 1
+    };
   });
 }
 
 export async function getUserById(id: string): Promise<User | null> {
   const res = await client.execute({ sql: "SELECT * FROM users WHERE id = ?", args: [id] });
-  return res.rows.length ? rowToUser(res.rows[0] as unknown as Record<string, unknown>, await loadHistory(id)) : null;
+  return res.rows.length
+    ? {
+        ...rowToUser(res.rows[0] as unknown as Record<string, unknown>, await loadHistory(id)),
+        platforms: await getPlatformAccounts(id)
+      }
+    : null;
 }
 
 export async function getUserAuthById(id: string): Promise<UserWithAuth | null> {
@@ -733,6 +745,171 @@ export async function deleteUserById(id: string): Promise<boolean> {
     "write"
   );
   return (results[results.length - 1].rowsAffected ?? 0) > 0;
+}
+
+/* ---------- Linked platform accounts ---------- */
+
+// A platform account plus the bookkeeping the sync needs.
+export interface PlatformAccountRow extends PlatformAccount {
+  userId: string;
+  lastAttempt: string | null; // latest sync attempt, successful or not
+}
+
+function parseExtra(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== "string") return {};
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function numOrNull(v: unknown): number | null {
+  return v === null || v === undefined ? null : Number(v);
+}
+
+function rowToPlatformAccount(row: Record<string, unknown>): PlatformAccount {
+  return {
+    platform: row.platform as PlatformId,
+    handle: row.handle as string,
+    solved: Number(row.solved ?? 0),
+    weeklySolved: Number(row.weekly_solved ?? 0),
+    monthlySolved: Number(row.monthly_solved ?? 0),
+    rating: numOrNull(row.rating),
+    maxRating: numOrNull(row.max_rating),
+    rankTitle: (row.rank_title as string | null) ?? null,
+    contests: Number(row.contests ?? 0),
+    avatarUrl: (row.avatar_url as string | null) ?? null,
+    extra: parseExtra(row.extra),
+    linkedAt: row.linked_at as string,
+    lastUpdated: (row.last_updated as string | null) ?? null
+  };
+}
+
+type PlatformMap = Partial<Record<PlatformId, PlatformAccount>>;
+
+function groupPlatformRows(rows: Record<string, unknown>[]): Map<string, PlatformMap> {
+  const byUser = new Map<string, PlatformMap>();
+  for (const r of rows) {
+    const id = r.user_id as string;
+    const account = rowToPlatformAccount(r);
+    const map = byUser.get(id);
+    if (map) map[account.platform] = account;
+    else byUser.set(id, { [account.platform]: account });
+  }
+  return byUser;
+}
+
+// Every member's linked accounts, keyed by member id.
+export async function loadPlatformsByUser(): Promise<Map<string, PlatformMap>> {
+  const res = await client.execute("SELECT * FROM platform_accounts ORDER BY linked_at");
+  return groupPlatformRows(res.rows as unknown as Record<string, unknown>[]);
+}
+
+export async function getPlatformAccounts(userId: string): Promise<PlatformMap> {
+  const res = await client.execute({
+    sql: "SELECT * FROM platform_accounts WHERE user_id = ? ORDER BY linked_at",
+    args: [userId]
+  });
+  return groupPlatformRows(res.rows as unknown as Record<string, unknown>[]).get(userId) ?? {};
+}
+
+// All linked accounts with their last sync attempt, for the sync passes.
+export async function listPlatformAccountsForSync(): Promise<PlatformAccountRow[]> {
+  const res = await client.execute(
+    `SELECT pa.*, ps.last_attempt AS last_attempt
+       FROM platform_accounts pa
+       LEFT JOIN platform_sync_status ps ON ps.user_id = pa.user_id AND ps.platform = pa.platform`
+  );
+  return res.rows.map((r) => {
+    const row = r as unknown as Record<string, unknown>;
+    return { ...rowToPlatformAccount(row), userId: row.user_id as string, lastAttempt: (row.last_attempt as string | null) ?? null };
+  });
+}
+
+// Stores fresh stats for one linked account and today's snapshot, and drops
+// snapshots older than HISTORY_LIMIT days. Does nothing if the member unlinked
+// the account while the fetch was in flight.
+export async function savePlatformStats(
+  userId: string,
+  platform: PlatformId,
+  stats: PlatformStats,
+  now: Date = new Date()
+): Promise<void> {
+  const iso = now.toISOString();
+  const today = iso.slice(0, 10);
+  const cutoff = new Date(now.getTime() - HISTORY_LIMIT * 86_400_000).toISOString().slice(0, 10);
+
+  await client.batch(
+    [
+      {
+        sql: `UPDATE platform_accounts SET
+          solved = ?, weekly_solved = ?, monthly_solved = ?,
+          rating = ?, max_rating = ?, rank_title = ?,
+          contests = COALESCE(?, contests), avatar_url = COALESCE(?, avatar_url),
+          extra = ?, last_updated = ?
+          WHERE user_id = ? AND platform = ?`,
+        args: [
+          stats.solved,
+          stats.weekly,
+          stats.monthly,
+          stats.rating,
+          stats.maxRating,
+          stats.rankTitle,
+          stats.contests ?? null,
+          stats.avatarUrl,
+          JSON.stringify(stats.extra ?? {}),
+          iso,
+          userId,
+          platform
+        ]
+      },
+      {
+        // The WHERE EXISTS also makes SQLite read ON CONFLICT as part of the
+        // INSERT rather than the SELECT.
+        sql: `INSERT INTO platform_history (user_id, platform, date, solved, rating)
+              SELECT ?, ?, ?, ?, ?
+              WHERE EXISTS (SELECT 1 FROM platform_accounts WHERE user_id = ? AND platform = ?)
+              ON CONFLICT(user_id, platform, date) DO UPDATE SET
+                solved = excluded.solved, rating = excluded.rating`,
+        args: [userId, platform, today, stats.solved, stats.rating, userId, platform]
+      },
+      {
+        sql: `DELETE FROM platform_history WHERE user_id = ? AND platform = ? AND date < ?`,
+        args: [userId, platform, cutoff]
+      }
+    ],
+    "write"
+  );
+}
+
+export async function recordPlatformSyncResult(userId: string, platform: PlatformId, result: SyncResult): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    if (!("error" in result)) {
+      await client.execute({
+        sql: `INSERT INTO platform_sync_status (user_id, platform, last_attempt, state, error, failures, failing_since)
+              VALUES (?, ?, ?, 'ok', NULL, 0, NULL)
+              ON CONFLICT(user_id, platform) DO UPDATE SET
+                last_attempt = excluded.last_attempt, state = 'ok',
+                error = NULL, failures = 0, failing_since = NULL`,
+        args: [userId, platform, now]
+      });
+    } else {
+      await client.execute({
+        sql: `INSERT INTO platform_sync_status (user_id, platform, last_attempt, state, error, failures, failing_since)
+              VALUES (?, ?, ?, ?, ?, 1, ?)
+              ON CONFLICT(user_id, platform) DO UPDATE SET
+                last_attempt = excluded.last_attempt, state = excluded.state,
+                error = excluded.error, failures = platform_sync_status.failures + 1,
+                failing_since = COALESCE(platform_sync_status.failing_since, excluded.failing_since)`,
+        args: [userId, platform, now, result.state, result.error.slice(0, MAX_ERROR_LENGTH), now]
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[Sync status] Couldn't record ${platform} result for ${userId}: ${err.message}`);
+  }
 }
 
 /* ---------- Notifications ---------- */
