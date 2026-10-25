@@ -408,39 +408,6 @@ function DifficultyBar({
   );
 }
 
-// Contest-style "problem set": each difficulty is a lettered problem with its
-// own balloon, count and share of the total.
-function ProblemTiles({ easy, medium, hard }: { easy: number; medium: number; hard: number }) {
-  const total = Math.max(1, easy + medium + hard);
-  const tiles = [
-    { letter: "A", label: "Easy", value: easy, text: "text-emerald-400", bar: "from-emerald-500 to-emerald-300" },
-    { letter: "B", label: "Medium", value: medium, text: "text-amber-400", bar: "from-amber-500 to-amber-300" },
-    { letter: "C", label: "Hard", value: hard, text: "text-rose-400", bar: "from-rose-500 to-rose-300" }
-  ];
-  return (
-    <div className="grid gap-3 sm:grid-cols-3" role="img" aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}>
-      {tiles.map((t) => {
-        const pct = Math.round((t.value / total) * 100);
-        return (
-          <div key={t.label} className="rounded-lg bg-ink-950/50 p-3 ring-1 ring-line">
-            <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-widest">
-              <span className={`inline-flex items-center gap-2 font-bold ${t.text}`}>
-                <span className="balloon" aria-hidden="true" />
-                {t.letter} · {t.label}
-              </span>
-              <span className="text-mist-500">{pct}%</span>
-            </div>
-            <div className="mt-2 font-mono text-2xl font-bold tabular-nums text-strong">{t.value.toLocaleString()}</div>
-            <div className="mt-2 h-1 overflow-hidden rounded-full bg-tint">
-              <div className={`h-full rounded-full bg-gradient-to-r ${t.bar}`} style={{ width: `${pct}%` }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function HotStreak({ className = "size-3.5" }: { className?: string }) {
   return (
     <span title="Hot solve streak" className="shrink-0">
@@ -568,7 +535,7 @@ function GroupGrowthChart({
       {breakdown.length > 0 && (
         <div className="mt-4 border-t border-line pt-4">
           <div className="mb-3 font-mono text-[11px] uppercase tracking-widest text-mist-500">// {breakdownLabel}</div>
-          <ProblemTiles easy={pick("Easy")} medium={pick("Medium")} hard={pick("Hard")} />
+          <DifficultyBar easy={pick("Easy")} medium={pick("Medium")} hard={pick("Hard")} size="lg" />
         </div>
       )}
     </section>
