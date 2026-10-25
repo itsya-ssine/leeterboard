@@ -47,6 +47,10 @@ const focusRing =
 const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-colors ${focusRing}`;
 const btnSecondary = `${btn} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
 
+// The profile's action row: a square icon button on small screens, icon plus
+// label from the lg breakpoint (so five of them never overflow the hero card).
+const btnAction = `inline-flex size-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 lg:w-auto lg:px-3.5 ${focusRing}`;
+
 const HOT_STREAK_THRESHOLD = 12;
 const HEATMAP_WEEKS = 10;
 
@@ -240,7 +244,7 @@ function Hero({
       />
       <div className="px-5 pb-6 md:px-8">
         {/* Row 1: avatar (overlapping the banner) on the left, actions on the right. */}
-        <div className="-mt-12 flex items-end justify-between gap-3 md:-mt-14">
+        <div className="-mt-12 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 md:-mt-14">
           <div className="relative shrink-0">
             <img
               src={user.avatarUrl}
@@ -258,24 +262,24 @@ function Hero({
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
-            <a href="#/" className={btnSecondary} aria-label="Back to the leaderboard" title="Leaderboard">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+            <a href="#/" className={btnAction} aria-label="Back to the leaderboard" title="Leaderboard">
               <ArrowLeft className="size-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Leaderboard</span>
+              <span className="hidden lg:inline">Leaderboard</span>
             </a>
             <a
               href={`#/compare/${encodeURIComponent(user.leetcodeUsername)}`}
-              className={btnSecondary}
+              className={btnAction}
               aria-label="Compare with another member"
               title="Compare"
             >
               <Swords className="size-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Compare</span>
+              <span className="hidden lg:inline">Compare</span>
             </a>
             <button
               type="button"
               onClick={copyLink}
-              className={btnSecondary}
+              className={btnAction}
               aria-label="Copy profile link"
               title="Copy link"
             >
@@ -284,30 +288,30 @@ function Hero({
               ) : (
                 <Link2 className="size-4" aria-hidden="true" />
               )}
-              <span className="hidden sm:inline">{copied ? "Copied" : "Copy link"}</span>
+              <span className="hidden lg:inline">{copied ? "Copied" : "Copy link"}</span>
             </button>
             {isOwnProfile && (
               <a
                 href="#/account"
                 id="profile-account-settings-link"
-                className={btnSecondary}
+                className={btnAction}
                 aria-label="Account settings"
                 title="Account settings"
               >
                 <Settings className="size-4" aria-hidden="true" />
-                <span className="hidden sm:inline">Settings</span>
+                <span className="hidden lg:inline">Settings</span>
               </a>
             )}
             <button
               type="button"
               onClick={() => setSharing(true)}
               id="share-card-btn"
-              className={btnSecondary}
+              className={btnAction}
               aria-label="Open share card"
               title="Share card"
             >
               <Share2 className="size-4" aria-hidden="true" />
-              <span className="hidden sm:inline">Share card</span>
+              <span className="hidden lg:inline">Share card</span>
             </button>
           </div>
         </div>

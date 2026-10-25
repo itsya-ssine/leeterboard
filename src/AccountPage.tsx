@@ -30,6 +30,8 @@ const btnPrimary = `${btnBase} w-full bg-teal-400 text-ink-950 hover:bg-teal-300
 const btnSecondary = `${btnBase} w-full bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
 const btnDanger = `${btnBase} w-full bg-rose-500 text-white hover:bg-rose-400`;
 const btnLink = `${btnBase} bg-ink-800 text-mist-100 ring-1 ring-line hover:bg-ink-700`;
+// Header actions: a square icon button on phones, icon plus label from sm.
+const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 sm:w-auto sm:px-4 ${focusRing}`;
 
 // Compact button for the rows in the Linked accounts card.
 const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-ink-800 px-3 text-xs font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
@@ -70,7 +72,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} aria-label={title} className="rounded-xl bg-ink-900 p-5 ring-1 ring-line">
+    <section id={id} aria-label={title} className="rounded-xl bg-ink-900 p-4 ring-1 ring-line sm:p-5">
       <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight text-strong">
         {icon}
         {title}
@@ -701,24 +703,24 @@ export default function AccountPage({
     <div id="account-page" className="mx-auto max-w-4xl space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-strong md:text-4xl">Account settings</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-strong sm:text-3xl md:text-4xl">Account settings</h1>
           <p className="mt-2 max-w-xl text-base text-mist-400">
             Choose how you appear on the board, and manage your password and account.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <a href={profileHref} className={btnLink} id="account-view-profile">
+        <div className="flex gap-2">
+          <a href={profileHref} className={btnLinkResponsive} id="account-view-profile" aria-label="View my profile" title="View my profile">
             <UserRound className="size-4" aria-hidden="true" />
-            View my profile
+            <span className="hidden sm:inline">View my profile</span>
           </a>
-          <a href="#/" className={btnLink}>
+          <a href="#/" className={btnLinkResponsive} aria-label="Back to the leaderboard" title="Leaderboard">
             <ArrowLeft className="size-4" aria-hidden="true" />
-            Leaderboard
+            <span className="hidden sm:inline">Leaderboard</span>
           </a>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 rounded-xl bg-ink-900 p-4 ring-1 ring-line">
+      <div className="flex min-w-0 items-center gap-3 rounded-xl bg-ink-900 p-4 ring-1 ring-line">
         <img
           src={user.avatarUrl}
           alt=""
@@ -731,7 +733,7 @@ export default function AccountPage({
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+      <div className="grid gap-6 md:grid-cols-2 md:items-start">
         {/* ---------- Left column: how you appear ---------- */}
         <div className="flex flex-col gap-6">
           <Card icon={<UserRound className="size-4 text-teal-300" />} title="Display name" id="account-name-card">

@@ -128,8 +128,10 @@ const ADMIN_NAV_ITEM = { page: "admin", href: "#/admin", label: "Sync health", I
 // readers). `labelFrom` is the breakpoint at which the text appears. `fill`
 // spreads the links across the full width (the bar under the header on small
 // screens).
-const NAV_LABEL_CLASS = { sm: "hidden sm:inline", xl: "hidden xl:inline" } as const;
-const NAV_PADDING_CLASS = { sm: "px-2.5 sm:px-3", xl: "px-2.5 xl:px-3" } as const;
+// "never" = icons at every width (used for admins, who have one more link than
+// the header has room to spell out).
+const NAV_LABEL_CLASS = { sm: "hidden sm:inline", xl: "hidden xl:inline", never: "hidden" } as const;
+const NAV_PADDING_CLASS = { sm: "px-2.5 sm:px-3", xl: "px-2.5 xl:px-3", never: "px-2.5" } as const;
 
 function NavLinks({
   page,
@@ -777,8 +779,8 @@ export default function App() {
       {/* ---------- Top bar ---------- */}
       <header className="border-b border-line">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
-          <div className="flex items-center gap-6">
-            <a href="#/" className={`flex items-center rounded-lg ${focusRing}`} aria-label="Leeterboard home">
+          <div className="flex min-w-0 items-center gap-4 lg:gap-6">
+            <a href="#/" className={`flex shrink-0 items-center rounded-lg ${focusRing}`} aria-label="Leeterboard home">
               {/* Wordmark: "Leet" large in the accent colour, "erboard" in the
                   strong text colour (white in dark mode, near-black in light mode
                   so it stays readable on both themes). */}
@@ -787,10 +789,15 @@ export default function App() {
                 <span className="text-base text-strong sm:text-lg">erboard</span>
               </span>
             </a>
-            <NavLinks page={page} isAdmin={!!currentUser?.isAdmin} labelFrom="xl" className="hidden md:flex" />
+            <NavLinks
+              page={page}
+              isAdmin={!!currentUser?.isAdmin}
+              labelFrom={currentUser?.isAdmin ? "never" : "xl"}
+              className="hidden md:flex"
+            />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {/* Force sync — admin only */}
             {currentUser?.isAdmin && (
               <button
@@ -800,7 +807,7 @@ export default function App() {
                 id="sync-all-btn"
               >
                 <RefreshCw className={`size-4 ${isSyncingAll ? "animate-spin" : ""}`} />
-                <span className="hidden sm:inline">{isSyncingAll ? "Syncing…" : "Sync all"}</span>
+                <span className="hidden lg:inline">{isSyncingAll ? "Syncing…" : "Sync all"}</span>
               </button>
             )}
 
@@ -833,7 +840,7 @@ export default function App() {
         <NavLinks
           page={page}
           isAdmin={!!currentUser?.isAdmin}
-          labelFrom="sm"
+          labelFrom={currentUser?.isAdmin ? "never" : "sm"}
           fill
           className="mx-auto flex max-w-6xl px-4 py-2"
         />

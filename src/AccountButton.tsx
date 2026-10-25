@@ -4,7 +4,7 @@ const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 // The signed-in member's header button: their LeetCode profile picture and
-// username. Clicking it toggles the account menu that drops down beneath it. On narrow screens
+// username. Clicking it toggles the account menu that drops down beneath it. Below the lg breakpoint
 // only the picture is shown, to leave room for the other header controls.
 export default function AccountButton({
   user,
@@ -32,7 +32,7 @@ export default function AccountButton({
       aria-haspopup="menu"
       aria-expanded={open}
       title="Account"
-      className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-ink-800 p-1 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 sm:pr-3.5 ${focusRing}`}
+      className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-ink-800 p-1 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 lg:pr-3.5 ${focusRing}`}
     >
       {showImage ? (
         <img
@@ -50,7 +50,7 @@ export default function AccountButton({
           {initial}
         </span>
       )}
-      <span className="hidden max-w-[10rem] truncate sm:inline">@{user.leetcodeUsername}</span>
+      <span className="hidden max-w-[10rem] truncate lg:inline">@{user.leetcodeUsername}</span>
     </button>
   );
 }
