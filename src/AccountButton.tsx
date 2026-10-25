@@ -32,7 +32,7 @@ export default function AccountButton({
       aria-haspopup="menu"
       aria-expanded={open}
       title="Account"
-      className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-ink-800 p-1 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 lg:pr-3.5 ${focusRing}`}
+      className={`flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-ink-800/80 p-1 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong lg:pr-3.5 ${focusRing}`}
     >
       {showImage ? (
         <img

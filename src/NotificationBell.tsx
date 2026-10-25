@@ -185,7 +185,7 @@ export default function NotificationBell() {
         aria-controls={open ? panelId : undefined}
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         title="Notifications"
-        className={`relative inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-ink-800 text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 ${focusRing}`}
+        className={`relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-ink-800/80 text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong ${focusRing}`}
       >
         <Bell className="size-4" aria-hidden="true" />
         {unread > 0 && (
