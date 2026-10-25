@@ -1363,7 +1363,7 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
           className="flex items-center gap-2 rounded-lg bg-ink-900 px-4 py-3 text-sm text-mist-400 ring-1 ring-line"
         >
           <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
-          Hidden from other members. Only this member and admins can see the Codeforces stats.
+          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still count on the leaderboard.
         </p>
       )}
       <section
@@ -1491,6 +1491,7 @@ export default function ProfilePage({
 
   // LeetCode is always there; Codeforces appears when the member linked it.
   const [view, setView] = useState<ProfileView>("leetcode");
+  const { user: viewer } = useAuth(); // hooks stay above the early return below
 
   const stats = useMemo(
     () => (user ? computeProfile(user, users, winners, Date.now()) : null),
@@ -1512,7 +1513,12 @@ export default function ProfilePage({
     );
   }
 
-  const cfAccount = user.platforms?.codeforces;
+  // A member can hide a platform on their profile. Everyone else then sees only
+  // the LeetCode stats; the member and admins still get the Codeforces tab.
+  const canSeeHidden = !!viewer && (viewer.isAdmin || viewer.id === user.id);
+  const cfAccount = user.platforms?.codeforces && (!user.platforms.codeforces.hidden || canSeeHidden)
+    ? user.platforms.codeforces
+    : undefined;
   const activeView: ProfileView = cfAccount ? view : "leetcode";
   const synced =
     activeView === "codeforces" && cfAccount ? cfAccount.lastUpdated : user.lastUpdated || lastSyncAll;

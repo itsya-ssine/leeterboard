@@ -682,10 +682,12 @@ async function resolveWinners(users: User[]): Promise<WeeklyWinner[]> {
 
 /* ---------- Hidden platform stats ---------- */
 //
-// A member can hide a linked platform (Codeforces / CodinGame) from other
-// members. The server enforces it: a hidden account is removed from the
-// response itself, so it can't be read from the network tab either. Only the
-// member who owns it and admins receive it (with hidden: true).
+// A member can hide a linked platform (Codeforces / CodinGame) on their
+// PROFILE. The leaderboard and the global stats still use the account as usual.
+// The profile-only detail (the per-day progress series) is removed from what
+// other members receive, so it can't be read from the network tab either; the
+// member and admins get everything. The flag itself (hidden: true) stays, which
+// is how the profile page knows to show nothing.
 
 interface Viewer {
   id: string | null;
@@ -706,11 +708,17 @@ function withVisiblePlatforms<T extends { id: string; platforms?: Partial<Record
   viewer: Viewer
 ): T {
   if (!user.platforms || viewer.isAdmin || user.id === viewer.id) return user;
-  const visible: Partial<Record<PlatformId, PlatformAccount>> = {};
+  const platforms: Partial<Record<PlatformId, PlatformAccount>> = {};
   for (const [id, account] of Object.entries(user.platforms) as [PlatformId, PlatformAccount][]) {
-    if (!account.hidden) visible[id] = account;
+    if (!account.hidden) {
+      platforms[id] = account;
+      continue;
+    }
+    // Keep what the leaderboard draws (difficulty buckets); drop the daily series.
+    const { daily: _daily, ...rest } = account.extra as Record<string, unknown>;
+    platforms[id] = { ...account, extra: rest };
   }
-  return { ...user, platforms: visible };
+  return { ...user, platforms };
 }
 
 // GET all users (with automatic ranking update)
@@ -1917,9 +1925,7 @@ app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
 // GET aggregated monthly trend metrics
 app.get("/api/trends", async (req, res) => {
   try {
-    const viewer = await viewerOf(req);
-    res.vary("Cookie");
-    const users = (await listUsers()).map((u) => withVisiblePlatforms(u, viewer));
+    const users = await listUsers();
 
     // ?platform=codeforces: the same shape, built from that platform's linked
     // accounts only. Without the parameter this is the LeetCode trend below.

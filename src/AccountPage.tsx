@@ -196,8 +196,8 @@ function PlatformRow({
     }
   };
 
-  // Hide / show this platform for other members. The server only sends a hidden
-  // account to its owner and to admins.
+  // Hide / show this platform on the member's profile. It still counts on the
+  // leaderboard and in the global stats.
   const handleHidden = async () => {
     if (!account) return;
     setNotice(null);
@@ -326,19 +326,19 @@ function PlatformRow({
               ) : (
                 <Eye className="size-3.5 shrink-0 text-mist-500" aria-hidden="true" />
               )}
-              Hide from other members
+              Hide on my profile
             </p>
             <p className="mt-0.5 text-xs text-mist-500">
               {account.hidden
-                ? "Only you and admins can see these stats."
-                : "Everyone can see these stats on the board and on your profile."}
+                ? "Other members can't see these stats on your profile. They still count on the leaderboard and in the global stats."
+                : "Everyone can see these stats on your profile."}
             </p>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={account.hidden}
-            aria-label={`Hide ${ui.label} stats from other members`}
+            aria-label={`Hide ${ui.label} stats on my profile`}
             onClick={handleHidden}
             disabled={busy}
             id={`account-platform-${platform}-hidden`}
