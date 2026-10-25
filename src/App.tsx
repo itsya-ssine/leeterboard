@@ -123,7 +123,27 @@ const NAV_ITEMS = [
 // checks admin rights on every request.
 const ADMIN_NAV_ITEM = { page: "admin", href: "#/admin", label: "Sync health", Icon: ShieldCheck } as const;
 
-function NavLinks({ page, isAdmin = false, className = "" }: { page: Page; isAdmin?: boolean; className?: string }) {
+// Labels are written out in full only when there is room; otherwise a link
+// shrinks to its icon (the name stays available as a tooltip and to screen
+// readers). `labelFrom` is the breakpoint at which the text appears. `fill`
+// spreads the links across the full width (the bar under the header on small
+// screens).
+const NAV_LABEL_CLASS = { sm: "hidden sm:inline", xl: "hidden xl:inline" } as const;
+const NAV_PADDING_CLASS = { sm: "px-2.5 sm:px-3", xl: "px-2.5 xl:px-3" } as const;
+
+function NavLinks({
+  page,
+  isAdmin = false,
+  className = "",
+  labelFrom = "xl",
+  fill = false
+}: {
+  page: Page;
+  isAdmin?: boolean;
+  className?: string;
+  labelFrom?: keyof typeof NAV_LABEL_CLASS;
+  fill?: boolean;
+}) {
   const items = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
   return (
     <nav aria-label="Main" className={`items-center gap-1 ${className}`}>
@@ -132,12 +152,16 @@ function NavLinks({ page, isAdmin = false, className = "" }: { page: Page; isAdm
           key={p}
           href={href}
           aria-current={page === p ? "page" : undefined}
-          className={`inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors ${focusRing} ${
+          aria-label={label}
+          title={label}
+          className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
+            NAV_PADDING_CLASS[labelFrom]
+          } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
             page === p ? "bg-ink-800 text-strong ring-1 ring-line" : "text-mist-400 hover:text-strong"
           }`}
         >
-          <Icon className="size-4" />
-          {label}
+          <Icon className="size-4 shrink-0" aria-hidden="true" />
+          <span className={NAV_LABEL_CLASS[labelFrom]}>{label}</span>
         </a>
       ))}
     </nav>
@@ -763,7 +787,7 @@ export default function App() {
                 <span className="text-base text-strong sm:text-lg">erboard</span>
               </span>
             </a>
-            <NavLinks page={page} isAdmin={!!currentUser?.isAdmin} className="hidden md:flex" />
+            <NavLinks page={page} isAdmin={!!currentUser?.isAdmin} labelFrom="xl" className="hidden md:flex" />
           </div>
 
           <div className="flex items-center gap-2">
@@ -806,7 +830,13 @@ export default function App() {
         </div>
       </header>
       <div className="border-b border-line md:hidden">
-        <NavLinks page={page} isAdmin={!!currentUser?.isAdmin} className="mx-auto flex max-w-6xl px-4 py-2" />
+        <NavLinks
+          page={page}
+          isAdmin={!!currentUser?.isAdmin}
+          labelFrom="sm"
+          fill
+          className="mx-auto flex max-w-6xl px-4 py-2"
+        />
       </div>
 
       <main className="mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
