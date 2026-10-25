@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowUpRight, Clock, Link2, Gamepad2, Users, Swords, TrendingUp, Crown } from "lucide-react";
+import { ArrowUpRight, Clock, Link2, Gamepad2 } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 
 const focusRing =
@@ -90,41 +90,6 @@ function XpBar({ value, max }: { value: number; max: number }) {
   );
 }
 
-function HudTile({
-  label,
-  value,
-  hint,
-  Icon,
-  text,
-  bar,
-  index
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  text: string;
-  bar: string;
-  index: number;
-}) {
-  return (
-    <div
-      className="card-aurora relative min-w-0 animate-rise overflow-hidden p-4 transition-transform duration-300 hover:-translate-y-0.5"
-      style={{ animationDelay: `${index * 80}ms` }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">{label}</div>
-        <span className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${text}`}>
-          <Icon className="size-4" />
-        </span>
-      </div>
-      <div className="mt-3 truncate font-mono text-2xl font-bold tabular-nums text-strong">{value}</div>
-      <div className="mt-1 truncate text-sm text-mist-500">{hint}</div>
-      <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${bar} to-transparent`} />
-    </div>
-  );
-}
-
 // The CodinGame board: only members who linked a CodinGame account.
 export default function CodinGamePage({ users, loading = false }: { users: User[]; loading?: boolean }) {
   const [sortBy, setSortBy] = useState<Sort>("xp");
@@ -137,59 +102,11 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
   const members = [...all].sort(compare(sortBy));
   const weeklyMax = Math.max(1, ...members.map((m) => m.account.weeklySolved));
 
-  const squadXp = all.reduce((acc, m) => acc + m.account.solved, 0);
-  const weeklyXp = all.reduce((acc, m) => acc + m.account.weeklySolved, 0);
-  const topLevel = all
-    .filter((m) => m.account.rating != null)
-    .sort((a, b) => b.account.rating! - a.account.rating!)[0];
-
   // The three "player cards": the top of the ranking currently selected.
   const cards = members.filter((m) => sortBy !== "level" || m.account.rating != null).slice(0, 3);
 
   return (
     <div className="space-y-6">
-      {/* ---------- HUD ---------- */}
-      {!loading && all.length > 0 && (
-        <section aria-label="CodinGame summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <HudTile
-            index={0}
-            label="Players"
-            value={String(all.length)}
-            hint={`of ${users.length} on the board`}
-            Icon={Users}
-            text="text-sky-400"
-            bar="from-sky-400"
-          />
-          <HudTile
-            index={1}
-            label="Squad XP"
-            value={squadXp.toLocaleString()}
-            hint={`${Math.round(squadXp / all.length).toLocaleString()} per player`}
-            Icon={Swords}
-            text="text-lime-400"
-            bar="from-lime-400"
-          />
-          <HudTile
-            index={2}
-            label="XP this week"
-            value={`+${weeklyXp.toLocaleString()}`}
-            hint="across linked players"
-            Icon={TrendingUp}
-            text="text-emerald-400"
-            bar="from-emerald-400"
-          />
-          <HudTile
-            index={3}
-            label="Highest level"
-            value={topLevel ? `LV ${topLevel.account.rating}` : "–"}
-            hint={topLevel ? topLevel.user.displayName : "nobody levelled yet"}
-            Icon={Crown}
-            text="text-amber-300"
-            bar="from-amber-300"
-          />
-        </section>
-      )}
-
       {/* ---------- Player cards ---------- */}
       {!loading && cards.length > 0 && (
         <section aria-label="Top players" className="grid gap-3 md:grid-cols-3">

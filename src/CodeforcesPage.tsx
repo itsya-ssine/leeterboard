@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowUpRight, Clock, Link2, Users, CheckCheck, TrendingUp, Crown } from "lucide-react";
+import { ArrowUpRight, Clock, Link2 } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 
 const focusRing =
@@ -251,43 +251,6 @@ function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
   );
 }
 
-/* ---------- Summary tiles ---------- */
-
-function SummaryTile({
-  label,
-  value,
-  hint,
-  Icon,
-  text,
-  bar,
-  index
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  Icon: React.ComponentType<{ className?: string }>;
-  text: string;
-  bar: string;
-  index: number;
-}) {
-  return (
-    <div
-      className="card-aurora relative min-w-0 animate-rise overflow-hidden p-4 transition-transform duration-300 hover:-translate-y-0.5"
-      style={{ animationDelay: `${index * 80}ms` }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">{label}</div>
-        <span className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${text}`}>
-          <Icon className="size-4" />
-        </span>
-      </div>
-      <div className="mt-3 truncate font-mono text-2xl font-bold tabular-nums text-strong">{value}</div>
-      <div className="mt-1 truncate text-sm text-mist-500">{hint}</div>
-      <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${bar} to-transparent`} />
-    </div>
-  );
-}
-
 /* ---------- Page ---------- */
 
 const TABS: { key: CodeforcesSort; label: string; id: string }[] = [
@@ -305,56 +268,8 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
   const members = [...all].sort(compareCodeforces(sortBy));
   const weeklyMax = Math.max(25, ...members.map((m) => m.account.weeklySolved));
 
-  const totalSolved = all.reduce((acc, m) => acc + m.account.solved, 0);
-  const weeklyTotal = all.reduce((acc, m) => acc + m.account.weeklySolved, 0);
-  const best = all
-    .filter((m) => m.account.rating != null)
-    .sort((a, b) => b.account.rating! - a.account.rating!)[0];
-
   return (
     <div className="space-y-6">
-      {/* ---------- Summary ---------- */}
-      {!loading && all.length > 0 && (
-        <section aria-label="Codeforces summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <SummaryTile
-            index={0}
-            label="Linked"
-            value={String(all.length)}
-            hint={`of ${users.length} on the board`}
-            Icon={Users}
-            text="text-sky-400"
-            bar="from-sky-400"
-          />
-          <SummaryTile
-            index={1}
-            label="Solved"
-            value={totalSolved.toLocaleString()}
-            hint={`${Math.round(totalSolved / all.length)} per member`}
-            Icon={CheckCheck}
-            text="text-emerald-400"
-            bar="from-emerald-400"
-          />
-          <SummaryTile
-            index={2}
-            label="This week"
-            value={`+${weeklyTotal}`}
-            hint="across linked members"
-            Icon={TrendingUp}
-            text="text-teal-300"
-            bar="from-teal-300"
-          />
-          <SummaryTile
-            index={3}
-            label="Top rating"
-            value={best ? best.account.rating!.toLocaleString() : "–"}
-            hint={best ? `${best.user.displayName} · ${formatRankTitle(best.account.rankTitle)}` : "nobody rated yet"}
-            Icon={Crown}
-            text="text-amber-300"
-            bar="from-amber-300"
-          />
-        </section>
-      )}
-
       {!loading && <RatingSpectrum members={all} />}
 
       <section
