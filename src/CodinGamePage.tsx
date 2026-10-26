@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ArrowUpRight, Clock, Link2, Gamepad2, Search } from "lucide-react";
+import { ArrowUpRight, Clock, Link2, Search } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 import EmptyState from "./EmptyState.js";
 import SearchInput from "./SearchInput.js";
@@ -128,22 +128,6 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
         aria-label="CodinGame leaderboard"
         className="card-aurora animate-rise overflow-hidden"
       >
-        <div className="border-b border-line p-3 md:p-4">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 place-items-center rounded-lg bg-lime-400/10 text-lime-400 ring-1 ring-lime-400/25">
-              <Gamepad2 className="size-4" aria-hidden="true" />
-            </span>
-            <div>
-              <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// codingame.arena</div>
-              <p className="text-sm text-mist-400">
-                {loading
-                  ? "Loading…"
-                  : `${members.length} ${members.length === 1 ? "member has" : "members have"} linked CodinGame`}
-              </p>
-            </div>
-          </div>
-        </div>
-
         {/* Search + sort */}
         <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center md:p-4">
           <SearchInput

@@ -101,17 +101,6 @@ const rankColor = (rank: number) =>
         ? "text-orange-300"
         : "text-mist-500";
 
-// Three bars, a nod to the platform. Purely decorative.
-function CfBars() {
-  return (
-    <span aria-hidden="true" className="inline-flex h-4 items-end gap-0.5">
-      <span className="h-2.5 w-1 rounded-sm bg-amber-400" />
-      <span className="h-4 w-1 rounded-sm bg-sky-500" />
-      <span className="h-3 w-1 rounded-sm bg-rose-500" />
-    </span>
-  );
-}
-
 // Easy / Medium / Hard (by problem rating) bar, with a balloon per bucket.
 export function CodeforcesBucketBar({ buckets }: { buckets: CodeforcesBuckets }) {
   const { easy, medium, hard, unrated } = buckets;
@@ -409,21 +398,6 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
         aria-label="Codeforces leaderboard"
         className="card-aurora animate-rise overflow-hidden"
       >
-        {/* Toolbar */}
-        <div className="border-b border-line p-3 md:p-4">
-          <div className="flex items-center gap-3">
-            <CfBars />
-            <div>
-              <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// codeforces.standings</div>
-              <p className="text-sm text-mist-400">
-                {loading
-                  ? "Loading…"
-                  : `${members.length} ${members.length === 1 ? "member has" : "members have"} linked Codeforces`}
-              </p>
-            </div>
-          </div>
-        </div>
-
         {/* Search + sort */}
         <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center md:p-4">
           <SearchInput
