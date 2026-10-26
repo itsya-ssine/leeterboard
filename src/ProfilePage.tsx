@@ -17,6 +17,7 @@ import {
   Share2,
   Swords,
   Target,
+  Gem,
   Trophy,
   UserX,
   Zap
@@ -50,6 +51,8 @@ import {
 } from "./CodeforcesPage.js";
 import { useAuth } from "./AuthContext.js";
 import EmptyState from "./EmptyState.js";
+import TierAvatar from "./TierAvatar.js";
+import { tierOf, tierSummary } from "./tiers.js";
 import AnimatedNumber from "./AnimatedNumber.js";
 import { useToast } from "./Toast.js";
 
@@ -278,12 +281,7 @@ function Hero({
         {/* Row 1: avatar (overlapping the banner) on the left, actions on the right. */}
         <div className="-mt-12 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 md:-mt-14">
           <div className="relative shrink-0">
-            <img
-              src={user.avatarUrl}
-              alt=""
-              referrerPolicy="no-referrer"
-              className="size-24 rounded-full bg-ink-800 object-cover ring-4 ring-ink-900 shadow-[0_0_32px_-6px_rgb(45_212_191/0.55)] md:size-28"
-            />
+            <TierAvatar user={user} className="size-24 rounded-full ring-4 ring-ink-900 md:size-28" showGem />
             {overall.rank != null && overall.rank <= 3 && (
               <span
                 className={`absolute -bottom-1 -right-1 grid size-8 place-items-center rounded-full bg-ink-900 ring-2 ring-line-strong ${rankColor(overall.rank)}`}
@@ -389,6 +387,20 @@ function Hero({
               {overall.topPercent != null && usersCount > 1 && (
                 <li className="rounded-full bg-teal-400/10 px-2.5 py-1 font-mono text-teal-300 ring-1 ring-teal-400/30">
                   Top {overall.topPercent}%
+                </li>
+              )}
+              {tierOf(user) && (
+                <li
+                  title={tierSummary(user)}
+                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono"
+                  style={{
+                    color: tierOf(user)!.color,
+                    backgroundColor: `color-mix(in srgb, ${tierOf(user)!.color} 12%, transparent)`,
+                    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tierOf(user)!.color} 35%, transparent)`
+                  }}
+                >
+                  <Gem className="size-3" aria-hidden="true" />
+                  {tierOf(user)!.name}
                 </li>
               )}
               {stats.wins.length > 0 && (
@@ -1151,7 +1163,7 @@ function NeighbourCard({
       href={profileHref(user)}
       className={`group flex items-center gap-3 rounded-xl bg-ink-950/80 p-3 ring-1 ring-line transition-all hover:-translate-y-0.5 hover:ring-line-strong ${focusRing}`}
     >
-      <img src={user.avatarUrl} alt="" referrerPolicy="no-referrer" className="size-10 shrink-0 rounded-full bg-ink-800 object-cover ring-1 ring-line-strong" />
+      <TierAvatar user={user} className="size-10" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-strong transition-colors group-hover:text-teal-300">{user.displayName}</div>
         <div className="truncate text-xs text-mist-500">

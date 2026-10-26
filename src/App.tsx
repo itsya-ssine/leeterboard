@@ -46,6 +46,8 @@ import ActivityHeatmap from "./ActivityHeatmap.js";
 import ProfilePage from "./ProfilePage.js";
 import CodinGamePage from "./CodinGamePage.js";
 import EmptyState from "./EmptyState.js";
+import TierAvatar from "./TierAvatar.js";
+import { ratingTier } from "./tiers.js";
 import AnimatedNumber from "./AnimatedNumber.js";
 import { CompareSkeleton, ListSkeleton, ProfileSkeleton } from "./Skeleton.js";
 import CodeforcesPage, { codeforcesBuckets, codeforcesMembers, compareCodeforces } from "./CodeforcesPage.js";
@@ -86,21 +88,6 @@ const PINNED_STORAGE_KEY = "leeterboard:pinned";
 type SortKey = "weekly" | "allTime" | "rating";
 
 /* ---------- Competitive-programming flavour ---------- */
-
-// Codeforces-style rating tiers, with thresholds scaled to LeetCode's contest
-// range (most members sit between 1400 and 2000). Colours come from CSS
-// variables in index.css so they follow the light / dark theme.
-const RATING_TIERS = [
-  { min: 2150, name: "Grandmaster", color: "var(--tier-gm)" },
-  { min: 2000, name: "Master", color: "var(--tier-master)" },
-  { min: 1850, name: "Candidate", color: "var(--tier-cm)" },
-  { min: 1700, name: "Expert", color: "var(--tier-expert)" },
-  { min: 1550, name: "Specialist", color: "var(--tier-specialist)" },
-  { min: 1400, name: "Pupil", color: "var(--tier-pupil)" },
-  { min: 0, name: "Newbie", color: "var(--tier-newbie)" }
-] as const;
-
-const ratingTier = (rating: number) => RATING_TIERS.find((t) => rating >= t.min) ?? RATING_TIERS[RATING_TIERS.length - 1];
 
 // The board's week runs Monday to Sunday (UTC), so the "round" ends at the
 // next Monday 00:00 UTC.
@@ -1424,12 +1411,7 @@ export default function App() {
                           title="View full profile"
                           className={`group/member flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left transition-transform active:scale-[0.97] md:col-span-3 ${focusRing}`}
                         >
-                          <img
-                            src={user.avatarUrl}
-                            alt=""
-                            className="size-11 shrink-0 rounded-full object-cover ring-2 ring-line-strong ring-offset-2 ring-offset-ink-900 transition duration-300 group-hover/member:scale-105 group-hover/member:ring-teal-400/80"
-                            referrerPolicy="no-referrer"
-                          />
+                          <TierAvatar user={user} className="size-11 transition duration-300 group-hover/member:scale-105" />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="truncate font-medium text-strong transition-colors group-hover/member:text-teal-300">
@@ -1576,12 +1558,7 @@ export default function App() {
             >
               {/* Identity */}
               <div className="mb-5 flex items-center gap-4 pr-8">
-                <img
-                  src={selectedUser.avatarUrl}
-                  alt=""
-                  className="size-16 shrink-0 rounded-full object-cover ring-2 ring-line-strong"
-                  referrerPolicy="no-referrer"
-                />
+                <TierAvatar user={selectedUser} className="size-16" showGem gemSize="sm" />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="truncate text-xl font-semibold tracking-tight text-strong">

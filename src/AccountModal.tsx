@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronRight, Settings, UserRound } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
+import TierAvatar from "./TierAvatar.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -61,12 +62,7 @@ export default function AccountModal({ open, onClose }: { open: boolean; onClose
         >
           <div className="card-aurora overflow-hidden">
             <div className="flex items-center gap-3 border-b border-line bg-gradient-to-r from-teal-400/15 via-sky-400/5 to-transparent px-4 py-3.5">
-              <img
-                src={user.avatarUrl}
-                alt=""
-                referrerPolicy="no-referrer"
-                className="size-11 shrink-0 rounded-full bg-ink-800 object-cover ring-2 ring-line-strong shadow-[0_0_20px_-6px_rgb(45_212_191/0.55)]"
-              />
+              <TierAvatar user={user} className="size-11" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold tracking-tight text-strong">{user.displayName}</p>
                 <p className="truncate font-mono text-xs text-mist-500">@{user.leetcodeUsername}</p>

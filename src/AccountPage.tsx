@@ -21,6 +21,7 @@ import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
 import type { PlatformAccount, PlatformId } from "./types.js";
 import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
 import PageHeader from "./PageHeader.js";
+import TierAvatar from "./TierAvatar.js";
 import EmptyState from "./EmptyState.js";
 import { AccountSkeleton } from "./Skeleton.js";
 import { useToast } from "./Toast.js";
@@ -849,12 +850,7 @@ export default function AccountPage({
       />
 
       <div className="card-aurora flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
-        <img
-          src={user.avatarUrl}
-          alt=""
-          referrerPolicy="no-referrer"
-          className="size-14 shrink-0 rounded-full bg-ink-800 object-cover ring-2 ring-line-strong shadow-[0_0_24px_-6px_rgb(45_212_191/0.55)]"
-        />
+        <TierAvatar user={user} className="size-14" showGem gemSize="sm" />
         <div className="min-w-0">
           <p className="truncate font-mono text-sm font-bold text-strong">@{user.leetcodeUsername}</p>
           <p className="mt-0.5 text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
