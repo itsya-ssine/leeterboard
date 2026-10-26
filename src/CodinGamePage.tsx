@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { ArrowUpRight, Clock, Link2, Gamepad2 } from "lucide-react";
+import { ArrowUpRight, Clock, Link2, Gamepad2, Search } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 import EmptyState from "./EmptyState.js";
+import SearchInput from "./SearchInput.js";
 import { FramedAvatar } from "./TierAvatar.js";
 import { codingameTier } from "./tiers.js";
 
@@ -96,6 +97,7 @@ function XpBar({ value, max }: { value: number; max: number }) {
 // The CodinGame board: only members who linked a CodinGame account.
 export default function CodinGamePage({ users, loading = false }: { users: User[]; loading?: boolean }) {
   const [sortBy, setSortBy] = useState<Sort>("xp");
+  const [query, setQuery] = useState("");
 
   const all: Member[] = [];
   for (const user of users) {
@@ -104,6 +106,17 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
   }
   const members = [...all].sort(compare(sortBy));
   const weeklyMax = Math.max(1, ...members.map((m) => m.account.weeklySolved));
+
+  // Search: name, LeetCode username, school or CodinGame profile id. Ranks stay
+  // the real ones, so a filtered row still shows its place on the board.
+  const q = query.trim().toLowerCase();
+  const matches = ({ user, account }: Member) =>
+    !q ||
+    user.displayName.toLowerCase().includes(q) ||
+    user.leetcodeUsername.toLowerCase().includes(q) ||
+    (user.school ?? "").toLowerCase().includes(q) ||
+    account.handle.toLowerCase().includes(q);
+  const visibleCount = members.filter(matches).length;
 
   // The three "player cards": the top of the ranking currently selected.
   const cards = members.filter((m) => sortBy !== "level" || m.account.rating != null).slice(0, 3);
@@ -115,7 +128,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
         aria-label="CodinGame leaderboard"
         className="card-aurora animate-rise overflow-hidden"
       >
-        <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center sm:justify-between md:p-4">
+        <div className="border-b border-line p-3 md:p-4">
           <div className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-lg bg-lime-400/10 text-lime-400 ring-1 ring-lime-400/25">
               <Gamepad2 className="size-4" aria-hidden="true" />
@@ -129,6 +142,17 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Search + sort */}
+        <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center md:p-4">
+          <SearchInput
+            id="cg-search"
+            label="Search members"
+            placeholder="Search by name, username, school or profile id"
+            value={query}
+            onChange={setQuery}
+          />
           <div
             role="group"
             aria-label="Sort CodinGame leaderboard"
@@ -154,7 +178,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
         </div>
 
         {/* Top three, shown inside the leaderboard (they stay in the list below too). */}
-        {!loading && cards.length > 0 && (
+        {!loading && !q && cards.length > 0 && (
           <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
             <section aria-label="Top players" className="grid gap-3 md:grid-cols-3">
               {cards.map(({ user, account }, i) => {
@@ -242,9 +266,19 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
             description="Add your profile id under Account settings > Linked accounts to appear here."
             action={{ label: "Link my account", href: "#/account" }}
           />
+        ) : visibleCount === 0 ? (
+          <EmptyState
+            bare
+            icon={<Search className="size-5" aria-hidden="true" />}
+            title="No members match your search"
+            description="Try a different name, username or handle."
+            action={{ label: "Clear search", onClick: () => setQuery("") }}
+          />
         ) : (
           <div className="divide-y divide-line">
-            {members.map(({ user, account }, index) => {
+            {members.map((member, index) => {
+              const { user, account } = member;
+              if (!matches(member)) return null;
               const synced = account.lastUpdated != null;
               const shownRank = sortBy === "level" && account.rating == null ? null : index + 1;
               const podium = shownRank != null && shownRank <= 3;

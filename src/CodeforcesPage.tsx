@@ -1,7 +1,8 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
-import { ArrowUpRight, Clock, Link2 } from "lucide-react";
+import { ArrowUpRight, Clock, Link2, Search } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 import EmptyState from "./EmptyState.js";
+import SearchInput from "./SearchInput.js";
 import { FramedAvatar } from "./TierAvatar.js";
 import { codeforcesTier } from "./tiers.js";
 
@@ -378,11 +379,23 @@ function TopCards({
 // The Codeforces board: only members who linked a Codeforces account.
 export default function CodeforcesPage({ users, loading = false }: { users: User[]; loading?: boolean }) {
   const [sortBy, setSortBy] = useState<CodeforcesSort>("solved");
+  const [query, setQuery] = useState("");
   const now = Date.now();
 
   const all = codeforcesMembers(users);
   const members = [...all].sort(compareCodeforces(sortBy));
   const weeklyMax = Math.max(25, ...members.map((m) => m.account.weeklySolved));
+
+  // Search: name, LeetCode username, school or Codeforces handle. Ranks stay
+  // the real ones, so a filtered row still shows its place on the board.
+  const q = query.trim().toLowerCase();
+  const matches = ({ user, account }: CodeforcesMember) =>
+    !q ||
+    user.displayName.toLowerCase().includes(q) ||
+    user.leetcodeUsername.toLowerCase().includes(q) ||
+    (user.school ?? "").toLowerCase().includes(q) ||
+    account.handle.toLowerCase().includes(q);
+  const visibleCount = members.filter(matches).length;
 
   // The top three of the ranking selected (rating mode counts rated members only).
   const cards = members.filter((m) => sortBy !== "rating" || m.account.rating != null).slice(0, 3);
@@ -397,7 +410,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
         className="card-aurora animate-rise overflow-hidden"
       >
         {/* Toolbar */}
-        <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center sm:justify-between md:p-4">
+        <div className="border-b border-line p-3 md:p-4">
           <div className="flex items-center gap-3">
             <CfBars />
             <div>
@@ -409,6 +422,17 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Search + sort */}
+        <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center md:p-4">
+          <SearchInput
+            id="cf-search"
+            label="Search members"
+            placeholder="Search by name, username, school or handle"
+            value={query}
+            onChange={setQuery}
+          />
           <div
             role="group"
             aria-label="Sort Codeforces leaderboard"
@@ -434,7 +458,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
         </div>
 
         {/* Top three, shown inside the leaderboard (they stay in the list below too). */}
-        {!loading && cards.length > 0 && (
+        {!loading && !q && cards.length > 0 && (
           <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
             <TopCards cards={cards} weeklyMax={weeklyMax} />
           </div>
@@ -469,9 +493,19 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
             description="Add your handle under Account settings > Linked accounts to appear here."
             action={{ label: "Link my account", href: "#/account" }}
           />
+        ) : visibleCount === 0 ? (
+          <EmptyState
+            bare
+            icon={<Search className="size-5" aria-hidden="true" />}
+            title="No members match your search"
+            description="Try a different name, username or handle."
+            action={{ label: "Clear search", onClick: () => setQuery("") }}
+          />
         ) : (
           <div className="divide-y divide-line">
-            {members.map(({ user, account }, index) => {
+            {members.map((member, index) => {
+              const { user, account } = member;
+              if (!matches(member)) return null;
               const rank = index + 1;
               const rated = account.rating != null;
               const buckets = codeforcesBuckets(account);
