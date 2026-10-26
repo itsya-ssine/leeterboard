@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import { ArrowUpRight, Clock, Link2 } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 import EmptyState from "./EmptyState.js";
@@ -187,14 +187,51 @@ const SPECTRUM_TICKS = [1200, 1400, 1600, 1900, 2100, 2400];
 const spectrumPct = (rating: number) =>
   Math.min(100, Math.max(0, ((rating - SPECTRUM_MIN) / (SPECTRUM_MAX - SPECTRUM_MIN)) * 100));
 
+// Horizontal room one pin needs (avatar and rating label), and the height of
+// one row of pins.
+const PIN_WIDTH_PX = 40;
+const PIN_ROW_REM = 3.5;
+const PIN_BASE_REM = 2.4;
+
 // Every rated member placed on the ruler, so you can see who is closing in on
-// the next colour at a glance. Neighbours alternate between two heights to
-// keep overlapping avatars apart.
+// the next colour at a glance. Everyone sits on one line; a pin only moves up
+// to a higher row when it would land on top of the pin before it.
 function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
   const rated = members
     .filter((m) => m.account.rating != null)
     .sort((a, b) => a.account.rating! - b.account.rating!);
-  if (rated.length === 0) return null;
+  const hasRated = rated.length > 0;
+
+  // Pixel width of the track, to tell when two pins would overlap.
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [trackW, setTrackW] = useState(0);
+  useLayoutEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    const update = () => setTrackW(el.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasRated]);
+
+  if (!hasRated) return null;
+
+  // Give each pin the lowest row where it clears the previous pin in that row.
+  const rowEnds: number[] = [];
+  const rowOf = rated.map(({ account }) => {
+    if (trackW === 0) return 0;
+    const x = (spectrumPct(account.rating!) / 100) * trackW;
+    let row = rowEnds.findIndex((end) => x - end >= PIN_WIDTH_PX);
+    if (row === -1) {
+      row = rowEnds.length;
+      rowEnds.push(x);
+    } else {
+      rowEnds[row] = x;
+    }
+    return row;
+  });
+  const rows = Math.max(1, rowEnds.length);
 
   return (
     <section aria-label="Rating spectrum" className="card-aurora animate-rise p-5">
@@ -202,7 +239,7 @@ function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
       <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">Who is closing in on the next colour</h2>
 
       <div className="mt-4 overflow-x-auto px-4 pb-1">
-        <div className="relative h-36 min-w-[34rem]">
+        <div ref={trackRef} className="relative min-w-[34rem]" style={{ height: `${PIN_BASE_REM + rows * PIN_ROW_REM + 0.4}rem` }}>
           {rated.map(({ user, account }, i) => (
             <a
               key={user.id}
@@ -210,7 +247,7 @@ function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
               title={`${user.displayName} · ${account.rating!.toLocaleString()} · ${formatRankTitle(account.rankTitle)}`}
               aria-label={`${user.displayName}, rating ${account.rating}`}
               className={`group/pin absolute flex -translate-x-1/2 flex-col items-center ${focusRing}`}
-              style={{ left: `${spectrumPct(account.rating!)}%`, bottom: i % 2 === 0 ? "2.4rem" : "4.9rem" }}
+              style={{ left: `${spectrumPct(account.rating!)}%`, bottom: `${PIN_BASE_REM + rowOf[i] * PIN_ROW_REM}rem` }}
             >
               <FramedAvatar
                 src={user.avatarUrl}
