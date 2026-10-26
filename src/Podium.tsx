@@ -4,6 +4,7 @@ import type { User } from "./types.js";
 import type { Movement, RankingKey } from "./movement.js";
 import RankMovement from "./RankMovement.js";
 import SchoolTag from "./SchoolTag.js";
+import TierAvatar from "./TierAvatar.js";
 
 // Faux "accepted solution" that scrolls behind the podium, like an editor
 // open next to the standings. Purely decorative.
@@ -198,11 +199,11 @@ export default function Podium({
                   aria-hidden="true"
                   className={`animate-glow absolute inset-0 -z-0 scale-125 rounded-full blur-xl ${style.glow}`}
                 />
-                <img
-                  src={user.avatarUrl}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className={`${style.avatar} relative shrink-0 rounded-full object-cover ring-2 ring-offset-2 ring-offset-ink-900 ${style.avatarRing} transition duration-300 group-hover/podium:-translate-y-1 group-hover/podium:scale-105`}
+                <TierAvatar
+                  user={user}
+                  showGem
+                  gemSize="sm"
+                  className={`${style.avatar} transition duration-300 group-hover/podium:-translate-y-1 group-hover/podium:scale-105`}
                 />
                 <span
                   aria-hidden="true"
