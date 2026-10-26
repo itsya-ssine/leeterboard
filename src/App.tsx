@@ -856,6 +856,9 @@ export default function App() {
     !searchQuery &&
     podiumLeaders.length === 3 &&
     (sortBy !== "weekly" || podiumLeaders[0].weeklyProgress > 0);
+  // The podium already shows the top three, so the list below starts at #4.
+  const podiumIds = new Set(showPodium ? podiumLeaders.map((u) => u.id) : []);
+  const listUsers = sortedUsers.filter((u) => !podiumIds.has(u.id));
   const boardStale = isStale(lastSyncAll, now);
 
   const stats = [
@@ -1362,8 +1365,17 @@ export default function App() {
                       }
                     />
                   </motion.div>
+                ) : listUsers.length === 0 ? (
+                  <motion.p
+                    key="podium-only"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="px-5 py-8 text-center font-mono text-xs uppercase tracking-widest text-mist-500"
+                  >
+                    {"// that's the whole board"}
+                  </motion.p>
                 ) : (
-                  sortedUsers.map((user) => {
+                  listUsers.map((user) => {
                     const isPinned = pinnedUsers.includes(user.id);
                     const actualRank = displayRank(user);
 

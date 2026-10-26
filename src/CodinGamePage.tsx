@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { ArrowUpRight, Clock, Link2, Gamepad2 } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 import EmptyState from "./EmptyState.js";
+import { FramedAvatar } from "./TierAvatar.js";
+import { codingameTier } from "./tiers.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -105,6 +107,8 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
 
   // The three "player cards": the top of the ranking currently selected.
   const cards = members.filter((m) => sortBy !== "level" || m.account.rating != null).slice(0, 3);
+  // The cards already show the top three, so the list below starts at #4.
+  const cardIds = new Set(!loading ? cards.map((m) => m.user.id) : []);
 
   return (
     <div className="space-y-6">
@@ -131,11 +135,11 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
                 <div className="flex flex-col gap-4 p-4">
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
-                      <img
+                      <FramedAvatar
                         src={user.avatarUrl}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        className={`size-14 rounded-2xl object-cover ring-2 ring-offset-2 ring-offset-ink-900 ${medal.ring}`}
+                        tier={codingameTier(account.rating)}
+                        shape="rounded-2xl"
+                        className="size-14"
                       />
                       <span className="absolute -bottom-2 -right-2">
                         <LevelBadge level={account.rating} />
@@ -241,6 +245,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
         ) : (
           <div className="divide-y divide-line">
             {members.map(({ user, account }, index) => {
+              if (cardIds.has(user.id)) return null;
               const synced = account.lastUpdated != null;
               const shownRank = sortBy === "level" && account.rating == null ? null : index + 1;
               const podium = shownRank != null && shownRank <= 3;
@@ -268,11 +273,11 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
                       title="View profile"
                       className={`group/member flex min-w-0 items-center gap-3 rounded-lg ${focusRing}`}
                     >
-                      <img
+                      <FramedAvatar
                         src={user.avatarUrl}
-                        alt=""
-                        className="size-11 shrink-0 rounded-xl object-cover ring-2 ring-line-strong ring-offset-2 ring-offset-ink-900 transition duration-300 group-hover/member:scale-105 group-hover/member:ring-lime-400/80"
-                        referrerPolicy="no-referrer"
+                        tier={codingameTier(account.rating)}
+                        shape="rounded-xl"
+                        className="size-11 transition duration-300 group-hover/member:scale-105"
                       />
                       <div className="min-w-0">
                         <div className="truncate font-medium text-strong transition-colors group-hover/member:text-teal-300">
