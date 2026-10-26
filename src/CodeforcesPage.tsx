@@ -305,7 +305,7 @@ const CARD_MEDALS = [
 ] as const;
 
 // The top three of the ranking currently selected, as cards with their
-// rating-coloured avatar frames. The list below carries on from #4.
+// rating-coloured avatar frames.
 function TopCards({
   cards,
   weeklyMax
@@ -386,8 +386,6 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
 
   // The top three of the ranking selected (rating mode counts rated members only).
   const cards = members.filter((m) => sortBy !== "rating" || m.account.rating != null).slice(0, 3);
-  // The cards already show the top three, so the list below starts at #4.
-  const cardIds = new Set(!loading ? cards.map((m) => m.user.id) : []);
 
   return (
     <div className="space-y-6">
@@ -435,7 +433,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
           </div>
         </div>
 
-        {/* Top three, shown inside the leaderboard; the list below starts at #4. */}
+        {/* Top three, shown inside the leaderboard (they stay in the list below too). */}
         {!loading && cards.length > 0 && (
           <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
             <TopCards cards={cards} weeklyMax={weeklyMax} />
@@ -474,7 +472,6 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
         ) : (
           <div className="divide-y divide-line">
             {members.map(({ user, account }, index) => {
-              if (cardIds.has(user.id)) return null;
               const rank = index + 1;
               const rated = account.rating != null;
               const buckets = codeforcesBuckets(account);

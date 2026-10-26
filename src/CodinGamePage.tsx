@@ -107,8 +107,6 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
 
   // The three "player cards": the top of the ranking currently selected.
   const cards = members.filter((m) => sortBy !== "level" || m.account.rating != null).slice(0, 3);
-  // The cards already show the top three, so the list below starts at #4.
-  const cardIds = new Set(!loading ? cards.map((m) => m.user.id) : []);
 
   return (
     <div className="space-y-6">
@@ -155,7 +153,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
           </div>
         </div>
 
-        {/* Top three, shown inside the leaderboard; the list below starts at #4. */}
+        {/* Top three, shown inside the leaderboard (they stay in the list below too). */}
         {!loading && cards.length > 0 && (
           <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
             <section aria-label="Top players" className="grid gap-3 md:grid-cols-3">
@@ -247,7 +245,6 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
         ) : (
           <div className="divide-y divide-line">
             {members.map(({ user, account }, index) => {
-              if (cardIds.has(user.id)) return null;
               const synced = account.lastUpdated != null;
               const shownRank = sortBy === "level" && account.rating == null ? null : index + 1;
               const podium = shownRank != null && shownRank <= 3;
