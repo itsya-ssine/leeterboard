@@ -1195,12 +1195,7 @@ export default function App() {
                     </div>
                     <div className="flex flex-col gap-4 p-4">
                       <div className="flex items-center gap-3">
-                        <img
-                          src={user.avatarUrl}
-                          alt=""
-                          className={`size-12 shrink-0 rounded-full object-cover ring-2 ring-offset-2 ring-offset-ink-900 ${medal.ring}`}
-                          referrerPolicy="no-referrer"
-                        />
+                        <TierAvatar user={user} className="size-12" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="truncate font-semibold text-strong">{user.displayName}</span>

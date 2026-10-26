@@ -38,3 +38,44 @@ export function tierSummary(user: { contestRating: number | null }): string {
     next ? ` · next: ${next.name} at ${next.min.toLocaleString()}` : " · top tier"
   }`;
 }
+
+const byName = (name: string) => RATING_TIERS.find((t) => t.name === name)!;
+
+// Codeforces rank titles share the colours (and frames) of the rating tiers
+// above; the higher international / legendary titles use their parent colour.
+const CODEFORCES_TIERS: Record<string, string> = {
+  newbie: "Newbie",
+  pupil: "Pupil",
+  specialist: "Specialist",
+  expert: "Expert",
+  "candidate master": "Candidate",
+  master: "Master",
+  "international master": "Master",
+  grandmaster: "Grandmaster",
+  "international grandmaster": "Grandmaster",
+  "legendary grandmaster": "Grandmaster"
+};
+
+// null = unrated, or a title we don't know.
+export function codeforcesTier(rankTitle: string | null | undefined): RatingTier | null {
+  if (!rankTitle) return null;
+  const tier = CODEFORCES_TIERS[rankTitle.toLowerCase()];
+  return tier ? { ...byName(tier), name: rankTitle.replace(/\b\w/g, (c) => c.toUpperCase()) } : null;
+}
+
+// CodinGame has plain levels, so a frame steps up every ten of them.
+const CODINGAME_STEPS = [
+  { min: 60, tier: "Grandmaster" },
+  { min: 50, tier: "Master" },
+  { min: 40, tier: "Candidate" },
+  { min: 30, tier: "Expert" },
+  { min: 20, tier: "Specialist" },
+  { min: 10, tier: "Pupil" },
+  { min: 1, tier: "Newbie" }
+] as const;
+
+export function codingameTier(level: number | null | undefined): RatingTier | null {
+  if (level == null) return null;
+  const step = CODINGAME_STEPS.find((s) => level >= s.min);
+  return step ? { ...byName(step.tier), name: `Level ${step.min}+` } : null;
+}

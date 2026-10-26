@@ -40,38 +40,50 @@ function frameFor(tier: RatingTier | null): { background: string; glow: string; 
   }
 }
 
-export default function TierAvatar({
-  user,
+// Inner picture radius for the supported frame shapes (frame minus its padding).
+const INNER_RADIUS: Record<string, string> = {
+  "rounded-full": "rounded-full",
+  "rounded-xl": "rounded-[10px]",
+  "rounded-2xl": "rounded-[14px]"
+};
+
+// The frame itself, for any picture and any tier. TierAvatar below is the
+// LeetCode flavour (tier from the contest rating); the Codeforces and CodinGame
+// pages pass their own tier.
+export function FramedAvatar({
+  src,
+  tier,
   className = "size-10",
+  shape = "rounded-full",
+  title,
   showGem = false,
   gemSize = "md"
 }: {
-  user: { avatarUrl: string; contestRating: number | null };
+  src: string;
+  tier: RatingTier | null;
   // Sizing and anything layout related (size-*, transitions, group-hover:...).
   className?: string;
+  shape?: "rounded-full" | "rounded-xl" | "rounded-2xl";
+  title?: string;
   // A small tier gem on the corner, for the large avatars.
   showGem?: boolean;
   gemSize?: "sm" | "md";
 }) {
-  const tier = tierOf(user);
   const frame = frameFor(tier);
 
   return (
-    <span className={`relative inline-block shrink-0 ${className}`} title={showGem ? tierSummary(user) : undefined}>
-      <span
-        className="relative block size-full overflow-hidden rounded-full p-[2px]"
-        style={{ boxShadow: frame.glow }}
-      >
+    <span className={`relative inline-block shrink-0 ${className}`} title={title}>
+      <span className={`relative block size-full overflow-hidden p-[2px] ${shape}`} style={{ boxShadow: frame.glow }}>
         <span
           aria-hidden="true"
           className={`absolute ${frame.spin ? "-inset-1/2 motion-safe:animate-spin" : "inset-0"}`}
           style={{ background: frame.background, animationDuration: "8s" }}
         />
         <img
-          src={user.avatarUrl}
+          src={src}
           alt=""
           referrerPolicy="no-referrer"
-          className="relative size-full rounded-full border-2 border-ink-900 bg-ink-800 object-cover"
+          className={`relative size-full border-2 border-ink-900 bg-ink-800 object-cover ${INNER_RADIUS[shape]}`}
         />
       </span>
       {showGem && tier && (
@@ -86,5 +98,28 @@ export default function TierAvatar({
         </span>
       )}
     </span>
+  );
+}
+
+export default function TierAvatar({
+  user,
+  className,
+  showGem = false,
+  gemSize
+}: {
+  user: { avatarUrl: string; contestRating: number | null };
+  className?: string;
+  showGem?: boolean;
+  gemSize?: "sm" | "md";
+}) {
+  return (
+    <FramedAvatar
+      src={user.avatarUrl}
+      tier={tierOf(user)}
+      className={className}
+      title={showGem ? tierSummary(user) : undefined}
+      showGem={showGem}
+      gemSize={gemSize}
+    />
   );
 }
