@@ -354,8 +354,6 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
 
   return (
     <div className="space-y-6">
-      {!loading && cards.length > 0 && <TopCards cards={cards} weeklyMax={weeklyMax} />}
-
       {!loading && <RatingSpectrum members={all} />}
 
       <section
@@ -399,6 +397,13 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
             ))}
           </div>
         </div>
+
+        {/* Top three, shown inside the leaderboard; the list below starts at #4. */}
+        {!loading && cards.length > 0 && (
+          <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
+            <TopCards cards={cards} weeklyMax={weeklyMax} />
+          </div>
+        )}
 
         {/* Column labels */}
         <div className="hidden grid-cols-12 gap-x-4 border-b border-line bg-ink-950/40 px-5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:grid">

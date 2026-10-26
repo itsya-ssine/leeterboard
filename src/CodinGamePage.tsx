@@ -112,66 +112,6 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
 
   return (
     <div className="space-y-6">
-      {/* ---------- Player cards ---------- */}
-      {!loading && cards.length > 0 && (
-        <section aria-label="Top players" className="grid gap-3 md:grid-cols-3">
-          {cards.map(({ user, account }, i) => {
-            const medal = CARD_MEDALS[i];
-            return (
-              <a
-                key={user.id}
-                href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
-                className={`card-aurora flex animate-rise flex-col overflow-hidden transition-transform duration-300 hover:-translate-y-1 ${focusRing}`}
-                style={{ animationDelay: `${i * 100}ms` }}
-              >
-                <div
-                  className={`flex items-center justify-between border-b border-line bg-gradient-to-r ${medal.strip} to-transparent px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-widest ${medal.text}`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <span className="balloon" aria-hidden="true" />#{i + 1} {medal.label}
-                  </span>
-                  <span>+{account.weeklySolved.toLocaleString()} XP</span>
-                </div>
-                <div className="flex flex-col gap-4 p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="relative shrink-0">
-                      <FramedAvatar
-                        src={user.avatarUrl}
-                        tier={codingameTier(account.rating)}
-                        shape="rounded-2xl"
-                        className="size-14"
-                      />
-                      <span className="absolute -bottom-2 -right-2">
-                        <LevelBadge level={account.rating} />
-                      </span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-semibold text-strong">{user.displayName}</div>
-                      <div className="truncate font-mono text-sm text-mist-500">@{user.leetcodeUsername}</div>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="mb-1 flex justify-between font-mono text-[10px] uppercase tracking-widest text-mist-500">
-                      <span>XP this week</span>
-                      <span>vs best {weeklyMax.toLocaleString()}</span>
-                    </div>
-                    <XpBar value={account.weeklySolved} max={weeklyMax} />
-                  </div>
-                  <div className="flex items-baseline justify-between border-t border-line pt-3 font-mono text-sm">
-                    <span className="text-mist-400">
-                      <span className="font-bold tabular-nums text-strong">{account.solved.toLocaleString()}</span> XP
-                    </span>
-                    <span className="text-emerald-400">
-                      LV <span className="font-bold tabular-nums">{account.rating ?? "–"}</span>
-                    </span>
-                  </div>
-                </div>
-              </a>
-            );
-          })}
-        </section>
-      )}
-
       <section
         id="codingame-panel"
         aria-label="CodinGame leaderboard"
@@ -214,6 +154,68 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
             ))}
           </div>
         </div>
+
+        {/* Top three, shown inside the leaderboard; the list below starts at #4. */}
+        {!loading && cards.length > 0 && (
+          <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
+            <section aria-label="Top players" className="grid gap-3 md:grid-cols-3">
+              {cards.map(({ user, account }, i) => {
+                const medal = CARD_MEDALS[i];
+                return (
+                  <a
+                    key={user.id}
+                    href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
+                    className={`card-aurora flex animate-rise flex-col overflow-hidden transition-transform duration-300 hover:-translate-y-1 ${focusRing}`}
+                    style={{ animationDelay: `${i * 100}ms` }}
+                  >
+                    <div
+                      className={`flex items-center justify-between border-b border-line bg-gradient-to-r ${medal.strip} to-transparent px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-widest ${medal.text}`}
+                    >
+                      <span className="inline-flex items-center gap-2">
+                        <span className="balloon" aria-hidden="true" />#{i + 1} {medal.label}
+                      </span>
+                      <span>+{account.weeklySolved.toLocaleString()} XP</span>
+                    </div>
+                    <div className="flex flex-col gap-4 p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="relative shrink-0">
+                          <FramedAvatar
+                            src={user.avatarUrl}
+                            tier={codingameTier(account.rating)}
+                            shape="rounded-2xl"
+                            className="size-14"
+                          />
+                          <span className="absolute -bottom-2 -right-2">
+                            <LevelBadge level={account.rating} />
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-semibold text-strong">{user.displayName}</div>
+                          <div className="truncate font-mono text-sm text-mist-500">@{user.leetcodeUsername}</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 flex justify-between font-mono text-[10px] uppercase tracking-widest text-mist-500">
+                          <span>XP this week</span>
+                          <span>vs best {weeklyMax.toLocaleString()}</span>
+                        </div>
+                        <XpBar value={account.weeklySolved} max={weeklyMax} />
+                      </div>
+                      <div className="flex items-baseline justify-between border-t border-line pt-3 font-mono text-sm">
+                        <span className="text-mist-400">
+                          <span className="font-bold tabular-nums text-strong">{account.solved.toLocaleString()}</span> XP
+                        </span>
+                        <span className="text-emerald-400">
+                          LV <span className="font-bold tabular-nums">{account.rating ?? "–"}</span>
+                        </span>
+                      </div>
+                    </div>
+                  </a>
+                );
+              })}
+            </section>
+          </div>
+        )}
 
         <div className="hidden grid-cols-12 gap-x-4 border-b border-line bg-ink-950/40 px-5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:grid">
           <div className="col-span-1">#</div>
