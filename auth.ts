@@ -10,11 +10,18 @@ if (!JWT_SECRET) {
   // fallback secret — that would let anyone forge a session.
   throw new Error("JWT_SECRET environment variable is required. Set it in your .env file.");
 }
+const JWT_SECRET_HELP =
+  'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"';
 if (JWT_SECRET.length < 32) {
-  throw new Error(
-    "JWT_SECRET is too short (need at least 32 characters). " +
-      'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"'
-  );
+  throw new Error(`JWT_SECRET is too short (need at least 32 characters). ${JWT_SECRET_HELP}`);
+}
+// Length alone doesn't make a secret strong: reject obvious placeholders and
+// low-variety values (e.g. "aaaa…", "changeme…") copied from docs or examples.
+if (
+  new Set(JWT_SECRET).size < 10 ||
+  /change[-_ ]?me|your[-_ ]?secret|example|placeholder|secret[-_ ]?key|password/i.test(JWT_SECRET)
+) {
+  throw new Error(`JWT_SECRET looks like a placeholder or is not random enough. ${JWT_SECRET_HELP}`);
 }
 
 /* ---------- Password hashing (scrypt, built into Node — no extra dependency) ---------- */
@@ -96,13 +103,23 @@ export interface SessionPayload {
   ps?: string;
 }
 
-// Admins are listed by LeetCode username (comma-separated env var, falling
-// back to the original admin). Safe to rely on because nobody can register a
-// username without proving they own that LeetCode profile.
-const ADMIN_LEETCODE_USERNAMES = (process.env.ADMIN_LEETCODE_USERNAMES ?? "0x_naoki")
+// Admins are listed by LeetCode username in the ADMIN_LEETCODE_USERNAMES
+// environment variable (comma-separated). There is deliberately NO built-in
+// default: if the variable is unset, nobody is an admin (fail closed), so a
+// hardcoded username can never grant privileges by accident. Relying on a
+// username is only safe because nobody can register one without proving they
+// own that LeetCode profile.
+const ADMIN_LEETCODE_USERNAMES = (process.env.ADMIN_LEETCODE_USERNAMES ?? "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
+
+if (ADMIN_LEETCODE_USERNAMES.length === 0) {
+  console.warn(
+    "[Auth] ADMIN_LEETCODE_USERNAMES is not set — no account has admin rights. " +
+      "Set it to a comma-separated list of LeetCode usernames to enable the admin dashboard."
+  );
+}
 
 export function isAdminUser(user: { leetcodeUsername: string }): boolean {
   return ADMIN_LEETCODE_USERNAMES.includes(user.leetcodeUsername.toLowerCase());

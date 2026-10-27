@@ -10,6 +10,18 @@ import type { PlatformStats } from "./platforms/common.js";
 const url = process.env.TURSO_DATABASE_URL || "file:local.db";
 const authToken = process.env.TURSO_AUTH_TOKEN;
 
+// Fail fast on a misconfigured production deployment instead of silently
+// running against the wrong database or an unauthenticated remote connection.
+if (process.env.VERCEL && url.startsWith("file:")) {
+  throw new Error(
+    "TURSO_DATABASE_URL is not set. Serverless deployments cannot use a local SQLite file; " +
+      "set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in the Vercel project's environment variables."
+  );
+}
+if (!url.startsWith("file:") && !authToken) {
+  throw new Error("TURSO_AUTH_TOKEN is required when TURSO_DATABASE_URL points at a remote database.");
+}
+
 export const client: Client = authToken
   ? createClient({ url, authToken })
   : createClient({ url });

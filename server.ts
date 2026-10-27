@@ -1590,8 +1590,10 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   }
 });
 
-// POST refresh individual user
-app.post("/api/users/:id/refresh", refreshLimiter, async (req, res) => {
+// POST refresh individual user — admin only. Each call triggers several
+// outbound scrapes, so it must not be an anonymous amplification point. The
+// only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
+app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res) => {
   const { id } = req.params;
 
   try {

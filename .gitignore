@@ -6,3 +6,16 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local databases and tooling caches
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+local.db*
+.vite/
+.vercel/
+*.pem
+*.key
