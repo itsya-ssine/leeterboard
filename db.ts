@@ -1000,6 +1000,15 @@ export async function deletePendingLink(userId: string, platform: PlatformId): P
   await client.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?", args: [userId, platform] });
 }
 
+// Atomic single-use take, like consumePendingRegistration.
+export async function consumePendingLink(userId: string, platform: PlatformId): Promise<boolean> {
+  const res = await client.execute({
+    sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?",
+    args: [userId, platform]
+  });
+  return (res.rowsAffected ?? 0) > 0;
+}
+
 export async function purgeExpiredPendingLinks(nowIso: string): Promise<void> {
   await client.execute({ sql: "DELETE FROM pending_links WHERE expires_at < ?", args: [nowIso] });
 }
@@ -1400,6 +1409,13 @@ export async function bumpPendingAttempts(id: string): Promise<void> {
 
 export async function deletePendingRegistration(id: string): Promise<void> {
   await client.execute({ sql: "DELETE FROM pending_registrations WHERE id = ?", args: [id] });
+}
+
+// Atomically takes the challenge: true for exactly one caller, false for any
+// concurrent or later one. Use this (not delete) to make a challenge single-use.
+export async function consumePendingRegistration(id: string): Promise<boolean> {
+  const res = await client.execute({ sql: "DELETE FROM pending_registrations WHERE id = ?", args: [id] });
+  return (res.rowsAffected ?? 0) > 0;
 }
 
 export async function purgeExpiredRegistrations(nowIso: string): Promise<void> {

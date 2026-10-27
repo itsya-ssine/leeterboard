@@ -148,6 +148,7 @@ The seed script only writes to a local SQLite file. It refuses to run if `TURSO_
 | --- | --- | --- |
 | `JWT_SECRET` | Yes | Signs session cookies. Must be at least 32 random characters. |
 | `ADMIN_LEETCODE_USERNAMES` | Yes (for admin access) | Comma-separated LeetCode usernames with admin rights. There is no default: if unset, nobody is an admin. |
+| `ALLOWED_ORIGINS` | No | Comma-separated extra origins allowed to make state-changing API requests (CSRF allow-list). The app's own origin is always allowed. |
 | `TURSO_DATABASE_URL` | No | Turso database URL. Leave empty to use the local `local.db` file. |
 | `TURSO_AUTH_TOKEN` | No | Auth token for the Turso database. |
 | `PORT` | No | Server port. Defaults to `3000`. |

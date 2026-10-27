@@ -28,6 +28,8 @@ import {
   getPendingRegistration,
   bumpPendingAttempts,
   deletePendingRegistration,
+  consumePendingRegistration,
+  consumePendingLink,
   purgeExpiredRegistrations,
   getMeta,
   setMeta,
@@ -66,6 +68,7 @@ import { syncAllPlatformAccounts, syncPlatformAccount, syncPlatformAccountsForUs
 import { PLATFORMS, isPlatformId, type PlatformInfo } from "./platforms/registry.js";
 import { PlatformNotFoundError } from "./platforms/common.js";
 import { buildPlatformTrend } from "./platformTrends.js";
+import { csrfProtection } from "./csrf.js";
 import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
@@ -114,6 +117,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Reject cross-site / non-JSON state-changing requests before anything parses
+// a body or touches the database (see csrf.ts).
+app.use("/api", csrfProtection);
 
 // Nothing here needs a large body; a small cap rejects oversized payloads early.
 app.use(express.json({ limit: "10kb" }));
@@ -1071,10 +1078,21 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
     const existing = await getUserAuthByUsername(pending.leetcodeUsername);
     let user: User;
 
+    // The challenge is single-use. Consuming it is one atomic DELETE, so of
+    // several concurrent verifications only one can proceed; the rest (and any
+    // replay) are rejected before anything is written.
+    const rejectReplay = () => {
+      res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
+      return res
+        .status(400)
+        .json({ error: "This sign-up was already completed or has expired. Please start again.", expired: true });
+    };
+
     if (existing) {
       // Claiming a pre-password account, or resetting a forgotten password.
       // Stats and history are untouched; changing the hash also signs out
       // every older session.
+      if (!(await consumePendingRegistration(pending.id))) return rejectReplay();
       await setPasswordHash(existing.user.id, pending.passwordHash);
       user = existing.user;
     } else {
@@ -1126,6 +1144,7 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
           }
         ]
       };
+      if (!(await consumePendingRegistration(pending.id))) return rejectReplay();
       await insertUser(user, pending.passwordHash);
       // What they already hold when they join isn't news; only later awards notify.
       try {
@@ -1135,7 +1154,6 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
       }
     }
 
-    await deletePendingRegistration(pending.id);
     res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
     setSessionCookie(res, user, pending.passwordHash);
     res.status(existing ? 200 : 201).json({ ...user, isAdmin: isAdminUser(user) });
@@ -1458,17 +1476,19 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
       });
     }
 
-    // Ownership proven.
+    // Ownership proven. Consume the challenge atomically so it can't be
+    // replayed or used by two concurrent requests.
+    if (!(await consumePendingLink(id, platform.id))) {
+      return res.status(400).json({ error: "This link request was already used or has expired. Please start again.", expired: true });
+    }
     try {
       await insertPlatformAccount(id, platform.id, profile.handle);
     } catch (err: any) {
       if (String(err?.message).includes("UNIQUE")) {
-        await deletePendingLink(id, platform.id);
         return res.status(409).json({ error: `That ${platform.label} account was just linked. Refresh and check.` });
       }
       throw err;
     }
-    await deletePendingLink(id, platform.id);
 
     // First sync so the stats show straight away. If the platform is slow or
     // down the account is still linked and the next sync fills it in.
@@ -1569,24 +1589,34 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
   }
 });
 
-// DELETE user — admin only
+// DELETE user — admin only. Admin accounts can't be removed through this
+// route (so one compromised or careless admin can't wipe out the others, or
+// themselves, with a single request); a member deletes their own account from
+// the account page, which requires their password.
 app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const session = (req as any).user;
+  const session = (req as any).user as { id: string; leetcodeUsername: string };
 
   try {
+    const target = await getUserById(id);
+    if (!target) {
+      return res.status(404).json({ error: "User not found." });
+    }
+    if (target.id === session.id || isAdminUser(target)) {
+      return res.status(403).json({
+        error: "Admin accounts can't be removed here. Remove the account from the admin list first."
+      });
+    }
+
     const deleted = await deleteUserById(id);
     if (!deleted) {
       return res.status(404).json({ error: "User not found." });
     }
-    // Only clear the session cookie if the admin removed their own
-    // account — removing someone else shouldn't log the admin out.
-    if (session.id === id) {
-      clearSessionCookie(res);
-    }
+    console.info(`[Admin] ${session.leetcodeUsername} removed member ${target.leetcodeUsername}`);
     res.json({ success: true, message: "Member removed successfully." });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    console.error(`[Admin] member removal failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
