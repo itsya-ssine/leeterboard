@@ -150,7 +150,8 @@ The seed script only writes to a local SQLite file. It refuses to run if `TURSO_
 | `ADMIN_LEETCODE_USERNAMES` | Yes (for admin access) | Comma-separated LeetCode usernames with admin rights. There is no default: if unset, nobody is an admin. |
 | `ALLOWED_ORIGINS` | No | Comma-separated extra origins allowed to make state-changing API requests (CSRF allow-list). The app's own origin is always allowed. |
 | `TURSO_DATABASE_URL` | No | Turso database URL. Leave empty to use the local `local.db` file. |
-| `TURSO_AUTH_TOKEN` | No | Auth token for the Turso database. |
+| `TURSO_AUTH_TOKEN` | Yes, with a remote database | Auth token for the Turso database. Server-side only: never put it (or any secret) in a `VITE_` variable, which would ship it to the browser. |
+| `TRUST_PROXY_HOPS` | No | How many reverse proxies sit in front of the app, used to read the real client IP for rate limiting. Defaults to `1` in production (Vercel, Render, Railway, Fly) and `0` in development. Raise it only if you add another proxy or CDN; too high lets clients spoof their IP. |
 | `PORT` | No | Server port. Defaults to `3000`. |
 | `SYNC_BUDGET_MS` | No | Time budget in milliseconds for one visit-triggered sync. Defaults to `8000`. |
 
@@ -245,7 +246,10 @@ The theme is driven by CSS variables in `src/index.css`:
 - Unknown usernames and wrong passwords return the same error.
 - Sessions are signed HTTP-only cookies. Resetting a password signs out all older sessions.
 - Ownership of every account (LeetCode, Codeforces, CodinGame) is proven with a one-time code read back from the public profile.
-- Request bodies are limited to 10 KB, usernames and handles are validated against allow-lists, and responses carry standard security headers. Authenticated API responses are not cached.
+- Request bodies are limited to 10 KB and usernames and handles are validated against allow-lists. Every `/api` response is sent with `Cache-Control: no-store`.
+- Production responses carry a Content Security Policy (own scripts only, plus the hashed theme bootstrap in `index.html`), `Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options`, a `Referrer-Policy`, a `Permissions-Policy` and `Cross-Origin-Opener-Policy`. They are defined once in `securityHeaders.ts` and mirrored in `vercel.json`, which serves the static frontend on Vercel. `npm run security:check` fails if the two drift apart or if the inline script in `index.html` changes without its CSP hash being updated; run it after editing either.
+- The sensitive rate limiters keep their counters in the database, so they hold across serverless instances (see [Rate limits](#rate-limits)).
+- Dependencies are audited with `npm run audit:prod`.
 - Notification text is always rendered as plain text, never HTML.
 
 ## Data syncing
@@ -276,11 +280,14 @@ users ──< platform_history      one snapshot per member per platform per UTC
 users ──< platform_sync_status  latest sync attempt per member per platform
 users ──< pending_links         open "prove you own this account" requests
 pending_registrations           sign-ups waiting for LeetCode ownership proof
+rate_limits                     counters for the sensitive rate limiters (shared across instances)
 meta                            key/value store (weekly winners archive, last full sync)
 schema_migrations               applied migrations
 ```
 
-Changes to an existing database are versioned migrations in `db.ts` (`MIGRATIONS`). They run automatically on start-up and are idempotent; `npm run db:migrate` runs them on purpose, with a backup of a local database first. For a Turso database, take a snapshot before migrating. Keep `db/schema.sql`, the `MIGRATIONS` list and `initDb()` in step.
+Changes to an existing database are versioned migrations in `db.ts` (`MIGRATIONS`). They run automatically on start-up and are idempotent; `npm run db:migrate` runs them on purpose, with a backup of a local database first. For a Turso database, take a snapshot before migrating; `npm run db:migrate` refuses to touch a remote database unless you add `-- --confirm-remote`, so a `.env` holding production credentials can't migrate production by accident. Keep `db/schema.sql`, the `MIGRATIONS` list and `initDb()` in step.
+
+**Database credentials.** Keep separate Turso databases, and separate tokens, for development, preview and production, and set each only in the matching Vercel environment. The app needs read and write access, so it can't use a read-only token; create it per database, set an expiry you are willing to rotate on, and never reuse it for tooling. The app refuses to start with a remote URL that isn't encrypted (`libsql://` or `https://`). Rotate the token if it was ever pasted into a chat, an issue or a log.
 
 **How progress is counted.** Each member has a `tracking_start` day and a `baseline_solved` total (their all-time count when they signed up). Weeks run Monday to Sunday (UTC) and the weekly counter restarts from 0 every Monday. A member who joins mid-week is counted from their joining day to that Sunday, measured from their baseline, and from then on like everyone else. Group growth is the sum of what each member has solved since they joined, so adding someone never inflates the chart with their past.
 
@@ -347,7 +354,7 @@ All endpoints live under `/api`.
 
 ## Rate limits
 
-Limits are per IP.
+Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh and account actions) store their counters in the `rate_limits` table, so they are enforced across every serverless instance and survive restarts and cold starts. The general `/api` ceiling stays in memory: the frontend polls it, and a database write per poll isn't worth the cost. Logins are additionally protected by a per-account lockout, which holds even if an attacker rotates IPs.
 
 | Scope | Limit |
 | --- | --- |
@@ -366,7 +373,9 @@ Limits are per IP.
 | `npm run build` | Build the frontend and bundle the server into `dist/` |
 | `npm start` | Run the production build |
 | `npm run lint` | Type-check the project |
-| `npm run db:migrate` | Back up the local database, then apply any pending schema migrations |
+| `npm run db:migrate` | Back up the local database, then apply any pending schema migrations (a remote database also needs `-- --confirm-remote`) |
+| `npm run security:check` | Verify the CSP script hashes and that `vercel.json` sends the same security headers as `securityHeaders.ts` |
+| `npm run audit:prod` | Fail on known high-severity vulnerabilities in production dependencies |
 | `npm run clean` | Remove build output |
 | `npx tsx scripts/seed-dev-users.ts` | Development only: add two fake members to the local database (`--reset` re-creates them) |
 | `npx tsx scripts/probe-codingame.ts <handle>` | Print what CodinGame returns for one handle, to check the field names the adapter reads |
@@ -377,7 +386,7 @@ Limits are per IP.
 leeterboard/
 ├── db/schema.sql           annotated current schema
 ├── platforms/              Codeforces and CodinGame adapters, shared types and the registry
-├── scripts/                migrate, seed-dev-users, probe-codingame
+├── scripts/                migrate, seed-dev-users, probe-codingame, check-security-config
 ├── src/                    React app
 │   ├── App.tsx             app shell, navbar, leaderboard and stats pages
 │   ├── ProfilePage.tsx     member profile
@@ -399,6 +408,9 @@ leeterboard/
 ├── notifications.ts        award ledger and notification creation
 ├── notificationRoutes.ts   notification endpoints
 ├── rateLimit.ts            rate limiters
+├── rateLimitStore.ts       database-backed counter store for the sensitive limiters
+├── csrf.ts                 cross-site request checks for state-changing routes
+├── securityHeaders.ts      CSP and other response headers (mirrored in vercel.json)
 ├── streaks.ts              streak maths for LeetCode's submission calendar
 └── vercel.json             Vercel build and routing
 ```

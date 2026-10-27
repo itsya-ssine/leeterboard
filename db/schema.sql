@@ -189,3 +189,15 @@ CREATE TABLE pending_links (
   expires_at  TEXT NOT NULL,
   PRIMARY KEY (user_id, platform)
 ) WITHOUT ROWID;
+
+-- Counters for the sensitive rate limiters (login, sign-up, verification,
+-- account and refresh routes), kept in the database so the limits hold across
+-- every serverless instance. One row per limiter + client; `reset_at` is the
+-- end of the current window in epoch milliseconds. Expired rows are purged
+-- opportunistically by the store.
+CREATE TABLE rate_limits (
+  key       TEXT PRIMARY KEY,
+  hits      INTEGER NOT NULL DEFAULT 0,
+  reset_at  INTEGER NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX idx_rate_limits_reset ON rate_limits(reset_at);

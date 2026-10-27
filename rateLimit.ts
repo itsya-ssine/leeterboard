@@ -1,4 +1,13 @@
 import rateLimit from "express-rate-limit";
+import { DbRateLimitStore } from "./rateLimitStore.js";
+
+// Which limiters share their counters through the database (see
+// rateLimitStore.ts): every route where a bypass would matter — guessing
+// passwords, spamming sign-ups, abusing verification, and triggering outbound
+// scrapes. The general apiLimiter stays in memory on purpose: it is a coarse
+// ceiling hit by frontend polling, where a database write per request would
+// cost more than it protects. On a single long-lived server both behave the
+// same; on serverless only the shared ones hold across instances.
 
 // General ceiling applied to every /api/* request. The frontend polls
 // /api/users and /api/trends every 15s, so this needs to stay generous
@@ -12,10 +21,10 @@ export const apiLimiter = rateLimit({
 });
 
 // Password logins. Only failed attempts count, so normal use never hits it.
-// Each account also locks itself after repeated failures (see server.ts), which
-// keeps working across serverless instances where this in-memory counter
-// doesn't.
+// Each account also locks itself after repeated failures (see server.ts), so a
+// distributed attack on one account is stopped even when it rotates IPs.
 export const loginLimiter = rateLimit({
+  store: new DbRateLimitStore("login"),
   windowMs: 15 * 60 * 1000,
   limit: 20,
   skipSuccessfulRequests: true,
@@ -26,6 +35,7 @@ export const loginLimiter = rateLimit({
 
 // Starting a sign-up hashes a password and calls out to LeetCode.
 export const registerLimiter = rateLimit({
+  store: new DbRateLimitStore("register"),
   windowMs: 60 * 60 * 1000,
   limit: 10,
   standardHeaders: true,
@@ -35,6 +45,7 @@ export const registerLimiter = rateLimit({
 
 // "Verify my profile" re-reads the person's LeetCode summary each time.
 export const verifyLimiter = rateLimit({
+  store: new DbRateLimitStore("verify"),
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,
@@ -46,6 +57,7 @@ export const verifyLimiter = rateLimit({
 // caller's behalf — throttle per-IP so one person can't hammer LeetCode
 // through us.
 export const refreshLimiter = rateLimit({
+  store: new DbRateLimitStore("refresh"),
   windowMs: 60 * 1000,
   limit: 6,
   standardHeaders: true,
@@ -55,6 +67,7 @@ export const refreshLimiter = rateLimit({
 
 // Account settings: password checks, profile edits and account deletion.
 export const accountLimiter = rateLimit({
+  store: new DbRateLimitStore("account"),
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,

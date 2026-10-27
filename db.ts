@@ -22,6 +22,25 @@ if (!url.startsWith("file:") && !authToken) {
   throw new Error("TURSO_AUTH_TOKEN is required when TURSO_DATABASE_URL points at a remote database.");
 }
 
+// The token travels with every query, so a remote database must be reached
+// over TLS: libsql:// and https:// are, plain http:// / ws:// (or tls=0) are
+// not. Loopback is allowed for a local sqld during development.
+function isInsecureRemoteUrl(value: string): boolean {
+  if (value.startsWith("file:")) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return false; // the client library reports malformed URLs itself
+  }
+  const plain = parsed.protocol === "http:" || parsed.protocol === "ws:" || parsed.searchParams.get("tls") === "0";
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+  return plain && !loopback;
+}
+if (isInsecureRemoteUrl(url)) {
+  throw new Error("TURSO_DATABASE_URL must use an encrypted scheme (libsql:// or https://) for a remote database.");
+}
+
 export const client: Client = authToken
   ? createClient({ url, authToken })
   : createClient({ url });
@@ -147,6 +166,20 @@ const PLATFORM_DDL = [
   ) WITHOUT ROWID`
 ];
 
+/* ---------- Rate-limit counters ----------
+ * Shared by initDb (fresh databases) and migration 10 (existing ones). Holds
+ * the counters of the sensitive limiters so they are enforced across every
+ * serverless instance (see rateLimitStore.ts). `reset_at` is epoch ms.
+ */
+const RATE_LIMIT_DDL = [
+  `CREATE TABLE IF NOT EXISTS rate_limits (
+    key TEXT PRIMARY KEY,
+    hits INTEGER NOT NULL DEFAULT 0,
+    reset_at INTEGER NOT NULL
+  ) WITHOUT ROWID`,
+  `CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at)`
+];
+
 export async function initDb(): Promise<void> {
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
@@ -227,7 +260,8 @@ export async function initDb(): Promise<void> {
         failing_since TEXT
       )`,
       ...NOTIFICATION_DDL,
-      ...PLATFORM_DDL
+      ...PLATFORM_DDL,
+      ...RATE_LIMIT_DDL
     ],
     "write"
   );
@@ -256,7 +290,8 @@ const MIGRATIONS: Migration[] = [
   { version: 6, name: "user_profile_details", up: migrateUserProfileDetails },
   { version: 7, name: "platform_accounts", up: migratePlatformAccounts },
   { version: 8, name: "platform_account_hidden", up: migratePlatformAccountHidden },
-  { version: 9, name: "user_hide_leetcode_stats", up: migrateUserHideLeetcodeStats }
+  { version: 9, name: "user_hide_leetcode_stats", up: migrateUserHideLeetcodeStats },
+  { version: 10, name: "rate_limits", up: migrateRateLimits }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -279,6 +314,11 @@ async function runMigrations(): Promise<void> {
     });
     console.log(`[DB] Applied migration ${m.version}: ${m.name}`);
   }
+}
+
+// v10 — shared rate-limit counters (idempotent).
+async function migrateRateLimits(): Promise<void> {
+  await client.batch(RATE_LIMIT_DDL, "write");
 }
 
 // v1 — everything the schema picked up before migrations were tracked.

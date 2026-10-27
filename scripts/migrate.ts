@@ -7,7 +7,9 @@
  *   1. Backs up the database first when it is a local SQLite file
  *      (local.db -> local.db.bak-<timestamp>). For a remote Turso database it
  *      cannot copy anything, so take a snapshot yourself first, e.g.
- *      `turso db create leeterboard-backup --from-db <name>`.
+ *      `turso db create leeterboard-backup --from-db <name>`, and pass
+ *      `--confirm-remote` (the script refuses to touch a remote database
+ *      without it).
  *   2. Applies every pending migration. The latest one moves each member's
  *      history out of the users.history JSON column into the `history` table,
  *      checks that nothing was lost, and only then drops the old column.
@@ -25,6 +27,18 @@ async function main() {
   const isLocalFile = url.startsWith("file:");
 
   console.log(`Database: ${isLocalFile ? url : url.split("?")[0]}`);
+
+  // A .env that holds production credentials must not be enough to migrate
+  // production by accident (e.g. while developing). Remote targets need an
+  // explicit flag, so the person running this has seen which database it is.
+  if (!isLocalFile && !process.argv.includes("--confirm-remote")) {
+    console.error(
+      "\nRefusing to migrate a remote database without confirmation.\n" +
+        "Check the database above is the one you mean, that you have a snapshot, then run:\n" +
+        "  npm run db:migrate -- --confirm-remote"
+    );
+    process.exit(1);
+  }
 
   if (isLocalFile) {
     const file = url.slice("file:".length);

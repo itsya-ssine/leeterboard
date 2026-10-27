@@ -69,15 +69,28 @@ import { PLATFORMS, isPlatformId, type PlatformInfo } from "./platforms/registry
 import { PlatformNotFoundError } from "./platforms/common.js";
 import { buildPlatformTrend } from "./platformTrends.js";
 import { csrfProtection } from "./csrf.js";
+import { securityHeaders } from "./securityHeaders.js";
 import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-// Needed so express-rate-limit sees the real client IP when running behind a
-// reverse proxy (Vercel, Render, Railway, etc.) instead of the proxy's own
-// address.
-app.set("trust proxy", 1);
+// How many reverse proxies sit in front of the app. The rate limiters key on
+// req.ip, so this must match the real topology: too low and every visitor
+// shares the proxy's address; too high and a client can spoof its IP through
+// X-Forwarded-For and dodge the limits. Vercel, Render, Railway and Fly each
+// put exactly one proxy in front, so production defaults to 1; local
+// development has none. Override with TRUST_PROXY_HOPS if you add a CDN.
+const TRUST_PROXY_HOPS = (() => {
+  const raw = process.env.TRUST_PROXY_HOPS;
+  if (raw !== undefined && raw !== "") {
+    const hops = Number(raw);
+    if (Number.isInteger(hops) && hops >= 0 && hops <= 5) return hops;
+    console.warn(`[Config] Ignoring invalid TRUST_PROXY_HOPS "${raw}" (use a whole number from 0 to 5).`);
+  }
+  return process.env.VERCEL || process.env.NODE_ENV === "production" ? 1 : 0;
+})();
+app.set("trust proxy", TRUST_PROXY_HOPS);
 app.disable("x-powered-by");
 
 // Thrown when a source positively confirms the username doesn't exist on LeetCode.
@@ -99,24 +112,10 @@ class LeetCodeUnavailableError extends Error {
   }
 }
 
-// Baseline hardening headers (kept dependency-free). X-Frame-Options stops
-// the login form being framed for clickjacking; auth responses are never
-// cached by the browser or any proxy.
-app.use((req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  if (
-    req.path.startsWith("/api/auth") ||
-    req.path.startsWith("/api/account") ||
-    req.path.startsWith("/api/admin") ||
-    req.path.startsWith("/api/notifications") ||
-    req.path === "/api/logout"
-  ) {
-    res.setHeader("Cache-Control", "no-store");
-  }
-  next();
-});
+// Security headers (CSP, HSTS, framing, MIME sniffing, permissions) and
+// no-store caching for every /api response — see securityHeaders.ts. The same
+// set is mirrored in vercel.json for the statically served frontend.
+app.use(securityHeaders);
 
 // Reject cross-site / non-JSON state-changing requests before anything parses
 // a body or touches the database (see csrf.ts).
