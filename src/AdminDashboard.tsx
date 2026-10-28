@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Megaphone, RefreshCw, Send, Trash2, UserX } from "lucide-react";
-import type { AdminSyncMember, AdminSyncReport, SentMessage } from "./types.js";
+import { AlertTriangle, Bug, Check, CheckCircle2, Clock, ExternalLink, Inbox, Lightbulb, Megaphone, MessageCircle, RefreshCw, Send, Trash2, UserX } from "lucide-react";
+import type { AdminSyncMember, AdminSyncReport, FeedbackCategory, FeedbackItem, SentMessage } from "./types.js";
 import { ListSkeleton } from "./Skeleton.js";
 
 const focusRing =
@@ -279,6 +279,210 @@ function MessagesPanel({ members }: { members: AdminSyncMember[] }) {
             </ul>
           )}
         </div>
+      </div>
+    </section>
+  );
+}
+
+const FEEDBACK_UI: Record<FeedbackCategory, { label: string; cls: string; Icon: typeof Bug }> = {
+  bug: { label: "Bug", cls: "bg-rose-400/10 text-rose-300 ring-rose-300/25", Icon: Bug },
+  idea: { label: "Idea", cls: "bg-teal-400/10 text-teal-300 ring-teal-300/25", Icon: Lightbulb },
+  other: { label: "Other", cls: "bg-tint text-mist-400 ring-line", Icon: MessageCircle }
+};
+
+// What members and visitors sent through the Feedback button. Unread first in
+// spirit (a dot and a heavier title), newest first in order. Everything is
+// shown as plain text, never as HTML.
+function FeedbackPanel() {
+  const [items, setItems] = useState<FeedbackItem[] | null>(null);
+  const [unread, setUnread] = useState(0);
+  const [onlyUnread, setOnlyUnread] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [notice, setNotice] = useState<{ kind: "error" | "success"; message: string } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/feedback", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't load feedback.");
+      setItems(data.items as FeedbackItem[]);
+      setUnread(Number(data.unread) || 0);
+      setLoadError("");
+    } catch (err: any) {
+      setLoadError(err.message || "Couldn't load feedback.");
+    } finally {
+      setNow(Date.now());
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  const toggleRead = async (item: FeedbackItem) => {
+    setBusyId(item.id);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/feedback/${encodeURIComponent(item.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ read: !item.read })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't update the feedback.");
+      await load();
+    } catch (err: any) {
+      setNotice({ kind: "error", message: err.message || "Couldn't update the feedback." });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const remove = async (item: FeedbackItem) => {
+    if (!confirm("Delete this feedback? It can't be restored.")) return;
+    setBusyId(item.id);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/admin/feedback/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't delete the feedback.");
+      setNotice({ kind: "success", message: "Feedback deleted." });
+      await load();
+    } catch (err: any) {
+      setNotice({ kind: "error", message: err.message || "Couldn't delete the feedback." });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const shown = items === null ? [] : onlyUnread ? items.filter((i) => !i.read) : items;
+
+  return (
+    <section aria-labelledby="feedback-heading" className="mt-8" id="admin-feedback">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 id="feedback-heading" className="flex items-center gap-2 text-base font-semibold text-strong">
+          <Inbox className="size-4 text-teal-300" aria-hidden="true" />
+          Feedback
+          {unread > 0 && (
+            <span className="rounded-full bg-teal-400 px-2 py-0.5 text-xs font-medium tabular-nums text-ink-950">
+              {unread} unread
+            </span>
+          )}
+        </h2>
+        <div role="group" aria-label="Filter feedback" className="inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line">
+          {(
+            [
+              { value: false, label: "All" },
+              { value: true, label: "Unread" }
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.label}
+              type="button"
+              aria-pressed={onlyUnread === opt.value}
+              onClick={() => setOnlyUnread(opt.value)}
+              className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${focusRing} ${
+                onlyUnread === opt.value ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {notice && (
+        <div
+          role={notice.kind === "error" ? "alert" : "status"}
+          className={`mb-3 rounded-lg p-3 text-sm ring-1 ${
+            notice.kind === "error"
+              ? "bg-rose-500/10 text-rose-300 ring-rose-400/20"
+              : "bg-teal-400/10 text-teal-300 ring-teal-400/20"
+          }`}
+        >
+          {notice.message}
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-xl bg-ink-900 ring-1 ring-line">
+        {loadError && (
+          <div role="alert" className="flex items-start gap-2 border-b border-line bg-rose-500/10 px-5 py-2.5 text-xs text-rose-300">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>{loadError}</span>
+          </div>
+        )}
+
+        {items === null ? (
+          loadError ? null : <ListSkeleton bare label="Loading feedback" rows={3} />
+        ) : shown.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-mist-500">
+            {items.length === 0 ? "No feedback yet." : "Nothing unread."}
+          </p>
+        ) : (
+          <ul className="divide-y divide-line">
+            {shown.map((item) => {
+              const { label, cls, Icon } = FEEDBACK_UI[item.category] ?? FEEDBACK_UI.other;
+              const busy = busyId === item.id;
+              return (
+                <li key={item.id} className="px-4 py-4 md:px-5">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      {!item.read && (
+                        <span className="size-2 shrink-0 rounded-full bg-teal-400" role="img" aria-label="Unread" />
+                      )}
+                      <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium ring-1 ${cls}`}>
+                        <Icon className="size-3" aria-hidden="true" />
+                        {label}
+                      </span>
+                      <span className={`min-w-0 truncate text-sm ${item.read ? "text-mist-400" : "font-medium text-strong"}`}>
+                        {item.authorName ? `${item.authorName} (@${item.authorUsername})` : "Anonymous"}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-xs text-mist-500" title={exact(item.createdAt)}>
+                      {ago(item.createdAt, now)}
+                    </span>
+                  </div>
+
+                  <p className={`mt-2 whitespace-pre-wrap break-words text-sm ${item.read ? "text-mist-400" : "text-mist-100"}`}>
+                    {item.message}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-xs text-mist-500">
+                      {item.page ? `Sent from ${item.page}` : ""}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleRead(item)}
+                        disabled={busy}
+                        className={`${btnSmall} bg-ink-800 text-mist-100 hover:bg-ink-700`}
+                      >
+                        <Check className="size-3.5" aria-hidden="true" />
+                        {item.read ? "Mark unread" : "Mark read"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => remove(item)}
+                        disabled={busy}
+                        className={`${btnSmall} bg-ink-800 text-rose-300 hover:bg-rose-500/10`}
+                      >
+                        <Trash2 className="size-3.5" aria-hidden="true" />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </section>
   );
@@ -591,6 +795,7 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
       </section>
 
       <MessagesPanel members={report.members} />
+      <FeedbackPanel />
     </div>
   );
 }

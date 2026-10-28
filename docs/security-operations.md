@@ -35,6 +35,8 @@ history if you want to look back further than that.
 | `admin_user_removed` | info | An admin removed a member (`admin`, `target`) |
 | `admin_refresh` | info | An admin triggered a sync (`scope`: `member` or `all`) |
 | `admin_message_sent` | info | An admin sent notifications (`to`, `recipients`) |
+| `feedback_received` | info | Someone sent feedback (`userId` is null for a visitor, `category`, `length`; never the text) |
+| `admin_feedback_deleted` | info | An admin deleted a piece of feedback (`feedbackId`) |
 | `csrf_blocked` | warn | A cross-site or non-JSON write was rejected (`reason`) |
 | `rate_limited` | warn | A rate limiter blocked a client (`limiter`) |
 

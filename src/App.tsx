@@ -40,6 +40,7 @@ import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
 import WinnerBanner from "./WinnerBanner.js";
 import AdminDashboard from "./AdminDashboard.js";
+import FeedbackWidget from "./FeedbackWidget.js";
 import ComparePage from "./ComparePage.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
@@ -1667,6 +1668,9 @@ export default function App() {
           </span>
         </div>
       </footer>
+
+      {/* Star on GitHub + send feedback, bottom right of every page */}
+      <FeedbackWidget />
     </div>
   );
 }

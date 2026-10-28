@@ -11,6 +11,7 @@
 --          ├─< platform_accounts (1 member : 0..2 linked Codeforces / CodinGame accounts)
 --          ├─< platform_history  (1 member : many daily snapshots per linked platform)
 --          ├─< platform_sync_status (1 member : 1 latest sync result per linked platform)
+--          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
 --          └─< pending_links     (1 member : open "prove you own this account" requests)
 --   pending_registrations        (standalone; becomes a users row once verified)
 --   meta                         (standalone key/value)
@@ -201,3 +202,19 @@ CREATE TABLE rate_limits (
   reset_at  INTEGER NOT NULL
 ) WITHOUT ROWID;
 CREATE INDEX idx_rate_limits_reset ON rate_limits(reset_at);
+
+-- Messages sent through the floating "Feedback" button, read by admins on the
+-- Admin page. Anyone can send one, so user_id is NULL for a visitor who wasn't
+-- signed in; it is also cleared (see deleteUserById) when a member deletes
+-- their account, so the admins keep the message but lose the name. No IP
+-- address is stored.
+CREATE TABLE feedback (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  category    TEXT NOT NULL CHECK (category IN ('bug', 'idea', 'other')),
+  message     TEXT NOT NULL,                       -- plain text, 3 to 1000 characters
+  page        TEXT NOT NULL DEFAULT '',            -- URL hash the form was opened on, e.g. '#/profile/alice'
+  created_at  TEXT NOT NULL,
+  read_at     TEXT                                 -- NULL = unread
+);
+CREATE INDEX idx_feedback_created ON feedback(created_at DESC);
