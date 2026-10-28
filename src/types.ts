@@ -156,3 +156,19 @@ export interface SentMessage {
   // Name of the member when it went to a single person, null for a broadcast.
   recipientName: string | null;
 }
+
+export type FeedbackCategory = "bug" | "idea" | "other";
+
+// One piece of feedback as the admin inbox sees it.
+export interface FeedbackItem {
+  id: string;
+  category: FeedbackCategory;
+  message: string;
+  // Where in the app it was sent from (the URL hash, e.g. "#/profile/alice"); may be empty.
+  page: string;
+  createdAt: string;
+  read: boolean;
+  // Null when the sender wasn't signed in, or has since deleted their account.
+  authorName: string | null;
+  authorUsername: string | null;
+}

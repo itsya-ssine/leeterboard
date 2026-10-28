@@ -15,7 +15,7 @@ import jwt from "jsonwebtoken";
 import { client, startServer, type TestServer } from "./helpers.js";
 
 const PW = "correct-horse-battery-9";
-const SEEDED_MEMBERS = ["sec_claim_target", "sec_claim_target2", "sec_csrf_user", "sec_delete_user", "sec_enum_user", "sec_idor_alice", "sec_idor_bob", "sec_leak_user", "sec_link_user", "sec_lock_user", "sec_log_removed", "sec_log_user", "sec_member_a", "sec_notif_a", "sec_notif_b", "sec_pwchange_user", "sec_score_user", "sec_session_user", "sec_tamper_user", "sec_victim_a", "test_admin"];
+const SEEDED_MEMBERS = ["sec_claim_target", "sec_claim_target2", "sec_csrf_user", "sec_delete_user", "sec_enum_user", "sec_feedback_user", "sec_idor_alice", "sec_idor_bob", "sec_leak_user", "sec_link_user", "sec_lock_user", "sec_log_removed", "sec_log_user", "sec_member_a", "sec_notif_a", "sec_notif_b", "sec_pwchange_user", "sec_score_user", "sec_session_user", "sec_tamper_user", "sec_victim_a", "test_admin"];
 const REPLAY_REGISTRATION_ID = crypto.randomBytes(32).toString("hex");
 let tmpDir = "";
 let server: TestServer;
@@ -202,6 +202,9 @@ describe("authorization", () => {
       ["GET", "/api/admin/sync-status"],
       ["GET", "/api/admin/notifications"],
       ["POST", "/api/admin/notifications", { to: "all", title: "pwned" }],
+      ["GET", "/api/admin/feedback"],
+      ["PATCH", "/api/admin/feedback/anything", { read: true }],
+      ["DELETE", "/api/admin/feedback/anything"],
       ["POST", "/api/refresh-all", {}],
       ["POST", `/api/users/${victim.id}/refresh`, {}],
       ["DELETE", `/api/users/${victim.id}`]
@@ -421,6 +424,144 @@ describe("request validation", () => {
 
     assert.equal((await db.getUserById(member.id))!.bio, "", "nothing may have been written");
     assert.ok(await db.getUserById(member.id), "account must still exist");
+  });
+});
+
+describe("feedback", () => {
+  // The feedback form is public, so every request here shares one rate-limit
+  // counter (10 per hour per IP). Tests that POST are kept together and few,
+  // and the one that exhausts the limit runs last.
+  const rows = async () =>
+    (await db.client.execute("SELECT id, user_id, category, message, page, read_at FROM feedback ORDER BY created_at")).rows;
+
+  it("stores feedback from visitors and members, and only attributes it to a verified session", async () => {
+    const member = await createMember("sec_feedback_user");
+    const other = await createMember("sec_member_a");
+    const cookie = (await login("sec_feedback_user")).cookie!;
+
+    const anon = await api("POST", "/api/feedback", {
+      body: { category: "idea", message: "Please add a weekly email digest", page: "#/stats" }
+    });
+    assert.equal(anon.status, 201);
+
+    // A forged userId in the body must not let someone send feedback as another member.
+    const signedIn = await api("POST", "/api/feedback", {
+      cookie,
+      body: { category: "bug", message: "The share card is cut off on mobile", userId: other.id, user_id: other.id }
+    });
+    assert.equal(signedIn.status, 201);
+
+    // Control characters are stripped (log / display injection); line breaks are kept.
+    const messy = await api("POST", "/api/feedback", { body: { message: "Line one\nLine two\u0000\u0007 end" } });
+    assert.equal(messy.status, 201);
+
+    const all = await rows();
+    assert.ok(all.some((r) => r.message === "Line one\nLine two   end"), "control characters must be replaced, newline kept");
+    const anonRow = all.find((r) => r.message === "Please add a weekly email digest");
+    const memberRow = all.find((r) => r.message === "The share card is cut off on mobile");
+    assert.ok(anonRow && memberRow);
+    assert.equal(anonRow.user_id, null);
+    assert.equal(anonRow.category, "idea");
+    assert.equal(anonRow.page, "#/stats");
+    assert.equal(memberRow.user_id, member.id);
+    assert.equal(memberRow.category, "bug");
+    assert.equal(memberRow.read_at, null);
+  });
+
+  it("rejects bad input with 400 and stores nothing", async () => {
+    const before = (await rows()).length;
+    for (const body of [
+      { message: 12345 },
+      { message: "hi" },
+      { message: "   \n  " },
+      { message: "x".repeat(1001) },
+      { message: "A real message", category: "spam" },
+      { message: "A real message", category: ["bug"] }
+    ]) {
+      const res = await api("POST", "/api/feedback", { body });
+      assert.equal(res.status, 400, JSON.stringify(body).slice(0, 80));
+    }
+    assert.equal((await rows()).length, before);
+  });
+
+  it("refuses the admin inbox to members and to visitors", async () => {
+    const cookie = (await login("sec_feedback_user")).cookie!;
+    for (const [method, route, body] of [
+      ["GET", "/api/admin/feedback", undefined],
+      ["PATCH", "/api/admin/feedback/x", { read: true }],
+      ["DELETE", "/api/admin/feedback/x", undefined]
+    ] as const) {
+      assert.equal((await api(method, route, { cookie, body })).status, 403, `${method} ${route}`);
+      assert.equal((await api(method, route, { body })).status, 401, `${method} ${route} (no session)`);
+    }
+  });
+
+  it("lets an admin read, mark and delete feedback", async () => {
+    const admin = (await login("test_admin")).cookie!;
+    const list = await api("GET", "/api/admin/feedback", { cookie: admin });
+    assert.equal(list.status, 200);
+    assert.ok(list.json.items.length >= 2);
+    assert.equal(list.json.unread, list.json.items.filter((i: any) => !i.read).length);
+
+    const item = list.json.items.find((i: any) => i.message === "The share card is cut off on mobile");
+    assert.ok(item);
+    assert.equal(item.authorUsername, "sec_feedback_user");
+    assert.equal(item.read, false);
+    // Responses carry names for the admins, but never ids or secrets of the author.
+    assert.ok(!("userId" in item) && !("user_id" in item));
+
+    assert.equal((await api("PATCH", `/api/admin/feedback/${item.id}`, { cookie: admin, body: { read: true } })).status, 200);
+    assert.notEqual((await rows()).find((r) => r.id === item.id)!.read_at, null);
+    assert.equal((await api("PATCH", `/api/admin/feedback/${item.id}`, { cookie: admin, body: { read: false } })).status, 200);
+    assert.equal((await rows()).find((r) => r.id === item.id)!.read_at, null);
+
+    assert.equal((await api("PATCH", `/api/admin/feedback/${item.id}`, { cookie: admin, body: { read: "yes" } })).status, 400);
+    assert.equal((await api("PATCH", "/api/admin/feedback/does-not-exist", { cookie: admin, body: { read: true } })).status, 404);
+
+    assert.equal((await api("DELETE", `/api/admin/feedback/${item.id}`, { cookie: admin })).status, 200);
+    assert.ok(!(await rows()).some((r) => r.id === item.id), "deleted feedback must be gone");
+    assert.equal((await api("DELETE", `/api/admin/feedback/${item.id}`, { cookie: admin })).status, 404);
+  });
+
+  it("keeps the message but drops the author when a member deletes their account", async () => {
+    const user = await createMember("sec_feedback_user");
+    await db.createFeedback({ userId: user.id, category: "other", message: "Written before leaving", page: "" });
+    assert.ok(await db.deleteUserById(user.id));
+    const row = (await rows()).find((r) => r.message === "Written before leaving");
+    assert.ok(row, "the feedback itself must survive");
+    assert.equal(row.user_id, null, "but it must no longer point at the deleted member");
+  });
+
+  it("blocks cross-site feedback requests, even admin actions that carry a valid admin cookie", async () => {
+    // Write the fixture first: the server may still be finishing a write from a
+    // previous request, and two processes writing to one SQLite file at once
+    // gives SQLITE_BUSY.
+    const id = await db.createFeedback({ userId: null, category: "other", message: "CSRF target", page: "" });
+    const admin = (await login("test_admin")).cookie!;
+    const before = (await rows()).length;
+    const evil = { origin: "https://evil.example" };
+
+    // A malicious page posting from another site (these are stopped by csrf.ts
+    // before the feedback rate limiter, so they don't use up its quota).
+    assert.equal((await api("POST", "/api/feedback", { headers: evil, body: { message: "from another site" } })).status, 403);
+    assert.equal((await api("POST", "/api/feedback", { headers: { "sec-fetch-site": "cross-site" }, body: { message: "from another site" } })).status, 403);
+    assert.equal((await rows()).length, before, "no feedback may be stored");
+
+    // ...and riding the admin's cookie to change or delete the inbox.
+    assert.equal((await api("PATCH", `/api/admin/feedback/${id}`, { cookie: admin, headers: evil, body: { read: true } })).status, 403);
+    assert.equal((await rows()).find((r) => r.id === id)!.read_at, null, "must still be unread");
+    assert.equal((await api("DELETE", `/api/admin/feedback/${id}`, { cookie: admin, headers: evil })).status, 403);
+    assert.ok((await rows()).some((r) => r.id === id), "must not be deleted");
+  });
+
+  it("rate limits the public form (429) and logs it", async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      statuses.push((await api("POST", "/api/feedback", { body: { message: `Rate limit probe ${i}` } })).status);
+    }
+    assert.ok(statuses.includes(429), `expected a 429 in ${statuses.join(",")}`);
+    assert.ok(statuses.every((s) => s === 201 || s === 429), statuses.join(","));
+    assert.match(server.logs(), /"limiter":"feedback"/);
   });
 });
 

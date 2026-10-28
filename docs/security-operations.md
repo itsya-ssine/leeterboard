@@ -35,6 +35,8 @@ history if you want to look back further than that.
 | `admin_user_removed` | info | An admin removed a member (`admin`, `target`) |
 | `admin_refresh` | info | An admin triggered a sync (`scope`: `member` or `all`) |
 | `admin_message_sent` | info | An admin sent notifications (`to`, `recipients`) |
+| `feedback_received` | info | Someone sent feedback (`userId` is null for a visitor, `category`, `length`; never the text) |
+| `admin_feedback_deleted` | info | An admin deleted a piece of feedback (`feedbackId`) |
 | `csrf_blocked` | warn | A cross-site or non-JSON write was rejected (`reason`) |
 | `rate_limited` | warn | A rate limiter blocked a client (`limiter`) |
 
@@ -137,4 +139,5 @@ repository settings:
 
 - **Code security:** Dependabot alerts and Dependabot security updates, secret scanning, and push protection (it blocks a commit that contains a recognised secret before it lands).
 - **Branches:** protect `main` and require the `Security` and `CodeQL` checks to pass before merging.
+- **CodeQL and CSRF:** `.github/codeql/codeql-config.yml` turns off one CodeQL rule, "Missing CSRF middleware" (`js/missing-token-validation`). It only recognises CSRF libraries like `csurf`, but leeterboard uses its own middleware (`csrf.ts`), so the rule flagged every route handler that reads `req.user`, and raised a new alert each time a route was added. The protection is verified by the CSRF tests in `tests/security.test.ts` (a required check) instead. Don't remove `csrf.ts`, or its `app.use("/api", csrfProtection)` line in `server.ts`, without putting equivalent protection and tests in its place.
 - Pin third-party actions to a commit SHA once you're ready for that; `.github/dependabot.yml` already keeps the actions up to date.

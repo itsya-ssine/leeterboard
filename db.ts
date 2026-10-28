@@ -1,6 +1,6 @@
 import { createClient, type Client, type InStatement } from "@libsql/client";
 import { randomUUID } from "crypto";
-import { User, HistoryRecord, SyncState, NotificationType, AppNotification, NotificationFeed, SentMessage, PlatformAccount, PlatformId } from "./src/types.js";
+import { User, HistoryRecord, SyncState, NotificationType, AppNotification, NotificationFeed, SentMessage, PlatformAccount, PlatformId, FeedbackCategory, FeedbackItem } from "./src/types.js";
 import type { PlatformStats } from "./platforms/common.js";
 
 // If TURSO_DATABASE_URL is set, connect to a real Turso cloud database.
@@ -180,6 +180,26 @@ const RATE_LIMIT_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_rate_limits_reset ON rate_limits(reset_at)`
 ];
 
+/* ---------- Feedback ----------
+ * Messages from the floating "Feedback" button, read by admins on the Admin
+ * page. Shared by initDb (fresh databases) and migration 11 (existing ones).
+ * `user_id` is NULL for a visitor who wasn't signed in, and is cleared (not
+ * cascaded) when a member deletes their account, so the admins keep the
+ * message but lose the name. No IP address is stored.
+ */
+const FEEDBACK_DDL = [
+  `CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    category TEXT NOT NULL CHECK (category IN ('bug', 'idea', 'other')),
+    message TEXT NOT NULL,
+    page TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    read_at TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC)`
+];
+
 export async function initDb(): Promise<void> {
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
@@ -261,7 +281,8 @@ export async function initDb(): Promise<void> {
       )`,
       ...NOTIFICATION_DDL,
       ...PLATFORM_DDL,
-      ...RATE_LIMIT_DDL
+      ...RATE_LIMIT_DDL,
+      ...FEEDBACK_DDL
     ],
     "write"
   );
@@ -291,7 +312,8 @@ const MIGRATIONS: Migration[] = [
   { version: 7, name: "platform_accounts", up: migratePlatformAccounts },
   { version: 8, name: "platform_account_hidden", up: migratePlatformAccountHidden },
   { version: 9, name: "user_hide_leetcode_stats", up: migrateUserHideLeetcodeStats },
-  { version: 10, name: "rate_limits", up: migrateRateLimits }
+  { version: 10, name: "rate_limits", up: migrateRateLimits },
+  { version: 11, name: "feedback", up: migrateFeedback }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -314,6 +336,11 @@ async function runMigrations(): Promise<void> {
     });
     console.log(`[DB] Applied migration ${m.version}: ${m.name}`);
   }
+}
+
+// v11 — member / visitor feedback for the admins (idempotent).
+async function migrateFeedback(): Promise<void> {
+  await client.batch(FEEDBACK_DDL, "write");
 }
 
 // v10 — shared rate-limit counters (idempotent).
@@ -818,6 +845,8 @@ export async function deleteUserById(id: string): Promise<boolean> {
       { sql: "DELETE FROM pending_links WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM notifications WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM user_awards WHERE user_id = ?", args: [id] },
+      // Feedback is kept for the admins but no longer tied to the person.
+      { sql: "UPDATE feedback SET user_id = NULL WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM users WHERE id = ?", args: [id] }
     ],
     "write"
@@ -1303,6 +1332,68 @@ export async function listSentMessages(limit = 20): Promise<SentMessage[]> {
     read: Number(r.read_count),
     recipientName: Number(r.is_broadcast) ? null : ((r.recipient_name as string) ?? null)
   }));
+}
+
+/* ---------- Feedback ---------- */
+
+// Stores one piece of feedback. `userId` is the signed-in member, or null for a
+// visitor; it always comes from the verified session, never from the request.
+export async function createFeedback(opts: {
+  userId: string | null;
+  category: FeedbackCategory;
+  message: string;
+  page: string;
+}): Promise<string> {
+  const id = randomUUID();
+  await client.execute({
+    sql: `INSERT INTO feedback (id, user_id, category, message, page, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+    args: [id, opts.userId, opts.category, opts.message, opts.page, new Date().toISOString()]
+  });
+  return id;
+}
+
+// Newest first, plus how many are still unread across the whole table (not just
+// the page returned). The author is joined in; it is null for a visitor and for
+// a member who has since deleted their account.
+export async function listFeedback(limit = 100): Promise<{ items: FeedbackItem[]; unread: number }> {
+  const [rows, unread] = await Promise.all([
+    client.execute({
+      sql: `SELECT f.id, f.category, f.message, f.page, f.created_at, f.read_at,
+                   u.display_name, u.leetcode_username
+              FROM feedback f LEFT JOIN users u ON u.id = f.user_id
+             ORDER BY f.created_at DESC, f.id
+             LIMIT ?`,
+      args: [limit]
+    }),
+    client.execute(`SELECT COUNT(*) AS n FROM feedback WHERE read_at IS NULL`)
+  ]);
+  return {
+    items: rows.rows.map((r) => ({
+      id: r.id as string,
+      category: r.category as FeedbackCategory,
+      message: r.message as string,
+      page: (r.page as string) || "",
+      createdAt: r.created_at as string,
+      read: r.read_at !== null,
+      authorName: (r.display_name as string | null) ?? null,
+      authorUsername: (r.leetcode_username as string | null) ?? null
+    })),
+    unread: Number(unread.rows[0]?.n ?? 0)
+  };
+}
+
+// Returns false when there is no such feedback.
+export async function setFeedbackRead(id: string, read: boolean): Promise<boolean> {
+  const res = await client.execute({
+    sql: `UPDATE feedback SET read_at = ? WHERE id = ?`,
+    args: [read ? new Date().toISOString() : null, id]
+  });
+  return (res.rowsAffected ?? 0) > 0;
+}
+
+export async function deleteFeedback(id: string): Promise<boolean> {
+  const res = await client.execute({ sql: `DELETE FROM feedback WHERE id = ?`, args: [id] });
+  return (res.rowsAffected ?? 0) > 0;
 }
 
 // Drops notifications created before the given ISO timestamp (dismissed or not).

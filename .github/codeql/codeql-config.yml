@@ -1,0 +1,17 @@
+# Extra CodeQL settings, loaded by .github/workflows/codeql.yml.
+name: leeterboard CodeQL config
+
+query-filters:
+  # "Missing CSRF middleware" (js/missing-token-validation) only recognises CSRF
+  # libraries such as csurf and lusca. leeterboard defends every state-changing
+  # /api request with its own middleware instead (csrf.ts: the Origin / Referer /
+  # Sec-Fetch-Site must be the app's own, and a body must be JSON; the session
+  # cookie is also httpOnly and SameSite=Lax). CodeQL can't see that, so it
+  # reports every route handler that reads req.user as unprotected, and the
+  # alert changes (and re-opens as "new") whenever a route is added.
+  #
+  # The defence is covered by the CSRF tests in tests/security.test.ts, which
+  # also check the feedback endpoints. If csrf.ts is removed or bypassed those
+  # tests fail, and `npm test` is a required check. See docs/security-operations.md.
+  - exclude:
+      id: js/missing-token-validation

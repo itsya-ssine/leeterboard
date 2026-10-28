@@ -92,3 +92,17 @@ export const accountLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many account requests. Please wait a few minutes and try again." }
 });
+
+// The public feedback form. Anyone can post (no account needed), so this is the
+// only thing standing between the admins' inbox and a script. Per IP, which on a
+// shared school network is per building rather than per person, so it is kept
+// generous enough for a handful of real people.
+export const feedbackLimiter = rateLimit({
+  store: new DbRateLimitStore("feedback"),
+  handler: blocked("feedback"),
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "That's a lot of feedback in a short time. Please try again in a while." }
+});

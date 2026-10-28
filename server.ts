@@ -6,6 +6,7 @@ import "dotenv/config";
 import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./src/types.js";
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
+import feedbackRoutes from "./feedbackRoutes.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -2024,6 +2025,9 @@ app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
 /* ---------- Notifications ---------- */
 // Members read their own; admins send messages (see notificationRoutes.ts).
 app.use("/api", notificationRoutes);
+
+// Feedback: anyone can send it, admins read it (see feedbackRoutes.ts).
+app.use("/api", feedbackRoutes);
 
 // POST refresh all users — admin only
 app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {

@@ -20,6 +20,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 - [Sync health (admins)](#sync-health-admins)
 - [Database](#database)
 - [Notifications](#notifications)
+- [Feedback](#feedback)
 - [API](#api)
 - [Rate limits](#rate-limits)
 - [Scripts](#scripts)
@@ -275,6 +276,7 @@ SQLite locally, Turso in production. The full annotated schema is in [`db/schema
 ```
 users ──< history               one cumulative snapshot per member per UTC day (newest 60 kept)
 users ──< notifications         badge / achievement / admin notifications, one row per recipient
+users ──o< feedback             messages from the Feedback button (user_id is NULL for visitors)
 users ──< user_awards           ledger of awards already announced (each is announced once)
 users ── sync_status            latest LeetCode sync attempt per member (admin page)
 users ──< platform_accounts     linked Codeforces / CodinGame accounts, with current stats
@@ -323,6 +325,23 @@ Members only ever see and change their own notifications; the member id always c
 
 Titles are limited to 80 characters and messages to 500; control characters are stripped. Sending is rate-limited with the same limiter as account actions. Removing a notification is a soft delete, so an admin's "read by" numbers don't shrink when members tidy up; rows are deleted for good after 90 days.
 
+## Feedback
+
+Every page has two floating buttons at the bottom right (`src/FeedbackWidget.tsx`): **Star on GitHub**, which opens the repository in a new tab (a website can't star a repo on someone's behalf without GitHub OAuth, so the visitor clicks Star there), and **Feedback**, which opens a short form: a kind (bug, idea or other) and a message of 3 to 1000 characters.
+
+Anyone can send feedback, signed in or not. A signed-in member's message carries their name; a visitor's is anonymous. The member id comes from the session, never from the request body, and no IP address is stored. If a member deletes their account their feedback is kept but becomes anonymous.
+
+Admins read it in the **Feedback** section of the Admin page (`src/AdminDashboard.tsx`): newest first, with an unread count, a filter, mark read / unread, and delete. It reloads every 60 seconds while the tab is visible. Messages are shown as plain text.
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/feedback` | anyone, rate limited | Body `{ "message", "category"?: "bug" \| "idea" \| "other", "page"? }` |
+| `GET` | `/api/admin/feedback` | admin | Newest 100 and the total unread count |
+| `PATCH` | `/api/admin/feedback/:id` | admin | Body `{ "read": boolean }` |
+| `DELETE` | `/api/admin/feedback/:id` | admin | Delete one |
+
+Sending is limited to 10 per hour per IP (see [Rate limits](#rate-limits)). The limit is per IP, so on a shared school network it is shared by everyone on that network.
+
 ## API
 
 All endpoints live under `/api`.
@@ -351,12 +370,14 @@ All endpoints live under `/api`.
 | DELETE | `/api/users/:id` | Admin | Remove a member |
 | GET | `/api/admin/sync-status` | Admin | Per-member sync health |
 | GET / POST | `/api/admin/notifications` | Admin | See [Notification API](#notification-api) |
+| POST | `/api/feedback` | Public, rate limited | Send feedback; see [Feedback](#feedback) |
+| GET / PATCH / DELETE | `/api/admin/feedback` | Admin | Read and manage the feedback inbox; see [Feedback](#feedback) |
 
 `:platform` is `codeforces` or `codingame`.
 
 ## Rate limits
 
-Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh and account actions) store their counters in the `rate_limits` table, so they are enforced across every serverless instance and survive restarts and cold starts. The general `/api` ceiling stays in memory: the frontend polls it, and a database write per poll isn't worth the cost. Logins are additionally protected by a per-account lockout, which holds even if an attacker rotates IPs.
+Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh, account actions and feedback) store their counters in the `rate_limits` table, so they are enforced across every serverless instance and survive restarts and cold starts. The general `/api` ceiling stays in memory: the frontend polls it, and a database write per poll isn't worth the cost. Logins are additionally protected by a per-account lockout, which holds even if an attacker rotates IPs.
 
 | Scope | Limit |
 | --- | --- |
@@ -366,6 +387,7 @@ Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh
 | Verification (sign-up and linking) | 20 per 15 minutes |
 | Single-member refresh and sync-if-stale | 6 per minute |
 | Account actions and admin messages | 20 per 15 minutes |
+| Feedback form | 10 per hour |
 
 ## Scripts
 
@@ -398,7 +420,8 @@ leeterboard/
 │   ├── CodeforcesPage.tsx  Codeforces board
 │   ├── CodinGamePage.tsx   CodinGame board
 │   ├── AccountPage.tsx     account settings and linked accounts
-│   ├── AdminDashboard.tsx  sync health and messages
+│   ├── AdminDashboard.tsx  sync health, messages and the feedback inbox
+│   ├── FeedbackWidget.tsx  floating Star on GitHub and Feedback buttons
 │   ├── Podium.tsx, WinnerBanner.tsx, ActivityHeatmap.tsx, TierAvatar.tsx, ...
 │   ├── achievements.ts, tiers.ts, movement.ts, winners.ts, activity.ts, compare.ts
 │   ├── shareCard.ts, compareCard.ts   canvas-drawn PNG cards
@@ -411,6 +434,7 @@ leeterboard/
 ├── platformTrends.ts       group trend for a linked platform
 ├── notifications.ts        award ledger and notification creation
 ├── notificationRoutes.ts   notification endpoints
+├── feedbackRoutes.ts       feedback endpoints
 ├── rateLimit.ts            rate limiters
 ├── rateLimitStore.ts       database-backed counter store for the sensitive limiters
 ├── csrf.ts                 cross-site request checks for state-changing routes
