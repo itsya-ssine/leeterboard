@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Application dependencies. Security fixes open immediately on their own;
+  # these are the routine bumps, grouped so they arrive as one reviewable PR.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    labels: [dependencies]
+
+  # Keeps the actions used in .github/workflows up to date.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies]

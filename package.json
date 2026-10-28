@@ -12,7 +12,9 @@
     "lint": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
     "security:check": "tsx scripts/check-security-config.ts",
-    "audit:prod": "npm audit --omit=dev --audit-level=high"
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "db:verify-backup": "tsx scripts/verify-backup.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

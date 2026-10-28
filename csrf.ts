@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { logSecurityEvent } from "./securityLog.js";
 
 // CSRF defense for the cookie-authenticated API. SameSite=Lax already blocks
 // most cross-site requests, but it is not a complete defense (sibling
@@ -43,7 +44,7 @@ function originAllowed(req: Request, value: string): boolean {
 
 function reject(req: Request, res: Response, status: number, error: string, reason: string) {
   // Never log cookies, bodies or tokens — only what's needed to spot abuse.
-  console.warn(`[Security] blocked ${req.method} ${req.path}: ${reason}`);
+  logSecurityEvent("csrf_blocked", { ip: req.ip, method: req.method, path: req.path, reason });
   return res.status(status).json({ error });
 }
 

@@ -19,3 +19,8 @@ local.db*
 .vercel/
 *.pem
 *.key
+
+# Database dumps and backups (they contain password hashes)
+backups/
+*.dump.sql
+backup*.sql

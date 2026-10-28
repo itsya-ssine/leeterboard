@@ -1,5 +1,17 @@
 import rateLimit from "express-rate-limit";
+import type { Request, Response } from "express";
+import type { Options } from "express-rate-limit";
 import { DbRateLimitStore } from "./rateLimitStore.js";
+import { logSecurityEvent } from "./securityLog.js";
+
+// Same response as the default handler, plus a security log line so repeated
+// blocks (credential stuffing, scraping, sign-up spam) show up in alerts.
+function blocked(limiter: string) {
+  return (req: Request, res: Response, _next: unknown, options: Options) => {
+    logSecurityEvent("rate_limited", { ip: req.ip, limiter, method: req.method, path: req.path });
+    res.status(options.statusCode).send(options.message);
+  };
+}
 
 // Which limiters share their counters through the database (see
 // rateLimitStore.ts): every route where a bypass would matter — guessing
@@ -13,6 +25,7 @@ import { DbRateLimitStore } from "./rateLimitStore.js";
 // /api/users and /api/trends every 15s, so this needs to stay generous
 // for normal usage while still stopping scripted abuse.
 export const apiLimiter = rateLimit({
+  handler: blocked("api"),
   windowMs: 15 * 60 * 1000,
   limit: 300,
   standardHeaders: true,
@@ -25,6 +38,7 @@ export const apiLimiter = rateLimit({
 // distributed attack on one account is stopped even when it rotates IPs.
 export const loginLimiter = rateLimit({
   store: new DbRateLimitStore("login"),
+  handler: blocked("login"),
   windowMs: 15 * 60 * 1000,
   limit: 20,
   skipSuccessfulRequests: true,
@@ -36,6 +50,7 @@ export const loginLimiter = rateLimit({
 // Starting a sign-up hashes a password and calls out to LeetCode.
 export const registerLimiter = rateLimit({
   store: new DbRateLimitStore("register"),
+  handler: blocked("register"),
   windowMs: 60 * 60 * 1000,
   limit: 10,
   standardHeaders: true,
@@ -46,6 +61,7 @@ export const registerLimiter = rateLimit({
 // "Verify my profile" re-reads the person's LeetCode summary each time.
 export const verifyLimiter = rateLimit({
   store: new DbRateLimitStore("verify"),
+  handler: blocked("verify"),
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,
@@ -58,6 +74,7 @@ export const verifyLimiter = rateLimit({
 // through us.
 export const refreshLimiter = rateLimit({
   store: new DbRateLimitStore("refresh"),
+  handler: blocked("refresh"),
   windowMs: 60 * 1000,
   limit: 6,
   standardHeaders: true,
@@ -68,6 +85,7 @@ export const refreshLimiter = rateLimit({
 // Account settings: password checks, profile edits and account deletion.
 export const accountLimiter = rateLimit({
   store: new DbRateLimitStore("account"),
+  handler: blocked("account"),
   windowMs: 15 * 60 * 1000,
   limit: 20,
   standardHeaders: true,

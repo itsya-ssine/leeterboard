@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireAdmin } from "./auth.js";
 import { accountLimiter } from "./rateLimit.js";
+import { logSecurityEvent } from "./securityLog.js";
 import {
   createAdminMessage,
   dismissNotification,
@@ -134,6 +135,11 @@ router.post("/admin/notifications", accountLimiter, requireAdmin, async (req, re
         error: to === "all" ? "There are no members to send it to." : "That member doesn't exist."
       });
     }
+    logSecurityEvent(
+      "admin_message_sent",
+      { ip: req.ip, adminId: sender.id, admin: sender.leetcodeUsername, to: to === "all" ? "all" : to, recipients: sent },
+      "info"
+    );
     res.status(201).json({ sent });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

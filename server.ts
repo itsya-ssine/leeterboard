@@ -70,6 +70,7 @@ import { PlatformNotFoundError } from "./platforms/common.js";
 import { buildPlatformTrend } from "./platformTrends.js";
 import { csrfProtection } from "./csrf.js";
 import { securityHeaders } from "./securityHeaders.js";
+import { logSecurityEvent } from "./securityLog.js";
 import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
@@ -1021,6 +1022,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
       expiresAt: new Date(now + REGISTRATION_TTL_MS).toISOString()
     });
 
+    logSecurityEvent("ownership_started", { ip: req.ip, username: storedUsername, purpose }, "info");
     res.cookie(REGISTRATION_COOKIE, registrationId, { ...registrationCookieOptions, maxAge: REGISTRATION_TTL_MS });
     res.json({
       code,
@@ -1051,6 +1053,7 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
       return res.status(400).json({ error: "This sign-up has expired. Please start again.", expired: true });
     }
     if (pending.attempts >= MAX_VERIFY_ATTEMPTS) {
+      logSecurityEvent("ownership_failed", { ip: req.ip, username: pending.leetcodeUsername, reason: "too_many_attempts" });
       await deletePendingRegistration(pending.id);
       res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
       return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
@@ -1066,6 +1069,12 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
 
     if (!lookup.aboutMe.toLowerCase().includes(pending.code.toLowerCase())) {
       await bumpPendingAttempts(pending.id);
+      logSecurityEvent("ownership_failed", {
+        ip: req.ip,
+        username: pending.leetcodeUsername,
+        reason: "code_not_found",
+        attempts: pending.attempts + 1
+      });
       return res.status(400).json({
         error:
           "We couldn't find the code in your LeetCode summary yet. Save your profile on LeetCode, wait a few seconds, then try again."
@@ -1081,6 +1090,7 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
     // several concurrent verifications only one can proceed; the rest (and any
     // replay) are rejected before anything is written.
     const rejectReplay = () => {
+      logSecurityEvent("ownership_failed", { ip: req.ip, username: pending.leetcodeUsername, reason: "replay" });
       res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
       return res
         .status(400)
@@ -1153,6 +1163,16 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
       }
     }
 
+    logSecurityEvent(
+      "ownership_verified",
+      {
+        ip: req.ip,
+        userId: user.id,
+        username: user.leetcodeUsername,
+        purpose: !existing ? "create" : isPasswordHash(existing.auth.passwordHash) ? "reset" : "claim"
+      },
+      "info"
+    );
     res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
     setSessionCookie(res, user, pending.passwordHash);
     res.status(existing ? 200 : 201).json({ ...user, isAdmin: isAdminUser(user) });
@@ -1191,20 +1211,24 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     const record = await getUserAuthByUsername(leetcodeUsername.trim());
     if (!record) {
       await burnPasswordCheck(password); // same cost as a real check
+      logSecurityEvent("login_failed", { ip: req.ip, username: leetcodeUsername.trim(), reason: "unknown_user" });
       return res.status(401).json(INVALID);
     }
 
     const { user, auth } = record;
+    let failuresBefore = auth.failedLogins;
 
     if (auth.lockedUntil) {
       const until = Date.parse(auth.lockedUntil);
       if (until > Date.now()) {
+        logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: user.leetcodeUsername });
         const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
         return res.status(429).json({
           error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or reset your password from the Sign up tab.`
         });
       }
       await clearFailedLogins(user.id); // lock has expired
+      failuresBefore = 0;
     }
 
     if (!isPasswordHash(auth.passwordHash)) {
@@ -1218,6 +1242,20 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
 
     if (!(await verifyPassword(password, auth.passwordHash))) {
       await recordFailedLogin(user.id, MAX_FAILED_LOGINS, new Date(Date.now() + LOCKOUT_MS).toISOString());
+      logSecurityEvent("login_failed", {
+        ip: req.ip,
+        userId: user.id,
+        username: user.leetcodeUsername,
+        failures: failuresBefore + 1
+      });
+      if (failuresBefore + 1 >= MAX_FAILED_LOGINS) {
+        logSecurityEvent("account_locked", {
+          ip: req.ip,
+          userId: user.id,
+          username: user.leetcodeUsername,
+          minutes: LOCKOUT_MS / 60_000
+        });
+      }
       return res.status(401).json(INVALID);
     }
 
@@ -1260,7 +1298,9 @@ app.get("/api/auth/session", async (req, res) => {
 // enough. Wrong guesses count toward the same lockout as the login form.
 async function checkCurrentPassword(
   userId: string,
-  password: unknown
+  password: unknown,
+  action: "password_change" | "account_delete",
+  ip: string | undefined
 ): Promise<{ record: UserWithAuth | null; status: number; error: string }> {
   const fail = (status: number, error: string) => ({ record: null, status, error });
 
@@ -1275,6 +1315,7 @@ async function checkCurrentPassword(
     );
   }
 
+  let failuresBefore = record.auth.failedLogins;
   if (record.auth.lockedUntil) {
     const until = Date.parse(record.auth.lockedUntil);
     if (until > Date.now()) {
@@ -1282,10 +1323,26 @@ async function checkCurrentPassword(
       return fail(429, `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`);
     }
     await clearFailedLogins(userId); // lock has expired
+    failuresBefore = 0;
   }
 
   if (password.length > MAX_PASSWORD_LENGTH || !(await verifyPassword(password, record.auth.passwordHash))) {
     await recordFailedLogin(userId, MAX_FAILED_LOGINS, new Date(Date.now() + LOCKOUT_MS).toISOString());
+    logSecurityEvent("reauth_failed", {
+      ip,
+      userId,
+      username: record.user.leetcodeUsername,
+      action,
+      failures: failuresBefore + 1
+    });
+    if (failuresBefore + 1 >= MAX_FAILED_LOGINS) {
+      logSecurityEvent("account_locked", {
+        ip,
+        userId,
+        username: record.user.leetcodeUsername,
+        minutes: LOCKOUT_MS / 60_000
+      });
+    }
     return fail(401, "Current password is incorrect.");
   }
 
@@ -1470,6 +1527,13 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
     const needle = pending.code.toLowerCase();
     if (!profile.texts.some((t) => t.toLowerCase().includes(needle))) {
       await bumpPendingLinkAttempts(id, platform.id);
+      logSecurityEvent("platform_link_failed", {
+        ip: req.ip,
+        userId: id,
+        platform: platform.id,
+        handle: pending.handle,
+        attempts: pending.attempts + 1
+      });
       return res.status(400).json({
         error: `We couldn't find the code on your ${platform.label} profile yet. Save it there, wait a few seconds, then try again.`
       });
@@ -1478,6 +1542,7 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
     // Ownership proven. Consume the challenge atomically so it can't be
     // replayed or used by two concurrent requests.
     if (!(await consumePendingLink(id, platform.id))) {
+      logSecurityEvent("platform_link_failed", { ip: req.ip, userId: id, platform: platform.id, reason: "replay" });
       return res.status(400).json({ error: "This link request was already used or has expired. Please start again.", expired: true });
     }
     try {
@@ -1488,6 +1553,8 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
       }
       throw err;
     }
+
+    logSecurityEvent("platform_link_verified", { ip: req.ip, userId: id, platform: platform.id, handle: profile.handle }, "info");
 
     // First sync so the stats show straight away. If the platform is slow or
     // down the account is still linked and the next sync fills it in.
@@ -1551,7 +1618,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
     const { id, leetcodeUsername } = (req as any).user as { id: string; leetcodeUsername: string };
     const { currentPassword, newPassword } = req.body ?? {};
 
-    const check = await checkCurrentPassword(id, currentPassword);
+    const check = await checkCurrentPassword(id, currentPassword, "password_change", req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error });
 
     const passwordError = validatePassword(newPassword, leetcodeUsername);
@@ -1562,6 +1629,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 
     const newHash = await hashPassword(newPassword as string);
     await setPasswordHash(id, newHash);
+    logSecurityEvent("password_changed", { ip: req.ip, userId: id, username: leetcodeUsername }, "info");
     setSessionCookie(res, check.record.user, newHash);
     res.json({ success: true });
   } catch (error: any) {
@@ -1576,10 +1644,11 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) => {
   try {
     const { id } = (req as any).user as { id: string };
-    const check = await checkCurrentPassword(id, req.body?.password);
+    const check = await checkCurrentPassword(id, req.body?.password, "account_delete", req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error });
 
     await deleteUserById(id);
+    logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.leetcodeUsername }, "info");
     clearSessionCookie(res);
     res.json({ success: true });
   } catch (error: any) {
@@ -1611,7 +1680,11 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
     if (!deleted) {
       return res.status(404).json({ error: "User not found." });
     }
-    console.info(`[Admin] ${session.leetcodeUsername} removed member ${target.leetcodeUsername}`);
+    logSecurityEvent(
+      "admin_user_removed",
+      { ip: req.ip, adminId: session.id, admin: session.leetcodeUsername, targetId: target.id, target: target.leetcodeUsername },
+      "info"
+    );
     res.json({ success: true, message: "Member removed successfully." });
   } catch (error: any) {
     console.error(`[Admin] member removal failed: ${error.message}`);
@@ -1624,6 +1697,8 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 // only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
 app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res) => {
   const { id } = req.params;
+  const admin = (req as any).user as { id: string; leetcodeUsername: string };
+  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, scope: "member", targetId: id }, "info");
 
   try {
     const user = await getUserById(id);
@@ -1952,6 +2027,8 @@ app.use("/api", notificationRoutes);
 
 // POST refresh all users — admin only
 app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
+  const admin = (req as any).user as { id: string; leetcodeUsername: string };
+  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, scope: "all" }, "info");
   try {
     const result = await syncAllUsers();
     res.json({ success: true, ...result });

@@ -249,7 +249,9 @@ The theme is driven by CSS variables in `src/index.css`:
 - Request bodies are limited to 10 KB and usernames and handles are validated against allow-lists. Every `/api` response is sent with `Cache-Control: no-store`.
 - Production responses carry a Content Security Policy (own scripts only, plus the hashed theme bootstrap in `index.html`), `Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options`, a `Referrer-Policy`, a `Permissions-Policy` and `Cross-Origin-Opener-Policy`. They are defined once in `securityHeaders.ts` and mirrored in `vercel.json`, which serves the static frontend on Vercel. `npm run security:check` fails if the two drift apart or if the inline script in `index.html` changes without its CSP hash being updated; run it after editing either.
 - The sensitive rate limiters keep their counters in the database, so they hold across serverless instances (see [Rate limits](#rate-limits)).
-- Dependencies are audited with `npm run audit:prod`.
+- Dependencies are audited with `npm run audit:prod`, and Dependabot keeps them and the CI actions current.
+- Security regressions are covered by `npm test`: the suite starts the real server on a throwaway database and checks authorization, forged tokens, CSRF, challenge replay, rate limits, validation, headers and log hygiene (it checks the database as well as the status codes). CI runs it on every push and pull request, alongside a dependency audit, a full-history secret scan and CodeQL (`.github/workflows`).
+- Security events (failed and locked logins, ownership checks, password and account changes, admin actions, blocked requests) are logged as structured JSON with secrets redacted. See [docs/security-operations.md](docs/security-operations.md) for the event list, what to alert on, an incident-response checklist and the backup-restore drill.
 - Notification text is always rendered as plain text, never HTML.
 
 ## Data syncing
@@ -374,6 +376,8 @@ Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh
 | `npm start` | Run the production build |
 | `npm run lint` | Type-check the project |
 | `npm run db:migrate` | Back up the local database, then apply any pending schema migrations (a remote database also needs `-- --confirm-remote`) |
+| `npm test` | Run the security regression tests against the real server (throwaway database) |
+| `npm run db:verify-backup` | Check that a restored copy of the database is complete and readable (`-- --url <copy>`) |
 | `npm run security:check` | Verify the CSP script hashes and that `vercel.json` sends the same security headers as `securityHeaders.ts` |
 | `npm run audit:prod` | Fail on known high-severity vulnerabilities in production dependencies |
 | `npm run clean` | Remove build output |
@@ -386,7 +390,7 @@ Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh
 leeterboard/
 ├── db/schema.sql           annotated current schema
 ├── platforms/              Codeforces and CodinGame adapters, shared types and the registry
-├── scripts/                migrate, seed-dev-users, probe-codingame, check-security-config
+├── scripts/                migrate, seed-dev-users, probe-codingame, check-security-config, verify-backup
 ├── src/                    React app
 │   ├── App.tsx             app shell, navbar, leaderboard and stats pages
 │   ├── ProfilePage.tsx     member profile
@@ -411,6 +415,10 @@ leeterboard/
 ├── rateLimitStore.ts       database-backed counter store for the sensitive limiters
 ├── csrf.ts                 cross-site request checks for state-changing routes
 ├── securityHeaders.ts      CSP and other response headers (mirrored in vercel.json)
+├── securityLog.ts          structured, redacted security-event logging
+├── tests/                  security regression tests (npm test)
+├── docs/                   security-operations.md: alerts, incident response, restore drills
+├── .github/                CI workflows (tests, audit, secret scan, CodeQL) and Dependabot
 ├── streaks.ts              streak maths for LeetCode's submission calendar
 └── vercel.json             Vercel build and routing
 ```
