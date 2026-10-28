@@ -43,9 +43,7 @@ export const PERMISSIONS_POLICY = [
   "geolocation=()",
   "payment=()",
   "usb=()",
-  "serial=()",
-  "bluetooth=()",
-  "interest-cohort=()"
+  "serial=()"
 ].join(", ");
 
 // Sent on every response, in every environment.
