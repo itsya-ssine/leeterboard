@@ -17,10 +17,10 @@
     "db:verify-backup": "tsx scripts/verify-backup.ts"
   },
   "dependencies": {
-    "@libsql/client": "^0.18.0",
     "@google/genai": "^2.31.0",
+    "@libsql/client": "^0.18.0",
     "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
+    "@vitejs/plugin-react": "^6.1.2",
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.9",
     "express": "^4.21.2",
@@ -30,8 +30,7 @@
     "motion": "^12.23.24",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "recharts": "^3.9.2",
-    "vite": "^6.2.3"
+    "recharts": "^3.9.2"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.7",
@@ -43,6 +42,6 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^8.3.5"
   }
 }
