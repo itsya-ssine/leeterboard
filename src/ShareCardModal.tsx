@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Download, ImageIcon, Linkedin, Share2 } from "lucide-react";
+import { Check, Copy, Download, ImageIcon, Share2 } from "lucide-react";
+import { FaLinkedin as Linkedin } from "react-icons/fa";
 import Modal from "./Modal.js";
 import { btnPrimary, btnSecondary, CardHeader, focusRing, PreviewStage, Segmented, StatusLine } from "./CardDialog.js";
 import type { User } from "./types.js";

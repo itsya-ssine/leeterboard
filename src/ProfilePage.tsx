@@ -1,27 +1,6 @@
 import React, { useMemo, useState } from "react";
-import {
-  ArrowDownRight,
-  ArrowLeft,
-  ArrowUpRight,
-  Calendar,
-  Check,
-  Clock,
-  Crown,
-  EyeOff,
-  Flame,
-  Github,
-  Globe,
-  Link2,
-  Linkedin,
-  Settings,
-  Share2,
-  Swords,
-  Target,
-  Gem,
-  Trophy,
-  UserX,
-  Zap
-} from "lucide-react";
+import { ArrowDownRight, ArrowLeft, ArrowUpRight, Calendar, Check, Clock, Crown, EyeOff, Flame, Globe, Link2, Settings, Share2, Swords, Target, Gem, Trophy, UserX, Zap } from "lucide-react";
+import { FaGithub as Github, FaLinkedin as Linkedin } from "react-icons/fa";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Area,
