@@ -30,7 +30,8 @@
     "motion": "^12.23.24",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "recharts": "^3.9.2"
+    "recharts": "^3.9.2",
+    "vite": "^8.3.5"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.7",
