@@ -532,6 +532,28 @@ describe("feedback", () => {
     assert.equal(row.user_id, null, "but it must no longer point at the deleted member");
   });
 
+  it("blocks cross-site feedback requests, even admin actions that carry a valid admin cookie", async () => {
+    // Write the fixture first: the server may still be finishing a write from a
+    // previous request, and two processes writing to one SQLite file at once
+    // gives SQLITE_BUSY.
+    const id = await db.createFeedback({ userId: null, category: "other", message: "CSRF target", page: "" });
+    const admin = (await login("test_admin")).cookie!;
+    const before = (await rows()).length;
+    const evil = { origin: "https://evil.example" };
+
+    // A malicious page posting from another site (these are stopped by csrf.ts
+    // before the feedback rate limiter, so they don't use up its quota).
+    assert.equal((await api("POST", "/api/feedback", { headers: evil, body: { message: "from another site" } })).status, 403);
+    assert.equal((await api("POST", "/api/feedback", { headers: { "sec-fetch-site": "cross-site" }, body: { message: "from another site" } })).status, 403);
+    assert.equal((await rows()).length, before, "no feedback may be stored");
+
+    // ...and riding the admin's cookie to change or delete the inbox.
+    assert.equal((await api("PATCH", `/api/admin/feedback/${id}`, { cookie: admin, headers: evil, body: { read: true } })).status, 403);
+    assert.equal((await rows()).find((r) => r.id === id)!.read_at, null, "must still be unread");
+    assert.equal((await api("DELETE", `/api/admin/feedback/${id}`, { cookie: admin, headers: evil })).status, 403);
+    assert.ok((await rows()).some((r) => r.id === id), "must not be deleted");
+  });
+
   it("rate limits the public form (429) and logs it", async () => {
     const statuses: number[] = [];
     for (let i = 0; i < 12; i++) {
