@@ -148,7 +148,8 @@ The seed script only writes to a local SQLite file. It refuses to run if `TURSO_
 | Variable | Required | Description |
 | --- | --- | --- |
 | `JWT_SECRET` | Yes | Signs session cookies. Must be at least 32 random characters. |
-| `ADMIN_LEETCODE_USERNAMES` | Yes (for admin access) | Comma-separated LeetCode usernames with admin rights. There is no default: if unset, nobody is an admin. |
+| `ADMIN_USER_IDS` | Yes (for admin access) | Comma-separated internal member ids (`user-...`) with admin rights. Find one with `npm run admin -- show-id <leetcodeUsername>`, or `GET /api/auth/session` while signed in. There is no default: if neither admin variable is set, nobody is an admin. Admin accounts can't be claimed or reset through the website. |
+| `ADMIN_LEETCODE_USERNAMES` | No (deprecated) | Comma-separated LeetCode usernames with admin rights, used only while `ADMIN_USER_IDS` is empty. A LeetCode username can be recycled by someone else, so prefer ids. |
 | `ALLOWED_ORIGINS` | No | Comma-separated extra origins allowed to make state-changing API requests (CSRF allow-list). The app's own origin is always allowed. |
 | `TURSO_DATABASE_URL` | No | Turso database URL. Leave empty to use the local `local.db` file. |
 | `TURSO_AUTH_TOKEN` | Yes, with a remote database | Auth token for the Turso database. Server-side only: never put it (or any secret) in a `VITE_` variable, which would ship it to the browser. |
