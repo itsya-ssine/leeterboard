@@ -29,6 +29,7 @@ history if you want to look back further than that.
 | `ownership_started` | info | A sign-up / claim / reset challenge was issued (`purpose`) |
 | `ownership_verified` | info | LeetCode ownership proven; account `create`d, `claim`ed or `reset` |
 | `ownership_failed` | warn | Code not found, replayed challenge, or too many attempts (`reason`) |
+| `ownership_lookup_unavailable` | warn | LeetCode didn't answer the ownership check, so the request was refused with a 503 (fail closed, no third-party fallback) |
 | `platform_link_verified` / `platform_link_failed` | info / warn | Codeforces / CodinGame linking |
 | `password_changed` | info | A member changed their password (all older sessions are now invalid) |
 | `account_deleted` | info | A member deleted their own account |
@@ -49,6 +50,7 @@ Start with these thresholds and tune them to your real traffic.
 | Credential guessing | 10 or more `login_failed` from one `ip` in 10 minutes |
 | Targeted account | any `account_locked`, or 5 or more `login_failed` for one `username` in 10 minutes |
 | Account-takeover attempts | 5 or more `ownership_failed` for one `username` in an hour; any `ownership_verified` with `purpose":"reset"` that its owner doesn't recognise |
+| LeetCode unreachable | a burst of `ownership_lookup_unavailable` (LeetCode may be blocking this server's IP, so sign-ups and resets will fail until it clears) |
 | Scraping / abuse | 20 or more `rate_limited` in 15 minutes, or any `admin_refresh` you didn't trigger |
 | Request forgery | any burst of `csrf_blocked` |
 | Privilege use | any `admin_*` event outside the times you were working |
