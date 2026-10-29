@@ -11,6 +11,7 @@
 //   password_changed, account_deleted,
 //   ownership_started, ownership_verified, ownership_failed,
 //   ownership_lookup_unavailable,
+//   ownership_blocked, password_reset_via_ownership,
 //   platform_link_verified, platform_link_failed, admin_user_removed,
 //   admin_refresh, admin_message_sent, feedback_received,
 //   admin_feedback_deleted, csrf_blocked, rate_limited, session_rejected
@@ -26,6 +27,8 @@ export type SecurityEvent =
   | "ownership_verified"
   | "ownership_failed"
   | "ownership_lookup_unavailable"
+  | "ownership_blocked"
+  | "password_reset_via_ownership"
   | "platform_link_verified"
   | "platform_link_failed"
   | "admin_user_removed"

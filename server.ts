@@ -48,6 +48,8 @@ import {
   removePlatformAccount,
   setPlatformHidden,
   setHideLeetcodeStats,
+  getResetFreeze,
+  createSecurityNotice,
   type UserWithAuth
 } from "./db.js";
 import {
@@ -950,6 +952,48 @@ async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
 const LEETCODE_UNAVAILABLE_MESSAGE =
   "Couldn't reach LeetCode right now. Please try again in a moment.";
 
+// The same message for every reason, so the response doesn't reveal whether
+// an account is an admin or why it is frozen (the reason goes to the log).
+const RECOVERY_BLOCKED_MESSAGE =
+  "Claiming or resetting this account isn't available online. Please contact a Leeterboard admin.";
+
+// F2 — a LeetCode USERNAME is not a stable identity: if its owner renames or
+// deletes the LeetCode account, a stranger can later register the same name
+// and pass the ownership check for it. That must never be enough to take over
+// an existing leaderboard account when the stakes are high, so claim/reset
+// is refused (403) for:
+//   - admin accounts (recover them out-of-band: `npm run admin -- set-password`)
+//   - accounts whose LeetCode name stopped resolving, or whose syncs have been
+//     failing for days, until an admin approves (`npm run admin -- approve-reset`)
+// Returns true after it has sent the 403. `pendingId` is the sign-up to
+// discard when the block is found at the verify step.
+async function denyOwnershipRecovery(
+  req: express.Request,
+  res: express.Response,
+  existing: UserWithAuth | null,
+  stage: "register" | "verify" | "verify_after_proof",
+  pendingId?: string
+): Promise<boolean> {
+  if (!existing) return false;
+  const reason = isAdminUser(existing.user) ? "admin" : await getResetFreeze(existing.user.id);
+  if (!reason) return false;
+
+  logSecurityEvent("ownership_blocked", {
+    ip: req.ip,
+    userId: existing.user.id,
+    username: existing.user.leetcodeUsername,
+    purpose: isPasswordHash(existing.auth.passwordHash) ? "reset" : "claim",
+    reason,
+    stage
+  });
+  if (pendingId) {
+    await deletePendingRegistration(pendingId);
+    res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
+  }
+  res.status(403).json({ error: RECOVERY_BLOCKED_MESSAGE });
+  return true;
+}
+
 // POST — step 1 of sign-up / claim / password reset. Validates the input,
 // hashes the password, stores it as a pending registration and returns the
 // code to put in the LeetCode profile summary. Nothing about the account
@@ -968,6 +1012,11 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     if (passwordError) {
       return res.status(400).json({ error: passwordError });
     }
+
+    // Refuse before doing any outbound call or password hashing. LeetCode
+    // usernames are case-insensitive, so this finds the same account the
+    // canonical name below would.
+    if (await denyOwnershipRecovery(req, res, await getUserAuthByUsername(username), "register")) return;
 
     // Fail fast with a clear message if the LeetCode account doesn't exist.
     const lookup = await fetchLeetCodeAbout(username);
@@ -1039,6 +1088,12 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
       return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
     }
 
+    // The account may have become an admin or been frozen since the sign-up
+    // started, so check again now, before any outbound call.
+    if (await denyOwnershipRecovery(req, res, await getUserAuthByUsername(pending.leetcodeUsername), "verify", pending.id)) {
+      return;
+    }
+
     const lookup = await fetchLeetCodeAbout(pending.leetcodeUsername);
     if (lookup.status === "not_found") {
       return res.status(404).json({ error: `LeetCode user "${pending.leetcodeUsername}" doesn't exist.` });
@@ -1069,6 +1124,7 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
     // Ownership proven. Re-check the account state now rather than trusting
     // what it was when the sign-up started.
     const existing = await getUserAuthByUsername(pending.leetcodeUsername);
+    if (await denyOwnershipRecovery(req, res, existing, "verify_after_proof", pending.id)) return;
     let user: User;
 
     // The challenge is single-use. Consuming it is one atomic DELETE, so of
@@ -1089,6 +1145,27 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
       if (!(await consumePendingRegistration(pending.id))) return rejectReplay();
       await setPasswordHash(existing.user.id, pending.passwordHash);
       user = existing.user;
+
+      // Replacing a password that already existed is the most sensitive thing
+      // this flow does (it is what a takeover looks like), so make it loud:
+      // a warn-level event to alert on, and a notice for the real owner.
+      if (isPasswordHash(existing.auth.passwordHash)) {
+        logSecurityEvent("password_reset_via_ownership", {
+          ip: req.ip,
+          userId: existing.user.id,
+          username: existing.user.leetcodeUsername
+        });
+        try {
+          await createSecurityNotice(
+            existing.user.id,
+            "Your password was reset",
+            "Your password was reset by proving ownership of your LeetCode account. " +
+              "If that wasn't you, contact a Leeterboard admin right away."
+          );
+        } catch (err: any) {
+          console.warn(`[Auth] Couldn't create the reset notice: ${err.message}`);
+        }
+      }
     } else {
       // Fetch real initial stats — throws if the username can't currently be
       // verified. The rating/streak lookups never throw.
