@@ -72,7 +72,7 @@ import { buildPlatformTrend } from "./platformTrends.js";
 import { csrfProtection } from "./csrf.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
-import { apiLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
+import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -2145,7 +2145,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("/*splat", (req, res) => {
+    app.get("/*splat", pageLimiter, (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

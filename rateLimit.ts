@@ -33,6 +33,21 @@ export const apiLimiter = rateLimit({
   message: { error: "Too many requests from this IP. Please slow down and try again shortly." }
 });
 
+// Page loads: the production fallback that serves index.html for any path that
+// isn't a built asset or an /api route. The app routes with the URL hash, so a
+// real visitor loads this once per visit; the ceiling is far above that and
+// only stops scripts hammering the file-serving route. In memory on purpose
+// (no database write for a static file), and separate from apiLimiter so page
+// loads never use up a member's API allowance.
+export const pageLimiter = rateLimit({
+  handler: blocked("page"),
+  windowMs: 15 * 60 * 1000,
+  limit: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: "Too many requests from this IP. Please slow down and try again shortly."
+});
+
 // Password logins. Only failed attempts count, so normal use never hits it.
 // Each account also locks itself after repeated failures (see server.ts), so a
 // distributed attack on one account is stopped even when it rotates IPs.
