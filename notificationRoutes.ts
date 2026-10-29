@@ -89,7 +89,7 @@ router.post("/notifications/clear-read", requireAuth, async (req, res) => {
 router.delete("/notifications/:notificationId", requireAuth, async (req, res) => {
   try {
     const { id } = (req as any).user;
-    const removed = await dismissNotification(id, req.params.notificationId);
+    const removed = await dismissNotification(id, req.params.notificationId as string);
     if (!removed) return res.status(404).json({ error: "Notification not found." });
     res.json(await listNotifications(id));
   } catch (error: any) {

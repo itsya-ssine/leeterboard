@@ -93,7 +93,7 @@ router.get("/admin/feedback", requireAdmin, async (_req, res) => {
 
 router.patch("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
   try {
-    const { feedbackId } = req.params;
+    const feedbackId = req.params.feedbackId as string;
     const { read } = req.body ?? {};
     if (typeof read !== "boolean") {
       return res.status(400).json({ error: "Send { read: true } or { read: false }." });
@@ -112,7 +112,7 @@ router.patch("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
 router.delete("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
   try {
     const admin = (req as any).user as { id: string; leetcodeUsername: string };
-    const { feedbackId } = req.params;
+    const feedbackId = req.params.feedbackId as string;
     if (feedbackId.length === 0 || feedbackId.length > 64) {
       return res.status(404).json({ error: "Feedback not found." });
     }

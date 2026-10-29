@@ -1663,7 +1663,7 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
 // themselves, with a single request); a member deletes their own account from
 // the account page, which requires their password.
 app.delete("/api/users/:id", requireAdmin, async (req, res) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const session = (req as any).user as { id: string; leetcodeUsername: string };
 
   try {
@@ -1697,7 +1697,7 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 // outbound scrapes, so it must not be an anonymous amplification point. The
 // only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
 app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res) => {
-  const { id } = req.params;
+  const id = req.params.id as string;
   const admin = (req as any).user as { id: string; leetcodeUsername: string };
   logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, scope: "member", targetId: id }, "info");
 
@@ -2145,7 +2145,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("/*splat", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
