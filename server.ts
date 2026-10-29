@@ -886,12 +886,19 @@ type AboutLookup =
   | { status: "unavailable" };
 
 // Reads a LeetCode profile's public "Summary" (aboutMe) and its canonical
-// username. "not_found" is only reported when a source positively says the
-// user doesn't exist; anything else that goes wrong is "unavailable".
+// username. This is the ONLY thing that proves account ownership (sign-up,
+// claim, password reset), so it must come from LeetCode itself.
+//
+// SECURITY: never add a third-party fallback here (proxies, mirrors, caches).
+// Whoever controls that source could attest "this summary contains your code"
+// for any username and take over any account. If LeetCode doesn't answer we
+// fail closed: "unavailable" (callers return 503 and the user retries).
+// "not_found" is only reported when LeetCode positively says the user
+// doesn't exist.
 async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
   let notFound = false;
 
-  // 1. Official LeetCode GraphQL endpoint
+  // Official LeetCode GraphQL endpoint (the only trusted source)
   try {
     const query = `
       query userAbout($username: String!) {
@@ -937,35 +944,6 @@ async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
     console.warn(`[Auth] LeetCode GraphQL profile lookup failed: ${err.message}`);
   }
 
-  // 2. Alfa API proxy — only consulted when LeetCode itself gave no answer
-  // (e.g. it blocks this server's IP). Best effort: if the wrapper doesn't
-  // return a summary we report "unavailable" instead of guessing.
-  if (!notFound) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-      const response = await fetch(`https://alfa-leetcode-api.onrender.com/${encodeURIComponent(username)}`, {
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (response.status === 404) {
-        notFound = true;
-      } else if (response.ok) {
-        const data: any = await response.json();
-        if (data?.errors) {
-          notFound = true;
-        } else if (typeof data?.username === "string" && (typeof data.about === "string" || data.about === null)) {
-          return { status: "ok", username: data.username, aboutMe: data.about ?? "" };
-        }
-      }
-    } catch (err: any) {
-      console.warn(`[Auth] Alfa API profile lookup failed: ${err.message}`);
-    }
-  }
-
   return notFound ? { status: "not_found" } : { status: "unavailable" };
 }
 
@@ -997,6 +975,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
       return res.status(404).json({ error: `LeetCode user "${username}" doesn't exist.` });
     }
     if (lookup.status === "unavailable") {
+      logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, username, route: "register" });
       return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
     }
 
@@ -1065,6 +1044,11 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
       return res.status(404).json({ error: `LeetCode user "${pending.leetcodeUsername}" doesn't exist.` });
     }
     if (lookup.status === "unavailable") {
+      logSecurityEvent("ownership_lookup_unavailable", {
+        ip: req.ip,
+        username: pending.leetcodeUsername,
+        route: "register_verify"
+      });
       return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
     }
 
