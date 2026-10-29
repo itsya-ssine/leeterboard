@@ -82,8 +82,8 @@ export function PreviewStage({
   alt,
   loadingText
 }: {
-  error: string;
-  previewUrl: string;
+  error: string | null;
+  previewUrl: string | null;
   rendering: boolean;
   alt: string;
   loadingText: string;
