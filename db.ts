@@ -277,7 +277,8 @@ export async function initDb(): Promise<void> {
         state TEXT NOT NULL,
         error TEXT,
         failures INTEGER NOT NULL DEFAULT 0,
-        failing_since TEXT
+        failing_since TEXT,
+        reset_frozen_at TEXT
       )`,
       ...NOTIFICATION_DDL,
       ...PLATFORM_DDL,
@@ -313,7 +314,8 @@ const MIGRATIONS: Migration[] = [
   { version: 8, name: "platform_account_hidden", up: migratePlatformAccountHidden },
   { version: 9, name: "user_hide_leetcode_stats", up: migrateUserHideLeetcodeStats },
   { version: 10, name: "rate_limits", up: migrateRateLimits },
-  { version: 11, name: "feedback", up: migrateFeedback }
+  { version: 11, name: "feedback", up: migrateFeedback },
+  { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -335,6 +337,19 @@ async function runMigrations(): Promise<void> {
       args: [m.version, m.name, new Date().toISOString()]
     });
     console.log(`[DB] Applied migration ${m.version}: ${m.name}`);
+  }
+}
+
+// v12 — sticky "this LeetCode name stopped resolving" marker (idempotent).
+async function migrateResetFrozen(): Promise<void> {
+  if (await columnExists("sync_status", "reset_frozen_at")) return;
+  try {
+    await client.execute("ALTER TABLE sync_status ADD COLUMN reset_frozen_at TEXT");
+  } catch (err: any) {
+    // Another cold-started instance may have added it a moment ago.
+    if (!(await columnExists("sync_status", "reset_frozen_at"))) {
+      throw new Error(`Couldn't add sync_status.reset_frozen_at: ${err.message}`);
+    }
   }
 }
 
@@ -1314,7 +1329,7 @@ export async function listSentMessages(limit = 20): Promise<SentMessage[]> {
                    MAX(broadcast_id IS NOT NULL) AS is_broadcast,
                    MIN(user_id) AS first_user
               FROM notifications
-             WHERE type = 'admin'
+             WHERE type = 'admin' AND sender_id IS NOT NULL
              GROUP BY gid
           )
           SELECT sent.*, u.display_name AS recipient_name
@@ -1433,13 +1448,26 @@ export async function recordSyncResult(userId: string, result: SyncResult): Prom
       });
     } else {
       await client.execute({
-        sql: `INSERT INTO sync_status (user_id, last_attempt, state, error, failures, failing_since)
-              VALUES (?, ?, ?, ?, 1, ?)
+        // `reset_frozen_at` is STICKY: it is set the first time LeetCode
+        // positively says this name doesn't exist and is NOT cleared by a
+        // later successful sync (the success branch above never touches it).
+        // A later success is exactly what a recycled username looks like, so
+        // only an admin (approveReset) can lift it.
+        sql: `INSERT INTO sync_status (user_id, last_attempt, state, error, failures, failing_since, reset_frozen_at)
+              VALUES (?, ?, ?, ?, 1, ?, ?)
               ON CONFLICT(user_id) DO UPDATE SET
                 last_attempt = excluded.last_attempt, state = excluded.state,
                 error = excluded.error, failures = sync_status.failures + 1,
-                failing_since = COALESCE(sync_status.failing_since, excluded.failing_since)`,
-        args: [userId, now, result.state, result.error.slice(0, MAX_ERROR_LENGTH), now]
+                failing_since = COALESCE(sync_status.failing_since, excluded.failing_since),
+                reset_frozen_at = COALESCE(sync_status.reset_frozen_at, excluded.reset_frozen_at)`,
+        args: [
+          userId,
+          now,
+          result.state,
+          result.error.slice(0, MAX_ERROR_LENGTH),
+          now,
+          result.state === "not_found" ? now : null
+        ]
       });
     }
   } catch (err: any) {
@@ -1461,6 +1489,55 @@ export async function listSyncStatus(): Promise<Map<string, SyncStatusRow>> {
     });
   }
   return map;
+}
+
+/* ---------- Recovery freeze (recycled-username protection) ---------- */
+
+// A member whose LeetCode name has stopped resolving may have renamed or
+// deleted that LeetCode account, and the name can then be registered by a
+// stranger. Proving ownership of the NAME must not hand that stranger the
+// existing leaderboard account, so claim/reset is frozen for such accounts
+// until an admin approves it (approveReset).
+export type ResetFreezeReason = "name_not_found" | "sync_failing";
+
+// An account whose syncs have been failing for this long is treated as
+// suspicious too. Unlike "name_not_found" this lifts by itself once syncs
+// succeed again.
+export const SYNC_FAILING_FREEZE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export async function getResetFreeze(userId: string, nowMs = Date.now()): Promise<ResetFreezeReason | null> {
+  const res = await client.execute({
+    sql: "SELECT state, failing_since, reset_frozen_at FROM sync_status WHERE user_id = ?",
+    args: [userId]
+  });
+  const row = res.rows[0] as unknown as Record<string, unknown> | undefined;
+  if (!row) return null;
+  if (row.reset_frozen_at) return "name_not_found";
+  const since = row.failing_since ? Date.parse(String(row.failing_since)) : NaN;
+  if (row.state !== "ok" && Number.isFinite(since) && nowMs - since >= SYNC_FAILING_FREEZE_MS) return "sync_failing";
+  return null;
+}
+
+// Admin decision: lets this member claim/reset again. If their name is still
+// missing the next failed sync freezes it again. Returns false if the member
+// had no freeze recorded.
+export async function approveReset(userId: string): Promise<boolean> {
+  const res = await client.execute({
+    sql: "UPDATE sync_status SET reset_frozen_at = NULL WHERE user_id = ? AND reset_frozen_at IS NOT NULL",
+    args: [userId]
+  });
+  return (res.rowsAffected ?? 0) > 0;
+}
+
+// A notice written by the system (no sender) that shows up in the member's
+// notification list. It is stored as an 'admin' notification so it needs no
+// schema change; listSentMessages skips rows without a sender.
+export async function createSecurityNotice(userId: string, title: string, body: string): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO notifications (id, user_id, type, title, body, created_at)
+          VALUES (lower(hex(randomblob(16))), ?, 'admin', ?, ?, ?)`,
+    args: [userId, title, body, new Date().toISOString()]
+  });
 }
 
 /* ---------- Credentials + login throttling ---------- */
