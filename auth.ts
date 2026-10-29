@@ -103,26 +103,55 @@ export interface SessionPayload {
   ps?: string;
 }
 
-// Admins are listed by LeetCode username in the ADMIN_LEETCODE_USERNAMES
-// environment variable (comma-separated). There is deliberately NO built-in
-// default: if the variable is unset, nobody is an admin (fail closed), so a
-// hardcoded username can never grant privileges by accident. Relying on a
-// username is only safe because nobody can register one without proving they
-// own that LeetCode profile.
-const ADMIN_LEETCODE_USERNAMES = (process.env.ADMIN_LEETCODE_USERNAMES ?? "")
+// Who is an admin.
+//
+// ADMIN_USER_IDS (preferred): comma-separated INTERNAL member ids
+// ("user-<uuid>", see `npm run admin -- show-id <username>` or
+// GET /api/auth/session while signed in). An id never changes and is never
+// re-issued, so unlike a LeetCode username it can't be inherited by whoever
+// later registers a recycled or renamed LeetCode name.
+//
+// ADMIN_LEETCODE_USERNAMES (deprecated, honoured only while ADMIN_USER_IDS is
+// empty): comma-separated LeetCode usernames, kept so existing deployments
+// don't lose their admins on upgrade. When ADMIN_USER_IDS is set, this list
+// is IGNORED, so there is exactly one source of truth.
+//
+// There is deliberately NO built-in default: if neither variable is set,
+// nobody is an admin (fail closed). Whichever way an account is an admin, it
+// can never be reached through the self-service claim/reset flow (see
+// server.ts), so a recycled username can't be used to take it over.
+const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const LEGACY_ADMIN_USERNAMES = (process.env.ADMIN_LEETCODE_USERNAMES ?? "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
-if (ADMIN_LEETCODE_USERNAMES.length === 0) {
+if (ADMIN_USER_IDS.length > 0) {
+  if (LEGACY_ADMIN_USERNAMES.length > 0) {
+    console.warn(
+      "[Auth] ADMIN_USER_IDS is set, so ADMIN_LEETCODE_USERNAMES is ignored. Remove it to silence this warning."
+    );
+  }
+} else if (LEGACY_ADMIN_USERNAMES.length > 0) {
   console.warn(
-    "[Auth] ADMIN_LEETCODE_USERNAMES is not set — no account has admin rights. " +
-      "Set it to a comma-separated list of LeetCode usernames to enable the admin dashboard."
+    "[Auth] Admins are identified by LeetCode username (ADMIN_LEETCODE_USERNAMES), which is deprecated: " +
+      "a recycled username must not inherit admin rights. Switch to ADMIN_USER_IDS " +
+      "(`npm run admin -- show-id <username>` prints a member's id)."
+  );
+} else {
+  console.warn(
+    "[Auth] ADMIN_USER_IDS is not set — no account has admin rights. " +
+      "Set it to a comma-separated list of member ids to enable the admin dashboard."
   );
 }
 
-export function isAdminUser(user: { leetcodeUsername: string }): boolean {
-  return ADMIN_LEETCODE_USERNAMES.includes(user.leetcodeUsername.toLowerCase());
+export function isAdminUser(user: { id: string; leetcodeUsername: string }): boolean {
+  if (ADMIN_USER_IDS.length > 0) return ADMIN_USER_IDS.includes(user.id);
+  return LEGACY_ADMIN_USERNAMES.includes(user.leetcodeUsername.toLowerCase());
 }
 
 // A short keyed fingerprint of the current password hash, embedded in every

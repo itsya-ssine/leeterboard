@@ -77,7 +77,10 @@ CREATE TABLE sync_status (
   state          TEXT NOT NULL,                    -- 'ok' | 'unavailable' | 'not_found'
   error          TEXT,
   failures       INTEGER NOT NULL DEFAULT 0,       -- consecutive failed attempts
-  failing_since  TEXT
+  failing_since  TEXT,
+  reset_frozen_at TEXT                             -- set when LeetCode said the name doesn't exist; sticky
+                                                   -- (a later success does NOT clear it), lifted only by
+                                                   -- an admin: `npm run admin -- approve-reset <user>`
 );
 
 -- A sign-up waiting for the person to prove they own the LeetCode account.

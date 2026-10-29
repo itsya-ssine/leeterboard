@@ -30,6 +30,8 @@ history if you want to look back further than that.
 | `ownership_verified` | info | LeetCode ownership proven; account `create`d, `claim`ed or `reset` |
 | `ownership_failed` | warn | Code not found, replayed challenge, or too many attempts (`reason`) |
 | `ownership_lookup_unavailable` | warn | LeetCode didn't answer the ownership check, so the request was refused with a 503 (fail closed, no third-party fallback) |
+| `ownership_blocked` | warn | A claim/reset was refused because the account is an admin or is frozen (`reason`: `admin`, `name_not_found`, `sync_failing`; `stage`) |
+| `password_reset_via_ownership` | warn | An account that already had a password had it replaced after an ownership proof. The owner also gets an in-app notice |
 | `platform_link_verified` / `platform_link_failed` | info / warn | Codeforces / CodinGame linking |
 | `password_changed` | info | A member changed their password (all older sessions are now invalid) |
 | `account_deleted` | info | A member deleted their own account |
@@ -72,8 +74,8 @@ first: copy the relevant lines somewhere before they expire.
 | --- | --- |
 | `JWT_SECRET` | Generate a new one (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`), set it in Vercel for the right environment, redeploy. **Every session is invalidated**, so everyone has to sign in again. |
 | Turso auth token | Invalidate the old token (`turso db tokens invalidate <db>`), create a new one (`turso db tokens create <db>`), update `TURSO_AUTH_TOKEN` in Vercel, redeploy. Then check the data for tampering (see below). |
-| A member's password or session | Have them reset it from the Sign up tab (it proves LeetCode ownership). Setting a new password invalidates all of their existing sessions. |
-| An admin account | Remove the username from `ADMIN_LEETCODE_USERNAMES` in Vercel and redeploy, rotate `JWT_SECRET`, then review the admin log (below). |
+| A member's password or session | Have them reset it from the Sign up tab (it proves LeetCode ownership). This is refused for admin accounts and for frozen accounts (see "Recycled LeetCode usernames" below). Setting a new password invalidates all of their existing sessions. |
+| An admin account | Remove its id from `ADMIN_USER_IDS` (or its username from the deprecated `ADMIN_LEETCODE_USERNAMES`) in Vercel and redeploy, rotate `JWT_SECRET`, then review the admin log (below). Set a new password with `npm run admin -- set-password <username>`. |
 
 Never paste a token or secret into an issue, a chat or a log. If one was, treat
 it as leaked.
@@ -143,3 +145,31 @@ repository settings:
 - **Branches:** protect `main` and require the `Security` and `CodeQL` checks to pass before merging.
 - **CodeQL and CSRF:** `.github/codeql/codeql-config.yml` turns off one CodeQL rule, "Missing CSRF middleware" (`js/missing-token-validation`). It only recognises CSRF libraries like `csurf`, but leeterboard uses its own middleware (`csrf.ts`), so the rule flagged every route handler that reads `req.user`, and raised a new alert each time a route was added. The protection is verified by the CSRF tests in `tests/security.test.ts` (a required check) instead. Don't remove `csrf.ts`, or its `app.use("/api", csrfProtection)` line in `server.ts`, without putting equivalent protection and tests in its place.
 - Pin third-party actions to a commit SHA once you're ready for that; `.github/dependabot.yml` already keeps the actions up to date.
+
+## Recycled LeetCode usernames
+
+A LeetCode username isn't a permanent identity: if its owner renames or deletes
+their LeetCode account, a stranger can register that name and pass the "put this
+code in your summary" check. So the website refuses to claim or reset:
+
+- **admin accounts**, always. Admin rights follow the member's internal id
+  (`ADMIN_USER_IDS`), never a username, and these accounts are recovered by you:
+  `npm run admin -- set-password <username>` (hidden prompt, or
+  `--password-stdin`; add `--confirm-remote` for a remote database).
+- **accounts whose LeetCode name stopped resolving.** The first time a sync gets
+  "no such user", the account is frozen, and stays frozen even if the name later
+  resolves again (that is exactly what a recycled name looks like). Once you have
+  checked the person is the original owner (ask them to message you from
+  somewhere you already trust), lift it with
+  `npm run admin -- approve-reset <username>`. If the name is still missing, the
+  next failed sync freezes it again.
+- accounts whose syncs have failed for 7+ days are refused too, until a sync
+  succeeds.
+
+Members see one generic message ("contact a Leeterboard admin") for every case,
+so it can't be used to find out who the admins are.
+
+**Alert on:** any `ownership_blocked` (someone tried), and any
+`password_reset_via_ownership` for a member who didn't just ask for a reset.
+Migrating admins: run `npm run admin -- show-id <username>` for each, set
+`ADMIN_USER_IDS` to the ids, remove `ADMIN_LEETCODE_USERNAMES`, redeploy.
