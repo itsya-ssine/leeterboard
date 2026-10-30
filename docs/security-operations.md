@@ -173,3 +173,25 @@ so it can't be used to find out who the admins are.
 `password_reset_via_ownership` for a member who didn't just ask for a reset.
 Migrating admins: run `npm run admin -- show-id <username>` for each, set
 `ADMIN_USER_IDS` to the ids, remove `ADMIN_LEETCODE_USERNAMES`, redeploy.
+
+## Verify a self-hosted deployment
+
+Run these against the public URL after every deploy of a self-hosted copy
+(Vercel serves the static files itself, see `vercel.json`):
+
+```bash
+# 1. Production mode: both headers must be present.
+curl -sI https://YOUR-HOST/ | grep -i -E "content-security-policy|strict-transport-security"
+
+# 2. The backend must not be downloadable: each of these must return the app's
+#    HTML page (or 404), never JavaScript.
+for p in server.cjs server.cjs.map server-dist/server.cjs dist/server.cjs; do
+  curl -s -o /dev/null -w "$p -> %{http_code} %{content_type}\n" https://YOUR-HOST/$p
+done
+```
+
+If (1) prints nothing, the app is running the dev server: start it with
+`npm start` after `npm run build`. If (2) shows `javascript`, stop serving that
+folder at once. The server bundle is only ever in `server-dist/`.
+`npm run security:check` (also run in CI) fails if the build scripts put the
+bundle where it would be served.
