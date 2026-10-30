@@ -9,6 +9,9 @@
  *      load with its theme script blocked;
  *   2. vercel.json doesn't send exactly the headers securityHeaders.ts defines
  *      for the static frontend — Vercel serves those files without Express.
+ *   3. package.json's build/start scripts would put the server bundle where it
+ *      gets served publicly, or let `npm start` run without production mode
+ *      (audit F3).
  */
 import crypto from "crypto";
 import fs from "fs";
@@ -28,7 +31,7 @@ function inlineScriptHashes(html: string): string[] {
   return hashes;
 }
 
-for (const file of ["index.html", "dist/index.html"]) {
+for (const file of ["index.html", "dist/index.html", "dist/client/index.html"]) {
   const full = path.join(root, file);
   if (!fs.existsSync(full)) continue;
   for (const hash of inlineScriptHashes(fs.readFileSync(full, "utf8"))) {
@@ -52,8 +55,35 @@ if (!headerRoute) {
   }
 }
 
+// F3: the server bundle must never sit in a folder the server serves, and the
+// start script must run the production bundle.
+const scripts = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).scripts ?? {};
+const build: string = scripts.build ?? "";
+const start: string = scripts.start ?? "";
+const outfile = build.match(/--outfile=(\S+)/)?.[1];
+const clientDir = build.match(/--outDir\s+(\S+)/)?.[1];
+if (!outfile) {
+  problems.push("package.json: `build` has no esbuild --outfile for the server bundle.");
+} else {
+  if (!clientDir) problems.push("package.json: `build` must run `vite build --outDir <dir>` so the frontend has its own folder.");
+  else if (path.resolve(root, outfile).startsWith(path.resolve(root, clientDir) + path.sep)) {
+    problems.push(`package.json: the server bundle (${outfile}) is inside the served frontend folder (${clientDir}).`);
+  }
+  if (/^dist[\\/]/.test(outfile)) problems.push(`package.json: the server bundle (${outfile}) must not be written under dist/ (it is served publicly).`);
+  if (!start.includes(outfile)) problems.push(`package.json: \`start\` must run the bundle \`build\` writes (${outfile}).`);
+}
+if (!/--define:__PRODUCTION_BUNDLE__=true/.test(build)) {
+  problems.push("package.json: `build` must pass --define:__PRODUCTION_BUNDLE__=true so the bundle always runs in production mode.");
+}
+if (/--sourcemap/.test(build) && outfile && /^dist[\\/]/.test(outfile)) {
+  problems.push("package.json: sourcemaps of the server must not be written under dist/.");
+}
+if (/esbuild|server\./.test(scripts["vercel-build"] ?? "")) {
+  problems.push("package.json: `vercel-build` must only build the frontend (Vercel serves dist/ publicly).");
+}
+
 if (problems.length) {
   console.error("Security configuration check failed:\n" + problems.map((p) => `  - ${p}`).join("\n"));
   process.exit(1);
 }
-console.log("Security configuration OK (CSP script hashes and vercel.json headers match).");
+console.log("Security configuration OK (CSP script hashes, vercel.json headers and build/start scripts).");
