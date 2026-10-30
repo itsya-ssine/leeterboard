@@ -395,13 +395,14 @@ Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh
 | Command | Description |
 | --- | --- |
 | `npm run dev` | Start the dev server with hot reload |
-| `npm run build` | Build the frontend and bundle the server into `dist/` |
-| `npm start` | Run the production build |
+| `npm run build` | Build the frontend into `dist/client/` and bundle the server into `server-dist/` (`dist/client/` is the only folder served over HTTP) |
+| `npm start` | Run the production build (always in production mode, no `NODE_ENV` needed) |
+| `npm run clean` | Delete `dist/` and `server-dist/` |
 | `npm run lint` | Type-check the project |
 | `npm run db:migrate` | Back up the local database, then apply any pending schema migrations (a remote database also needs `-- --confirm-remote`) |
 | `npm test` | Run the security regression tests against the real server (throwaway database) |
 | `npm run db:verify-backup` | Check that a restored copy of the database is complete and readable (`-- --url <copy>`) |
-| `npm run security:check` | Verify the CSP script hashes and that `vercel.json` sends the same security headers as `securityHeaders.ts` |
+| `npm run security:check` | Verify the CSP script hashes, that `vercel.json` sends the same security headers as `securityHeaders.ts`, and that the build scripts keep the server bundle out of the served folder |
 | `npm run audit:prod` | Fail on known high-severity vulnerabilities in production dependencies |
 | `npm run clean` | Remove build output |
 | `npx tsx scripts/seed-dev-users.ts` | Development only: add two fake members to the local database (`--reset` re-creates them) |
@@ -439,6 +440,8 @@ leeterboard/
 ├── rateLimit.ts            rate limiters
 ├── rateLimitStore.ts       database-backed counter store for the sensitive limiters
 ├── csrf.ts                 cross-site request checks for state-changing routes
+├── runtimeEnv.ts           first import of server.ts: makes sure production mode is on (applies runtimeEnvPolicy.ts)
+├── runtimeEnvPolicy.ts     the production-mode rules and the served-folder check
 ├── securityHeaders.ts      CSP and other response headers (mirrored in vercel.json)
 ├── securityLog.ts          structured, redacted security-event logging
 ├── tests/                  security regression tests (npm test)
@@ -451,5 +454,11 @@ leeterboard/
 ## Deployment
 
 **Any Node host:** run `npm run build`, set the environment variables, then run `npm start`. Use a Turso database if the host has no persistent disk.
+
+- `npm start` runs the production bundle, which is always in production mode (Content-Security-Policy, HSTS, `Secure` cookies). You don't need to set `NODE_ENV`, and setting it to something else is ignored.
+- Never run `npm run dev` (or `tsx server.ts`) on a server: it starts the Vite dev server. On a recognised hosting platform (Render, Railway, Fly, Heroku, Cloud Run, Kubernetes, ...) the app refuses to start that way unless `NODE_ENV` is set on purpose.
+- Only `dist/client/` is served. The server bundle lives in `server-dist/` and must stay out of any folder you serve statically (the app also refuses to start if it finds server code in `dist/client/`).
+- Upgrading from an older version? Run `npm run clean` once, so the old `dist/server.cjs` and its sourcemap are removed from disk, then rebuild.
+- After deploying, check it from outside, see [Verify a self-hosted deployment](docs/security-operations.md#verify-a-self-hosted-deployment).
 
 **Vercel:** import the repository and set the environment variables in the project settings. A Turso database is required, because Vercel has no persistent disk for a local SQLite file. `vercel.json` routes `/api/*` to the Express app and serves the built frontend for everything else. There is no background job on Vercel; the board syncs when visitors open it (see [Data syncing](#data-syncing)).
