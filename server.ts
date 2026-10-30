@@ -1,7 +1,10 @@
+// Must stay the first import: it fixes NODE_ENV before the modules below read it (audit F3).
+import "./runtimeEnv.js";
 import express from "express";
 import cookieParser from "cookie-parser";
 import crypto from "crypto";
 import path from "path";
+import fs from "fs";
 import "dotenv/config";
 import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./src/types.js";
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
@@ -74,6 +77,7 @@ import { buildPlatformTrend } from "./platformTrends.js";
 import { csrfProtection } from "./csrf.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
+import { findServerCode } from "./runtimeEnvPolicy.js";
 import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
@@ -2204,8 +2208,25 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    // Only the frontend build is ever served. `npm run build` puts it in
+    // dist/client and the server bundle in server-dist/, which is NOT served:
+    // before, both lived in dist/ and the whole backend was downloadable.
+    const distPath = path.join(process.cwd(), "dist", "client");
+    if (!fs.existsSync(path.join(distPath, "index.html"))) {
+      // Not fatal: the API works without it (the tests rely on that), but
+      // someone deploying would otherwise only see a blank 404 page.
+      console.error(`[Config] No frontend build found in ${distPath}. Run "npm run build"; until then only the API works.`);
+    }
+    // Fatal: serving server code is the F3 leak itself.
+    const leaked = fs.existsSync(distPath) ? findServerCode(distPath) : [];
+    if (leaked.length > 0) {
+      console.error(
+        `[Config] Refusing to start: ${distPath} is served publicly but contains server code (${leaked.join(", ")}). ` +
+          "Keep the server bundle and sourcemaps outside it."
+      );
+      process.exit(1);
+    }
+    app.use(express.static(distPath, { dotfiles: "ignore" }));
     app.get("/*splat", pageLimiter, (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
