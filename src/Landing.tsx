@@ -224,10 +224,7 @@ export default function Landing({ onEnter }: { onEnter: (animated: boolean) => v
         ))}
       </div>
       <div aria-hidden className="pointer-events-none absolute inset-0 [background-image:linear-gradient(rgb(255_255_255/0.035)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255/0.035)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
-      {/* a slowly turning aurora behind the headline, and a spotlight that follows the pointer */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-1/2 top-1/2 h-[46rem] w-[46rem] max-w-[140vw] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-25 blur-3xl [background:conic-gradient(from_0deg,#2dd4bf,#38bdf8,#a78bfa,#2dd4bf)] [animation:spin_30s_linear_infinite] motion-reduce:[animation:none]" />
-      </div>
+      {/* a spotlight that follows the pointer */}
       <div aria-hidden className="pointer-events-none absolute inset-0 [background:radial-gradient(520px_circle_at_var(--mx)_var(--my),rgb(56_189_248/0.14),transparent_70%)]" />
 
       <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col overflow-y-clip px-6 py-8 sm:px-10">
@@ -293,7 +290,7 @@ export default function Landing({ onEnter }: { onEnter: (animated: boolean) => v
 
         <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-3 pb-7 text-sm text-[#a3acbb] animate-rise" style={rise(500)}>
           <span>
-            Made with <span aria-label="love" className="text-[#f472b6]">♥</span> by{" "}
+            Made by{" "}
             <a
               href="https://github.com/itsya-ssine"
               target="_blank"
