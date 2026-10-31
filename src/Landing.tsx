@@ -213,7 +213,7 @@ export default function Landing({ onEnter }: { onEnter: (animated: boolean) => v
     <main
       ref={root}
       onPointerMove={onPointerMove}
-      className="fixed inset-0 z-50 overflow-y-auto bg-[#0a0d12] text-[#e8ebf1]"
+      className="landing-root fixed inset-0 z-50 overflow-y-auto overflow-x-hidden bg-[#0a0d12] text-[#e8ebf1] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       style={{ "--mx": "50%", "--my": "35%", "--nx": "0", "--ny": "0", "--bx": "0px", "--by": "0px" } as CSSProperties}
     >
       <CodeField pointer={pointer} />
@@ -225,10 +225,12 @@ export default function Landing({ onEnter }: { onEnter: (animated: boolean) => v
       </div>
       <div aria-hidden className="pointer-events-none absolute inset-0 [background-image:linear-gradient(rgb(255_255_255/0.035)_1px,transparent_1px),linear-gradient(90deg,rgb(255_255_255/0.035)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]" />
       {/* a slowly turning aurora behind the headline, and a spotlight that follows the pointer */}
-      <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 h-[46rem] w-[46rem] max-w-[140vw] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-25 blur-3xl [background:conic-gradient(from_0deg,#2dd4bf,#38bdf8,#a78bfa,#2dd4bf)] [animation:spin_30s_linear_infinite] motion-reduce:[animation:none]" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute left-1/2 top-1/2 h-[46rem] w-[46rem] max-w-[140vw] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-25 blur-3xl [background:conic-gradient(from_0deg,#2dd4bf,#38bdf8,#a78bfa,#2dd4bf)] [animation:spin_30s_linear_infinite] motion-reduce:[animation:none]" />
+      </div>
       <div aria-hidden className="pointer-events-none absolute inset-0 [background:radial-gradient(520px_circle_at_var(--mx)_var(--my),rgb(56_189_248/0.14),transparent_70%)]" />
 
-      <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col px-6 py-8 sm:px-10">
+      <div className="relative mx-auto flex min-h-dvh max-w-6xl flex-col overflow-y-clip px-6 py-8 sm:px-10">
         <header className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1 font-mono text-xs text-[#a3acbb] animate-rise">
           <span className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-[#2dd4bf] animate-glow" /> live weekly leaderboard
