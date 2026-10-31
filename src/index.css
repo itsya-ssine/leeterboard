@@ -295,3 +295,9 @@ html[data-theme="light"] ::selection {
     scroll-behavior: auto !important;
   }
 }
+
+/* Landing page: confetti pieces fly out from the Enter button. */
+@keyframes burst {
+  from { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+  to { transform: translate(var(--dx), var(--dy)) rotate(540deg) scale(0.2); opacity: 0; }
+}
