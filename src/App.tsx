@@ -1659,16 +1659,6 @@ export default function App() {
 
       </main>
 
-      {/* ---------- Footer ---------- */}
-      <footer className="relative z-10 border-t border-line">
-        <div className="mx-auto max-w-6xl px-4 py-6 text-sm text-mist-500 md:px-8">
-          <span className="font-mono">
-            <span className="text-emerald-400">&#10003;</span>{" "}
-            <span className="text-aurora font-semibold">leeterboard</span> · weekly LeetCode leaderboard · exit code 0
-          </span>
-        </div>
-      </footer>
-
       {/* Star on GitHub + send feedback, bottom right of every page */}
       <FeedbackWidget />
     </div>
