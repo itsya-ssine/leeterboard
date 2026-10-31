@@ -156,6 +156,14 @@ html[data-theme="light"] ::selection {
   scrollbar-color: var(--color-ink-700) transparent;
 }
 
+/* The landing page never shows a scrollbar (it still scrolls on short screens). */
+.landing-root {
+  scrollbar-width: none;
+}
+.landing-root::-webkit-scrollbar {
+  display: none;
+}
+
 /* ---------- Creative layer ---------- */
 
 /* Ambient aurora behind the whole app. Fixed, non-interactive, very soft. */
