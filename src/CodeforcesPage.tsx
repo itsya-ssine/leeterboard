@@ -3,6 +3,7 @@ import { ArrowUpRight, Clock, Link2, Search } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 import EmptyState from "./EmptyState.js";
 import SearchInput from "./SearchInput.js";
+import { PodiumBoard, type PodiumEntry } from "./Podium.js";
 import { FramedAvatar } from "./TierAvatar.js";
 import { codeforcesTier } from "./tiers.js";
 
@@ -288,81 +289,11 @@ const TABS: { key: CodeforcesSort; label: string; id: string }[] = [
   { key: "rating", label: "Rating", id: "cf-sort-rating-btn" }
 ];
 
-const CARD_MEDALS = [
-  { label: "Gold", text: "text-amber-300", strip: "from-amber-300/15" },
-  { label: "Silver", text: "text-slate-300", strip: "from-slate-300/15" },
-  { label: "Bronze", text: "text-orange-300", strip: "from-orange-300/15" }
-] as const;
-
-// The top three of the ranking currently selected, as cards with their
-// rating-coloured avatar frames.
-function TopCards({
-  cards,
-  weeklyMax
-}: {
-  cards: CodeforcesMember[];
-  weeklyMax: number;
-}) {
-  return (
-    <section aria-label="Top coders" className="grid gap-3 md:grid-cols-3">
-      {cards.map(({ user, account }, i) => {
-        const medal = CARD_MEDALS[i];
-        const pct = Math.min(100, Math.round((account.weeklySolved / weeklyMax) * 100));
-        return (
-          <a
-            key={user.id}
-            href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
-            className={`card-aurora flex animate-rise flex-col overflow-hidden transition-transform duration-300 hover:-translate-y-1 active:scale-[0.98] ${focusRing}`}
-            style={{ animationDelay: `${i * 100}ms` }}
-          >
-            <div
-              className={`flex items-center justify-between border-b border-line bg-gradient-to-r ${medal.strip} to-transparent px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-widest ${medal.text}`}
-            >
-              <span className="inline-flex items-center gap-2">
-                <span className="balloon" aria-hidden="true" />#{i + 1} {medal.label}
-              </span>
-              <span>+{account.weeklySolved.toLocaleString()} AC</span>
-            </div>
-            <div className="flex flex-col gap-4 p-4">
-              <div className="flex items-center gap-3">
-                <FramedAvatar
-                  src={user.avatarUrl}
-                  tier={codeforcesTier(account.rankTitle)}
-                  className="size-14"
-                  showGem
-                  gemSize="sm"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-semibold text-strong">{user.displayName}</div>
-                  <div className={`truncate font-mono text-sm font-semibold ${rankTextClass(account.rankTitle)}`}>
-                    {account.handle}
-                  </div>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex justify-between font-mono text-[10px] uppercase tracking-widest text-mist-500">
-                  <span>Solved this week</span>
-                  <span>vs best {weeklyMax.toLocaleString()}</span>
-                </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-tint" role="img" aria-label={`${account.weeklySolved} solved this week`}>
-                  <div className="h-full rounded-full bg-gradient-to-r from-teal-400 to-sky-400" style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-              <div className="flex items-baseline justify-between border-t border-line pt-3 font-mono text-sm">
-                <span className="text-mist-400">
-                  <span className="font-bold tabular-nums text-strong">{account.solved.toLocaleString()}</span> solved
-                </span>
-                <span className={rankTextClass(account.rankTitle)}>
-                  <span className="font-bold tabular-nums">{account.rating ?? "–"}</span>{" "}
-                  <span className="text-[10px] uppercase tracking-wider">{formatRankTitle(account.rankTitle)}</span>
-                </span>
-              </div>
-            </div>
-          </a>
-        );
-      })}
-    </section>
-  );
+// What the podium shows for a member under the ranking currently selected.
+function podiumMetric(account: PlatformAccount, sortBy: CodeforcesSort): { value: string; label: string } {
+  if (sortBy === "weekly") return { value: `+${account.weeklySolved.toLocaleString()}`, label: "this week" };
+  if (sortBy === "rating") return { value: String(account.rating ?? 0), label: "rating" };
+  return { value: account.solved.toLocaleString(), label: "solved" };
 }
 
 // The Codeforces board: only members who linked a Codeforces account.
@@ -386,8 +317,30 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
     account.handle.toLowerCase().includes(q);
   const visibleCount = members.filter(matches).length;
 
-  // The top three of the ranking selected (rating mode counts rated members only).
-  const cards = members.filter((m) => sortBy !== "rating" || m.account.rating != null).slice(0, 3);
+  // The podium: the top three of the ranking selected (rating mode counts rated
+  // members only). Shown on every tab (solved, this week, rating) whenever there
+  // is someone to show; places nobody holds yet stay as empty pedestals. Hidden
+  // only while searching.
+  const leaders = members.filter((m) => sortBy !== "rating" || m.account.rating != null).slice(0, 3);
+  const showPodium = !loading && !q && leaders.length > 0;
+  const podiumEntries: PodiumEntry[] = leaders.map(({ user, account }) => ({
+    id: user.id,
+    name: user.displayName,
+    handle: account.handle,
+    handleClassName: rankTextClass(account.rankTitle),
+    school: user.school,
+    ...podiumMetric(account, sortBy),
+    href: `#/u/${encodeURIComponent(user.leetcodeUsername)}`,
+    avatar: (className) => (
+      <FramedAvatar
+        src={user.avatarUrl}
+        tier={codeforcesTier(account.rankTitle)}
+        showGem
+        gemSize="sm"
+        className={className}
+      />
+    )
+  }));
 
   return (
     <div className="space-y-6">
@@ -432,11 +385,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
         </div>
 
         {/* Top three, shown inside the leaderboard (they stay in the list below too). */}
-        {!loading && !q && cards.length > 0 && (
-          <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
-            <TopCards cards={cards} weeklyMax={weeklyMax} />
-          </div>
-        )}
+        {showPodium && <PodiumBoard entries={podiumEntries} />}
 
         {/* Column labels */}
         <div className="hidden grid-cols-12 gap-x-4 border-b border-line bg-ink-950/40 px-5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:grid">
