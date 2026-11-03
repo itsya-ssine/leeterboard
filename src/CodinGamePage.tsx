@@ -3,6 +3,7 @@ import { ArrowUpRight, Clock, Link2, Search } from "lucide-react";
 import type { PlatformAccount, User } from "./types.js";
 import EmptyState from "./EmptyState.js";
 import SearchInput from "./SearchInput.js";
+import { PodiumBoard, type PodiumEntry } from "./Podium.js";
 import { FramedAvatar } from "./TierAvatar.js";
 import { codingameTier } from "./tiers.js";
 
@@ -52,12 +53,12 @@ const rankColor = (rank: number) =>
         ? "text-orange-300"
         : "text-mist-500";
 
-// Medal styling for the three "player cards" at the top.
-const CARD_MEDALS = [
-  { label: "Gold", text: "text-amber-300", ring: "ring-amber-300/70", strip: "from-amber-300/15" },
-  { label: "Silver", text: "text-slate-300", ring: "ring-slate-300/60", strip: "from-slate-300/15" },
-  { label: "Bronze", text: "text-orange-300", ring: "ring-orange-300/60", strip: "from-orange-300/15" }
-] as const;
+// What the podium shows for a member under the ranking currently selected.
+function podiumMetric(account: PlatformAccount, sortBy: Sort): { value: string; label: string } {
+  if (sortBy === "weekly") return { value: `+${account.weeklySolved.toLocaleString()} XP`, label: "this week" };
+  if (sortBy === "level") return { value: String(account.rating ?? 0), label: "level" };
+  return { value: account.solved.toLocaleString(), label: "XP" };
+}
 
 // A hexagonal level badge, like an RPG rank emblem.
 function LevelBadge({ level, size = "md" }: { level: number | null; size?: "md" | "lg" }) {
@@ -118,8 +119,30 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
     account.handle.toLowerCase().includes(q);
   const visibleCount = members.filter(matches).length;
 
-  // The three "player cards": the top of the ranking currently selected.
-  const cards = members.filter((m) => sortBy !== "level" || m.account.rating != null).slice(0, 3);
+  // The podium: the top three of the ranking currently selected (level mode
+  // counts members with a level only). Shown on every tab (XP, this week, level)
+  // whenever there is someone to show; places nobody holds yet stay as empty
+  // pedestals. Hidden only while searching.
+  const leaders = members.filter((m) => sortBy !== "level" || m.account.rating != null).slice(0, 3);
+  const showPodium = !loading && !q && leaders.length > 0;
+  const podiumEntries: PodiumEntry[] = leaders.map(({ user, account }) => ({
+    id: user.id,
+    name: user.displayName,
+    handle: `@${user.leetcodeUsername}`,
+    school: user.school,
+    ...podiumMetric(account, sortBy),
+    href: `#/u/${encodeURIComponent(user.leetcodeUsername)}`,
+    avatar: (className) => (
+      <FramedAvatar
+        src={user.avatarUrl}
+        tier={codingameTier(account.rating)}
+        shape="rounded-2xl"
+        showGem
+        gemSize="sm"
+        className={className}
+      />
+    )
+  }));
 
   return (
     <div className="space-y-6">
@@ -162,66 +185,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
         </div>
 
         {/* Top three, shown inside the leaderboard (they stay in the list below too). */}
-        {!loading && !q && cards.length > 0 && (
-          <div className="border-b border-line bg-ink-950/30 p-3 md:p-4">
-            <section aria-label="Top players" className="grid gap-3 md:grid-cols-3">
-              {cards.map(({ user, account }, i) => {
-                const medal = CARD_MEDALS[i];
-                return (
-                  <a
-                    key={user.id}
-                    href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
-                    className={`card-aurora flex animate-rise flex-col overflow-hidden transition-transform duration-300 hover:-translate-y-1 ${focusRing}`}
-                    style={{ animationDelay: `${i * 100}ms` }}
-                  >
-                    <div
-                      className={`flex items-center justify-between border-b border-line bg-gradient-to-r ${medal.strip} to-transparent px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-widest ${medal.text}`}
-                    >
-                      <span className="inline-flex items-center gap-2">
-                        <span className="balloon" aria-hidden="true" />#{i + 1} {medal.label}
-                      </span>
-                      <span>+{account.weeklySolved.toLocaleString()} XP</span>
-                    </div>
-                    <div className="flex flex-col gap-4 p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="relative shrink-0">
-                          <FramedAvatar
-                            src={user.avatarUrl}
-                            tier={codingameTier(account.rating)}
-                            shape="rounded-2xl"
-                            className="size-14"
-                          />
-                          <span className="absolute -bottom-2 -right-2">
-                            <LevelBadge level={account.rating} />
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-semibold text-strong">{user.displayName}</div>
-                          <div className="truncate font-mono text-sm text-mist-500">@{user.leetcodeUsername}</div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="mb-1 flex justify-between font-mono text-[10px] uppercase tracking-widest text-mist-500">
-                          <span>XP this week</span>
-                          <span>vs best {weeklyMax.toLocaleString()}</span>
-                        </div>
-                        <XpBar value={account.weeklySolved} max={weeklyMax} />
-                      </div>
-                      <div className="flex items-baseline justify-between border-t border-line pt-3 font-mono text-sm">
-                        <span className="text-mist-400">
-                          <span className="font-bold tabular-nums text-strong">{account.solved.toLocaleString()}</span> XP
-                        </span>
-                        <span className="text-emerald-400">
-                          LV <span className="font-bold tabular-nums">{account.rating ?? "–"}</span>
-                        </span>
-                      </div>
-                    </div>
-                  </a>
-                );
-              })}
-            </section>
-          </div>
-        )}
+        {showPodium && <PodiumBoard entries={podiumEntries} />}
 
         <div className="hidden grid-cols-12 gap-x-4 border-b border-line bg-ink-950/40 px-5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:grid">
           <div className="col-span-1">#</div>
