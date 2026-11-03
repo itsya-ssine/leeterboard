@@ -142,26 +142,34 @@ const PLACES = [
   }
 ] as const;
 
-function metric(user: User, sortBy: RankingKey): { value: string; label: string } {
-  if (sortBy === "weekly") return { value: `+${user.weeklyProgress}`, label: "this week" };
-  if (sortBy === "rating") return { value: String(user.contestRating ?? 0), label: "rating" };
-  return { value: user.allTimeSolved.toLocaleString(), label: "solved" };
+// One podium place, whatever the platform. The LeetCode, Codeforces and
+// CodinGame boards each turn their own members into these, so all three share
+// the exact same podium.
+export interface PodiumEntry {
+  id: string;
+  name: string;
+  // The line under the name, already formatted (e.g. "@alice" or a Codeforces handle).
+  handle: string;
+  // Colour of that line; defaults to the muted text colour.
+  handleClassName?: string;
+  school?: string;
+  // The headline figure and its caption, e.g. "+12" / "this week".
+  value: string;
+  label: string;
+  // Draws the avatar. `className` carries the size and hover transition.
+  avatar: (className: string) => React.ReactNode;
+  movement?: Movement;
+  // Either a link (opens in the same tab) or a click handler (opens a modal).
+  href?: string;
+  onSelect?: () => void;
 }
 
-// The top three for the ranking currently selected. `leaders` is [1st, 2nd,
-// 3rd]; the list stays in that order for screen readers while CSS `order`
-// lays it out as the classic 2nd–1st–3rd podium.
-export default function Podium({
-  leaders,
-  sortBy,
-  movements,
-  onSelect
-}: {
-  leaders: User[];
-  sortBy: RankingKey;
-  movements?: Record<string, Movement>;
-  onSelect: (user: User) => void;
-}) {
+const PLACE_BUTTON_CLASS =
+  "group/podium flex w-full min-w-0 cursor-pointer flex-col items-center gap-1 rounded-lg px-1 pb-3 text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+
+// The top three, in [1st, 2nd, 3rd] order. The list stays in that order for
+// screen readers while CSS `order` lays it out as the classic 2nd-1st-3rd podium.
+export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
   return (
     <ol
       aria-label="Top three"
@@ -173,57 +181,61 @@ export default function Podium({
         aria-hidden="true"
         className="pointer-events-none absolute left-1/2 top-0 h-full w-2/3 -translate-x-1/2 bg-[radial-gradient(ellipse_at_top,color-mix(in_srgb,var(--color-amber-300)_16%,transparent),transparent_65%)]"
       />
-      {leaders.slice(0, 3).map((user, i) => {
+      {entries.slice(0, 3).map((entry, i) => {
         const style = PLACES[i];
-        const { value, label } = metric(user, sortBy);
+        const body = (
+          <>
+            {i === 0 && (
+              <Crown
+                className="animate-float size-5 fill-amber-300/30 text-amber-300 drop-shadow-[0_0_8px_rgb(252_211_77/0.6)]"
+                aria-hidden="true"
+              />
+            )}
+            <span className="relative mt-1 grid place-items-center">
+              <span
+                aria-hidden="true"
+                className={`animate-glow absolute inset-0 -z-0 scale-125 rounded-full blur-xl ${style.glow}`}
+              />
+              {entry.avatar(
+                `${style.avatar} transition duration-300 group-hover/podium:-translate-y-1 group-hover/podium:scale-105`
+              )}
+              <span
+                aria-hidden="true"
+                className={`absolute -bottom-1 -right-1 grid size-6 place-items-center rounded-full bg-ink-900 text-xs font-bold tabular-nums ring-2 ring-current ${style.text}`}
+              >
+                {i + 1}
+              </span>
+            </span>
+            <span className="mt-2 flex w-full min-w-0 items-center justify-center gap-1">
+              <span className="truncate text-xs font-semibold text-strong transition-colors group-hover/podium:text-teal-300 sm:text-sm">
+                {entry.name}
+              </span>
+              <RankMovement movement={entry.movement} />
+            </span>
+            <span className={`w-full truncate font-mono text-xs ${entry.handleClassName ?? "text-mist-500"}`}>
+              {entry.handle}
+            </span>
+            <SchoolTag school={entry.school} />
+            <span className={`mt-0.5 font-mono text-base font-bold tabular-nums sm:text-lg ${style.text}`}>
+              {entry.value} <span className="text-xs font-normal text-mist-500">{entry.label}</span>
+            </span>
+          </>
+        );
         return (
           <li
-            key={user.id}
+            key={entry.id}
             className={`relative flex min-w-0 animate-rise flex-col items-center ${style.order}`}
             style={{ animationDelay: style.delay }}
           >
-            <button
-              type="button"
-              onClick={() => onSelect(user)}
-              title="View full profile"
-              className="group/podium flex w-full min-w-0 cursor-pointer flex-col items-center gap-1 rounded-lg px-1 pb-3 text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
-            >
-              {i === 0 && (
-                <Crown
-                  className="animate-float size-5 fill-amber-300/30 text-amber-300 drop-shadow-[0_0_8px_rgb(252_211_77/0.6)]"
-                  aria-hidden="true"
-                />
-              )}
-              <span className="relative mt-1 grid place-items-center">
-                <span
-                  aria-hidden="true"
-                  className={`animate-glow absolute inset-0 -z-0 scale-125 rounded-full blur-xl ${style.glow}`}
-                />
-                <TierAvatar
-                  user={user}
-                  showGem
-                  gemSize="sm"
-                  className={`${style.avatar} transition duration-300 group-hover/podium:-translate-y-1 group-hover/podium:scale-105`}
-                />
-                <span
-                  aria-hidden="true"
-                  className={`absolute -bottom-1 -right-1 grid size-6 place-items-center rounded-full bg-ink-900 text-xs font-bold tabular-nums ring-2 ring-current ${style.text}`}
-                >
-                  {i + 1}
-                </span>
-              </span>
-              <span className="mt-2 flex w-full min-w-0 items-center justify-center gap-1">
-                <span className="truncate text-xs font-semibold text-strong transition-colors group-hover/podium:text-teal-300 sm:text-sm">
-                  {user.displayName}
-                </span>
-                <RankMovement movement={movements?.[user.id]} />
-              </span>
-              <span className="w-full truncate font-mono text-xs text-mist-500">@{user.leetcodeUsername}</span>
-              <SchoolTag school={user.school} />
-              <span className={`mt-0.5 font-mono text-base font-bold tabular-nums sm:text-lg ${style.text}`}>
-                {value} <span className="text-xs font-normal text-mist-500">{label}</span>
-              </span>
-            </button>
+            {entry.href ? (
+              <a href={entry.href} title="View full profile" className={PLACE_BUTTON_CLASS}>
+                {body}
+              </a>
+            ) : (
+              <button type="button" onClick={entry.onSelect} title="View full profile" className={PLACE_BUTTON_CLASS}>
+                {body}
+              </button>
+            )}
             <div
               className={`relative grid w-full place-items-center overflow-hidden rounded-t-xl ring-1 ${style.block} ${style.blockHeight}`}
               aria-hidden="true"
@@ -236,6 +248,56 @@ export default function Podium({
           </li>
         );
       })}
+      {/* Empty pedestals for places nobody holds yet, so one or two members
+          still sit in the 2nd-1st-3rd layout. */}
+      {Array.from({ length: Math.max(0, 3 - entries.length) }, (_, k) => {
+        const i = entries.length + k;
+        const style = PLACES[i];
+        return (
+          <li key={`empty-${i}`} aria-hidden="true" className={`relative flex min-w-0 flex-col items-center ${style.order}`}>
+            <div
+              className={`relative grid w-full place-items-center overflow-hidden rounded-t-xl opacity-40 ring-1 ${style.block} ${style.blockHeight}`}
+            >
+              <span className={`font-mono text-4xl font-bold tabular-nums opacity-80 ${style.text}`}>{i + 1}</span>
+            </div>
+          </li>
+        );
+      })}
     </ol>
+  );
+}
+
+function metric(user: User, sortBy: RankingKey): { value: string; label: string } {
+  if (sortBy === "weekly") return { value: `+${user.weeklyProgress}`, label: "this week" };
+  if (sortBy === "rating") return { value: String(user.contestRating ?? 0), label: "rating" };
+  return { value: user.allTimeSolved.toLocaleString(), label: "solved" };
+}
+
+// The LeetCode podium: the top three for the ranking currently selected.
+// `leaders` is [1st, 2nd, 3rd].
+export default function Podium({
+  leaders,
+  sortBy,
+  movements,
+  onSelect
+}: {
+  leaders: User[];
+  sortBy: RankingKey;
+  movements?: Record<string, Movement>;
+  onSelect: (user: User) => void;
+}) {
+  return (
+    <PodiumBoard
+      entries={leaders.slice(0, 3).map((user) => ({
+        id: user.id,
+        name: user.displayName,
+        handle: `@${user.leetcodeUsername}`,
+        school: user.school,
+        ...metric(user, sortBy),
+        movement: movements?.[user.id],
+        onSelect: () => onSelect(user),
+        avatar: (className) => <TierAvatar user={user} showGem gemSize="sm" className={className} />
+      }))}
+    />
   );
 }
