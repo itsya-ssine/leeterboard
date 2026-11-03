@@ -45,7 +45,7 @@ import ComparePage from "./ComparePage.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
 import ProfilePage from "./ProfilePage.js";
-import CodinGamePage from "./CodinGamePage.js";
+import CodinGamePage, { LevelBadge, codingameMembers, compareCodingame } from "./CodinGamePage.js";
 import EmptyState from "./EmptyState.js";
 import TierAvatar from "./TierAvatar.js";
 import { ratingTier } from "./tiers.js";
@@ -191,7 +191,7 @@ const TOP_MEDALS = [
 type Page = "leaderboard" | "stats" | "codeforces" | "codingame" | "compare" | "profile" | "account" | "admin";
 
 // Which platform the Stats page is showing.
-type StatsPlatform = "leetcode" | "codeforces";
+type StatsPlatform = "leetcode" | "codeforces" | "codingame";
 
 function readPage(): Page {
   const hash = window.location.hash;
@@ -567,11 +567,11 @@ export default function App() {
   // Trend analysis state
   const [trendData, setTrendData] = useState<any>(null);
 
-  // Stats page: which platform is shown, and the Codeforces trend. The
-  // Codeforces trend is only fetched while that view is open (and re-fetched
+  // Stats page: which platform is shown, and the trend of each extra platform.
+  // A platform's trend is only fetched while its view is open (and re-fetched
   // whenever the board data refreshes), so the LeetCode view costs nothing extra.
   const [statsPlatform, setStatsPlatform] = useState<StatsPlatform>("leetcode");
-  const [cfTrendData, setCfTrendData] = useState<any>(null);
+  const [platformTrends, setPlatformTrends] = useState<Partial<Record<Exclude<StatsPlatform, "leetcode">, any>>>({});
 
   // Fetch users and metrics
   const loadData = async () => {
@@ -669,14 +669,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (page !== "stats" || statsPlatform !== "codeforces") return;
+    if (page !== "stats" || statsPlatform === "leetcode") return;
+    const platform = statsPlatform;
     let cancelled = false;
-    fetch("/api/trends?platform=codeforces")
+    fetch(`/api/trends?platform=${platform}`)
       .then((res) => res.json())
       .then((data) => {
-        if (!cancelled) setCfTrendData(data);
+        if (!cancelled) setPlatformTrends((prev) => ({ ...prev, [platform]: data }));
       })
-      .catch((err) => console.warn("Couldn't load Codeforces trends:", err));
+      .catch((err) => console.warn(`Couldn't load ${platform} trends:`, err));
     return () => {
       cancelled = true;
     };
@@ -792,16 +793,44 @@ export default function App() {
   // by total solved), independent of the leaderboard's sort or search.
   const topWeekly = [...users].sort(compareUsers("weekly")).slice(0, 3);
 
-  // Stats page, Codeforces view: only members who linked an account count.
+  // Stats page, Codeforces and CodinGame views: only members who linked an
+  // account count.
   const cfMembers = codeforcesMembers(users);
   const cfSolvedTotal = cfMembers.reduce((acc, m) => acc + m.account.solved, 0);
   const cfWeeklyTotal = cfMembers.reduce((acc, m) => acc + m.account.weeklySolved, 0);
   const cfTopWeekly = [...cfMembers].sort(compareCodeforces("weekly"))[0];
 
-  const isCf = statsPlatform === "codeforces";
+  // CodinGame has no solved count: `solved` holds total XP, `rating` the level
+  // and `weeklySolved` the XP earned this week (see platforms/codingame.ts).
+  const cgMembers = codingameMembers(users);
+  const cgXpTotal = cgMembers.reduce((acc, m) => acc + m.account.solved, 0);
+  const cgWeeklyTotal = cgMembers.reduce((acc, m) => acc + m.account.weeklySolved, 0);
+  const cgTopWeekly = [...cgMembers].sort(compareCodingame("weekly"))[0];
 
-  // The three members who solved the most this week on the selected platform.
-  const topCards = isCf
+  const isCf = statsPlatform === "codeforces";
+  const isCg = statsPlatform === "codingame";
+
+  // What the cards count: problems (AC) on LeetCode and Codeforces, XP on CodinGame.
+  const weeklyUnit = isCg ? "XP" : "AC";
+  const totalUnit = isCg ? "XP" : "solved";
+
+  // The three members who solved (or, on CodinGame, earned) the most this week
+  // on the selected platform.
+  const topCards = isCg
+    ? [...cgMembers]
+        .sort(compareCodingame("weekly"))
+        .slice(0, 3)
+        .map(({ user, account }) => ({
+          user,
+          handle: user.leetcodeUsername,
+          easy: 0,
+          medium: 0,
+          hard: 0,
+          level: account.rating,
+          solved: account.solved,
+          weekly: account.weeklySolved
+        }))
+    : isCf
     ? [...cfMembers]
         .sort(compareCodeforces("weekly"))
         .slice(0, 3)
@@ -813,6 +842,7 @@ export default function App() {
             easy: b.easy,
             medium: b.medium,
             hard: b.hard,
+            level: null,
             solved: account.solved,
             weekly: account.weeklySolved
           };
@@ -823,6 +853,7 @@ export default function App() {
         easy: user.easySolved,
         medium: user.mediumSolved,
         hard: user.hardSolved,
+        level: null,
         solved: user.allTimeSolved,
         weekly: user.weeklyProgress
       }));
@@ -891,7 +922,32 @@ export default function App() {
     accent?: boolean;
     isName?: boolean;
   }
-  const statCards: StatCard[] = isCf
+  const statCards: StatCard[] = isCg
+    ? [
+        {
+          label: "Members on CodinGame",
+          value: String(cgMembers.length),
+          hint: `of ${users.length} on the board`
+        },
+        {
+          label: "Total XP",
+          value: cgXpTotal.toLocaleString(),
+          hint: `${cgMembers.length ? Math.round(cgXpTotal / cgMembers.length).toLocaleString() : 0} XP per member on average`
+        },
+        {
+          label: "XP this week",
+          value: `+${cgWeeklyTotal.toLocaleString()}`,
+          hint: "Across linked members",
+          accent: true
+        },
+        {
+          label: "Top earner this week",
+          value: cgTopWeekly && cgTopWeekly.account.weeklySolved > 0 ? cgTopWeekly.user.displayName : "N/A",
+          hint: `+${(cgTopWeekly?.account.weeklySolved ?? 0).toLocaleString()} XP`,
+          isName: true
+        }
+      ]
+    : isCf
     ? [
         {
           label: "Members on Codeforces",
@@ -1108,7 +1164,8 @@ export default function App() {
           {(
             [
               { key: "leetcode", label: "LeetCode", dot: "bg-amber-400", id: "stats-platform-leetcode-btn" },
-              { key: "codeforces", label: "Codeforces", dot: "bg-sky-400", id: "stats-platform-codeforces-btn" }
+              { key: "codeforces", label: "Codeforces", dot: "bg-sky-400", id: "stats-platform-codeforces-btn" },
+              { key: "codingame", label: "CodinGame", dot: "bg-lime-400", id: "stats-platform-codingame-btn" }
             ] as const
           ).map((opt) => (
             <button
@@ -1168,13 +1225,15 @@ export default function App() {
 
         {/* ---------- Top solvers this week (weekly progress only) ---------- */}
         {!loading && topCards.length > 0 && (
-          <section aria-label="Top solvers this week" className="mb-8">
+          <section aria-label={isCg ? "Top XP earners this week" : "Top solvers this week"} className="mb-8">
             <div className="mb-3">
               <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// standings.top3</div>
-              <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">Top solvers this week</h2>
+              <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">
+                {isCg ? "Top XP earners this week" : "Top solvers this week"}
+              </h2>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              {topCards.map(({ user, handle, easy, medium, hard, solved, weekly }, i) => {
+              {topCards.map(({ user, handle, easy, medium, hard, level, solved, weekly }, i) => {
                 const medal = TOP_MEDALS[i];
                 const leaderWeekly = topCards[0]?.weekly ?? 0;
                 const vsLeader = leaderWeekly > 0 ? Math.round((weekly / leaderWeekly) * 100) : 0;
@@ -1192,7 +1251,7 @@ export default function App() {
                       <span className="inline-flex items-center gap-2">
                         <span className="balloon" aria-hidden="true" />#{i + 1} {medal.label}
                       </span>
-                      <span>+{weekly} AC</span>
+                      <span>+{weekly.toLocaleString()} {weeklyUnit}</span>
                     </div>
                     <div className="flex flex-col gap-4 p-4">
                       <div className="flex items-center gap-3">
@@ -1200,14 +1259,23 @@ export default function App() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="truncate font-semibold text-strong">{user.displayName}</span>
-                            {weekly >= HOT_STREAK_THRESHOLD && <HotStreak />}
+                            {!isCg && weekly >= HOT_STREAK_THRESHOLD && <HotStreak />}
                           </div>
                           <div className="truncate font-mono text-sm text-mist-500">@{handle}</div>
                           <SchoolTag school={user.school} className="mt-1" />
                         </div>
                       </div>
 
-                      <DifficultyBar easy={easy} medium={medium} hard={hard} />
+                      {isCg ? (
+                        <div className="flex items-center gap-3">
+                          <LevelBadge level={level} />
+                          <span className="font-mono text-[10px] uppercase tracking-widest text-mist-500">
+                            CodinGame level
+                          </span>
+                        </div>
+                      ) : (
+                        <DifficultyBar easy={easy} medium={medium} hard={hard} />
+                      )}
 
                       <div>
                         <div className="mb-1 flex justify-between font-mono text-[10px] uppercase tracking-widest text-mist-500">
@@ -1224,10 +1292,10 @@ export default function App() {
 
                       <div className="flex items-baseline justify-between border-t border-line pt-3 font-mono text-sm">
                         <span className="text-mist-400">
-                          <span className="font-bold tabular-nums text-strong">{solved}</span> solved
+                          <span className="font-bold tabular-nums text-strong">{solved.toLocaleString()}</span> {totalUnit}
                         </span>
                         <span className="text-emerald-400">
-                          <span className="font-bold tabular-nums">+{weekly}</span> this week
+                          <span className="font-bold tabular-nums">+{weekly.toLocaleString()}</span> this week
                         </span>
                       </div>
                     </div>
@@ -1239,17 +1307,23 @@ export default function App() {
         )}
 
         {/* ---------- Group growth ---------- */}
-        {!loading && !isCf && <GroupGrowthChart trend={trendData} />}
+        {!loading && statsPlatform === "leetcode" && <GroupGrowthChart trend={trendData} />}
         {!loading && isCf && (
           <GroupGrowthChart
-            trend={cfTrendData}
+            trend={platformTrends.codeforces}
             description="Codeforces problems the linked members have solved since they linked their account"
             breakdownLabel="Solved by problem rating: under 1200, 1200 to 1699, 1700 and up"
           />
         )}
+        {!loading && isCg && (
+          <GroupGrowthChart
+            trend={platformTrends.codingame}
+            description="CodinGame XP the linked members have earned since they linked their account"
+          />
+        )}
 
         {/* ---------- Group activity heatmap (LeetCode submissions only) ---------- */}
-        {!loading && !isCf && <ActivityHeatmap users={users} />}
+        {!loading && statsPlatform === "leetcode" && <ActivityHeatmap users={users} />}
 
           </>
         )}

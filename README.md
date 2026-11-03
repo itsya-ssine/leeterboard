@@ -53,7 +53,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 
 **Stats**
 
-- **Stats page** (`#/stats`) with group growth since tracking began, a difficulty breakdown, an activity heatmap, this week's top three and summary tiles. A switch shows the LeetCode or the Codeforces view
+- **Stats page** (`#/stats`) with group growth since tracking began, a difficulty breakdown, an activity heatmap, this week's top three and summary tiles. A switch shows the LeetCode, Codeforces or CodinGame view (the CodinGame view counts XP instead of problems, and has no difficulty breakdown or heatmap)
 
 **Engagement**
 
@@ -80,7 +80,7 @@ The app is a single page switched with the URL hash, so no server rewrite is nee
 | `#/` | LeetCode leaderboard, podium, winner banner and hall of fame | Everyone |
 | `#/codeforces` | Codeforces board | Everyone |
 | `#/codingame` | CodinGame board | Everyone |
-| `#/stats` | Group stats (LeetCode or Codeforces) | Everyone |
+| `#/stats` | Group stats (LeetCode, Codeforces or CodinGame) | Everyone |
 | `#/compare` and `#/compare/<a>/<b>` | Head-to-head comparison | Everyone |
 | `#/u/<username>` | Member profile | Everyone |
 | `#/account` | Account settings and linked accounts | Members |
@@ -352,6 +352,7 @@ All endpoints live under `/api`.
 | GET | `/api/users` | Public | Leaderboard data, ranks, weekly winners and the last full sync time. Linked accounts a member has hidden are left out unless the viewer is that member or an admin |
 | GET | `/api/trends` | Public | LeetCode group trend, difficulty breakdown and top solver of the week |
 | GET | `/api/trends?platform=codeforces` | Public | The same shape, built from linked Codeforces accounts |
+| GET | `/api/trends?platform=codingame` | Public | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
 | POST | `/api/users/:id/refresh` | Public, rate limited | Refresh one member from LeetCode |
 | POST | `/api/sync-if-stale` | Public, rate limited | Refresh stale members within a time budget (used by the page on every visit) |
 | POST | `/api/auth/register` | Public | Start a sign-up, claim or password reset |
