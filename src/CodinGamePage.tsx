@@ -14,7 +14,7 @@ const focusRing =
 // weeklySolved = XP earned this week (see platforms/codingame.ts).
 type Sort = "xp" | "weekly" | "level";
 
-interface Member {
+export interface CodingameMember {
   user: User;
   account: PlatformAccount;
 }
@@ -25,8 +25,8 @@ const TABS: { key: Sort; label: string; id: string }[] = [
   { key: "level", label: "Level", id: "cg-sort-level-btn" }
 ];
 
-function compare(sortBy: Sort) {
-  return (a: Member, b: Member): number => {
+export function compareCodingame(sortBy: Sort) {
+  return (a: CodingameMember, b: CodingameMember): number => {
     const x = a.account;
     const y = b.account;
     if (sortBy === "level") {
@@ -43,6 +43,19 @@ function compare(sortBy: Sort) {
     return y.weeklySolved - x.weeklySolved;
   };
 }
+
+// Members who linked a CodinGame account (the CodinGame board and the Stats page).
+export function codingameMembers(users: User[]): CodingameMember[] {
+  const out: CodingameMember[] = [];
+  for (const user of users) {
+    const account = user.platforms?.codingame;
+    if (account) out.push({ user, account });
+  }
+  return out;
+}
+
+// The hexagonal level badge (defined below), reused by the Stats page.
+export { LevelBadge };
 
 const rankColor = (rank: number) =>
   rank === 1
@@ -100,18 +113,13 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
   const [sortBy, setSortBy] = useState<Sort>("xp");
   const [query, setQuery] = useState("");
 
-  const all: Member[] = [];
-  for (const user of users) {
-    const account = user.platforms?.codingame;
-    if (account) all.push({ user, account });
-  }
-  const members = [...all].sort(compare(sortBy));
+  const members = codingameMembers(users).sort(compareCodingame(sortBy));
   const weeklyMax = Math.max(1, ...members.map((m) => m.account.weeklySolved));
 
   // Search: name, LeetCode username, school or CodinGame profile id. Ranks stay
   // the real ones, so a filtered row still shows its place on the board.
   const q = query.trim().toLowerCase();
-  const matches = ({ user, account }: Member) =>
+  const matches = ({ user, account }: CodingameMember) =>
     !q ||
     user.displayName.toLowerCase().includes(q) ||
     user.leetcodeUsername.toLowerCase().includes(q) ||
