@@ -28,6 +28,7 @@ import {
   rankTextClass,
   type CodeforcesSort
 } from "./CodeforcesPage.js";
+import { codingameMembers, compareCodingame } from "./CodinGamePage.js";
 import { useAuth } from "./AuthContext.js";
 import EmptyState from "./EmptyState.js";
 import TierAvatar from "./TierAvatar.js";
@@ -1279,7 +1280,7 @@ function BadgesPanel({ user, users, nowMs }: { user: User; users: User[]; nowMs:
 
 /* ---------- Codeforces view ---------- */
 
-type ProfileView = "leetcode" | "codeforces";
+type ProfileView = "leetcode" | "codeforces" | "codingame";
 
 // The Codeforces counterpart of the stats below the hero: key numbers, the
 // split by problem rating, and where the member stands among linked members.
@@ -1510,6 +1511,201 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
   );
 }
 
+/* ---------- CodinGame view ---------- */
+
+// The CodinGame counterpart of the Codeforces view. CodinGame has no solved
+// count, so the stored fields mean: solved = total XP, rating = level,
+// weeklySolved / monthlySolved = XP earned this week / in the last 30 days
+// (counted from the day the account was linked), and extra.rank = the global
+// CodinGame rank.
+function CodinGameView({ user, account, users }: { user: User; account: PlatformAccount; users: User[] }) {
+  const members = codingameMembers(users);
+  const hasLevel = account.rating != null;
+  const levelCount = members.filter((m) => m.account.rating != null).length;
+
+  const rankIn = (sort: Parameters<typeof compareCodingame>[0]): number | null => {
+    const i = [...members].sort(compareCodingame(sort)).findIndex((m) => m.user.id === user.id);
+    return i < 0 ? null : i + 1;
+  };
+  const xpRank = rankIn("xp");
+  const weeklyRank = rankIn("weekly");
+  const levelRank = hasLevel ? rankIn("level") : null;
+
+  const rawRank = (account.extra as { rank?: unknown } | undefined)?.rank;
+  const globalRank = typeof rawRank === "number" && Number.isFinite(rawRank) && rawRank > 0 ? rawRank : null;
+
+  const profileUrl = `https://www.codingame.com/profile/${encodeURIComponent(account.handle)}`;
+
+  if (!account.lastUpdated) {
+    return (
+      <EmptyState
+        id="profile-codingame"
+        icon={<Clock className="size-5" aria-hidden="true" />}
+        title="CodinGame stats are on their way"
+        description={`@${account.handle} is linked but hasn't been synced yet. The numbers show up after the next sync.`}
+      />
+    );
+  }
+
+  const kpis: Kpi[] = [
+    {
+      label: "Total XP",
+      value: account.solved.toLocaleString(),
+      hint: xpRank != null ? `#${xpRank} of ${members.length} on CodinGame` : "Not ranked yet",
+      icon: <Target className="size-4" />
+    },
+    {
+      label: "This week",
+      value: `+${account.weeklySolved.toLocaleString()} XP`,
+      accent: true,
+      hint: `+${account.monthlySolved.toLocaleString()} XP in the last 30 days`,
+      icon: <Zap className="size-4" />
+    },
+    {
+      label: "Level",
+      value: hasLevel ? String(account.rating) : "No level",
+      hint: levelRank != null ? `#${levelRank} of ${levelCount} by level` : "Not levelled yet",
+      icon: <Gem className="size-4" />
+    },
+    {
+      label: "Global rank",
+      value: globalRank != null ? `#${globalRank.toLocaleString()}` : "Unranked",
+      hint: globalRank != null ? "On CodinGame worldwide" : "No worldwide rank reported",
+      icon: <Globe className="size-4" />
+    }
+  ];
+
+  // XP earned, measured against the most active linked member.
+  const bars = [
+    {
+      label: "This week",
+      value: account.weeklySolved,
+      scale: Math.max(1, ...members.map((m) => m.account.weeklySolved))
+    },
+    {
+      label: "Last 30 days",
+      value: account.monthlySolved,
+      scale: Math.max(1, ...members.map((m) => m.account.monthlySolved))
+    }
+  ];
+
+  const standing = [
+    { label: "Total XP", rank: xpRank, of: members.length },
+    { label: "This week", rank: weeklyRank, of: members.length },
+    { label: "Level", rank: levelRank, of: levelCount }
+  ];
+
+  return (
+    <div id="profile-codingame" className="space-y-4">
+      {account.hidden && (
+        <p
+          id="profile-cg-hidden"
+          className="flex items-center gap-2 rounded-xl bg-ink-900/70 px-4 py-3 font-mono text-xs text-mist-400 ring-1 ring-line"
+        >
+          <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
+          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still count on the leaderboard.
+        </p>
+      )}
+      <section
+        id="profile-cg-stats"
+        aria-label="CodinGame key stats"
+        className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+      >
+        {kpis.map((k, i) => {
+          const tone = KPI_TONES[i % KPI_TONES.length];
+          return (
+            <div
+              key={k.label}
+              className="card-aurora group relative min-w-0 animate-rise overflow-hidden p-5 transition-transform duration-300 hover:-translate-y-0.5"
+              style={{ animationDelay: `${i * 60}ms` }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="truncate font-mono text-[11px] uppercase tracking-widest text-mist-500">{k.label}</div>
+                <span
+                  className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${tone.text}`}
+                  aria-hidden="true"
+                >
+                  {k.icon}
+                </span>
+              </div>
+              <div
+                className={`mt-3 truncate font-mono text-3xl font-bold tracking-tight tabular-nums ${
+                  k.accent ? "text-aurora" : "text-strong"
+                }`}
+              >
+                {typeof k.value === "string" ? <AnimatedNumber value={k.value} /> : k.value}
+              </div>
+              <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
+              <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
+            </div>
+          );
+        })}
+      </section>
+
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="lg:col-span-3">
+          <Panel
+            title="XP earned"
+            subtitle="Compared with the most active member. Counted from the day the account was linked"
+          >
+            <ul className="space-y-4">
+              {bars.map((b) => (
+                <li key={b.label}>
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2 text-sm">
+                    <span className="text-mist-400">{b.label}</span>
+                    <span className="font-semibold tabular-nums text-lime-300">+{b.value.toLocaleString()} XP</span>
+                  </div>
+                  <div
+                    className="h-2.5 rounded-full bg-tint"
+                    role="img"
+                    aria-label={`${b.value.toLocaleString()} XP, ${Math.round((b.value / b.scale) * 100)}% of the most active member`}
+                  >
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-lime-300 to-emerald-500"
+                      style={{ width: `${(b.value / b.scale) * 100}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </div>
+
+        <div className="lg:col-span-2">
+          <Panel title="Standing on CodinGame" subtitle="Among members who linked their account">
+            <ul className="divide-y divide-line">
+              {standing.map((r) => (
+                <li key={r.label} className="flex items-center justify-between gap-3 py-3 text-sm first:pt-0">
+                  <span className="text-mist-400">{r.label}</span>
+                  <span className="font-semibold tabular-nums text-strong">
+                    {r.rank != null ? (
+                      <>
+                        #{r.rank}
+                        <span className="font-normal text-mist-500"> of {r.of}</span>
+                      </>
+                    ) : (
+                      <span className="font-normal text-mist-500">Not ranked</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href={profileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${btnSecondary} mt-4 w-full`}
+            >
+              Profile on CodinGame
+              <ArrowUpRight className="size-4" aria-hidden="true" />
+            </a>
+          </Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProfilePage({
   users,
   winners,
@@ -1526,7 +1722,7 @@ export default function ProfilePage({
     : undefined;
   const nowMs = Date.now();
 
-  // LeetCode is always there; Codeforces appears when the member linked it.
+  // LeetCode is always there; Codeforces and CodinGame appear when the member linked them.
   const [view, setView] = useState<ProfileView>("leetcode");
   const { user: viewer } = useAuth(); // hooks stay above the early return below
 
@@ -1560,14 +1756,20 @@ export default function ProfilePage({
     user.platforms?.codeforces && (!user.platforms.codeforces.hidden || canSeeHidden)
       ? user.platforms.codeforces
       : undefined;
+  const cgAccount =
+    user.platforms?.codingame && (!user.platforms.codingame.hidden || canSeeHidden)
+      ? user.platforms.codingame
+      : undefined;
   const available: { value: ProfileView; label: string }[] = [];
   if (leetcodeVisible) available.push({ value: "leetcode", label: "LeetCode" });
   if (cfAccount) available.push({ value: "codeforces", label: "Codeforces" });
+  if (cgAccount) available.push({ value: "codingame", label: "CodinGame" });
   const activeView: ProfileView | null = available.some((a) => a.value === view)
     ? view
     : (available[0]?.value ?? null);
-  const synced =
-    activeView === "codeforces" && cfAccount ? cfAccount.lastUpdated : user.lastUpdated || lastSyncAll;
+  const activeAccount =
+    activeView === "codeforces" ? cfAccount : activeView === "codingame" ? cgAccount : undefined;
+  const synced = activeAccount ? activeAccount.lastUpdated : user.lastUpdated || lastSyncAll;
 
   return (
     <div id="profile-page" className="space-y-4">
@@ -1598,6 +1800,10 @@ export default function ProfilePage({
       ) : activeView === "codeforces" && cfAccount ? (
         <Reveal key="codeforces">
           <CodeforcesView user={user} account={cfAccount} users={users} />
+        </Reveal>
+      ) : activeView === "codingame" && cgAccount ? (
+        <Reveal key="codingame">
+          <CodinGameView user={user} account={cgAccount} users={users} />
         </Reveal>
       ) : (
         <div key="leetcode" className="space-y-4">
