@@ -1258,13 +1258,27 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
   }
 });
 
+// Pulls the username and password out of a login body. Returns null unless
+// both are non-empty strings. This is input validation only, not an
+// authorization check.
+function readLoginCredentials(body: unknown): { leetcodeUsername: string; password: string } | null {
+  const { leetcodeUsername, password } = (body ?? {}) as Record<string, unknown>;
+  if (typeof leetcodeUsername !== "string" || typeof password !== "string") return null;
+  if (leetcodeUsername.trim().length === 0 || password.length === 0) return null;
+  return { leetcodeUsername, password };
+}
+
 // POST — password login.
 app.post("/api/auth/login", loginLimiter, async (req, res) => {
   try {
-    const { leetcodeUsername, password } = req.body ?? {};
-    if (typeof leetcodeUsername !== "string" || typeof password !== "string" || !leetcodeUsername.trim() || !password) {
+    // Shape check only: it decides whether we can attempt a login at all.
+    // Whether the login succeeds is decided below by verifyPassword() against
+    // the stored hash, never by anything the client sent.
+    const credentials = readLoginCredentials(req.body);
+    if (credentials === null) {
       return res.status(400).json({ error: "Enter your LeetCode username and password." });
     }
+    const { leetcodeUsername, password } = credentials;
 
     // One message for "no such user" and "wrong password", so the form can't
     // be used to probe which accounts have passwords.
