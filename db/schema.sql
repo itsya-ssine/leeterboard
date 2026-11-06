@@ -22,7 +22,7 @@ CREATE TABLE users (
   id                 TEXT PRIMARY KEY,
   display_name       TEXT NOT NULL,
   login_username     TEXT,                         -- site login name, lowercase, unique (migration 13; backfilled from leetcode_username)
-  leetcode_username  TEXT NOT NULL,
+  leetcode_username  TEXT,                         -- NULL = no LeetCode linked (optional since migration 14); unique when set
   avatar_url         TEXT,
   school             TEXT NOT NULL DEFAULT '',     -- optional, member-edited; shown as a tag on the board
   bio                TEXT NOT NULL DEFAULT '',     -- optional short bio (profile page)
@@ -42,7 +42,7 @@ CREATE TABLE users (
   contests_attended  INTEGER NOT NULL DEFAULT 0,
   current_streak     INTEGER,                      -- NULL = not fetched yet (distinct from 0)
   longest_streak     INTEGER,
-  last_updated       TEXT NOT NULL,                -- last successful sync (ISO timestamp)
+  last_updated       TEXT,                         -- last successful LeetCode sync (ISO timestamp; NULL = never / not linked)
 
   -- Where tracking started. Progress is only counted on top of baseline_solved,
   -- from the UTC day tracking_start onwards.

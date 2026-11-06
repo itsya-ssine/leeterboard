@@ -213,7 +213,8 @@ export async function initDb(): Promise<void> {
       `CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         display_name TEXT NOT NULL,
-        leetcode_username TEXT NOT NULL,
+        login_username TEXT,
+        leetcode_username TEXT,
         avatar_url TEXT,
         school TEXT NOT NULL DEFAULT '',
         bio TEXT NOT NULL DEFAULT '',
@@ -227,7 +228,7 @@ export async function initDb(): Promise<void> {
         hard_solved INTEGER NOT NULL DEFAULT 0,
         weekly_progress INTEGER NOT NULL DEFAULT 0,
         monthly_progress INTEGER NOT NULL DEFAULT 0,
-        last_updated TEXT NOT NULL,
+        last_updated TEXT,
         tracking_start TEXT NOT NULL DEFAULT '',
         baseline_solved INTEGER NOT NULL DEFAULT 0,
         contest_rating INTEGER,
@@ -316,7 +317,8 @@ const MIGRATIONS: Migration[] = [
   { version: 10, name: "rate_limits", up: migrateRateLimits },
   { version: 11, name: "feedback", up: migrateFeedback },
   { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen },
-  { version: 13, name: "user_login_username", up: migrateLoginUsername }
+  { version: 13, name: "user_login_username", up: migrateLoginUsername },
+  { version: 14, name: "optional_leetcode_columns", up: migrateOptionalLeetcode }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -384,6 +386,135 @@ async function migrateLoginUsername(): Promise<void> {
   await client.execute(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_username ON users(login_username)"
   );
+}
+
+// v14 — LeetCode becomes optional. users.leetcode_username and
+// users.last_updated were NOT NULL, and SQLite cannot drop a NOT NULL with
+// ALTER, so the table is rebuilt: create users_new, copy every row, drop
+// users, rename users_new to users, recreate the indexes.
+//
+// Why this is delicate: history, notifications, user_awards, platform_* and
+// pending_links all reference users(id) ON DELETE CASCADE. With foreign keys
+// on, DROP TABLE users deletes the member rows first and the cascade wipes all
+// of those tables. Renaming users away instead does not help: SQLite rewrites
+// the other tables' REFERENCES to the new name. So the rebuild runs with
+// foreign keys OFF, in one transaction, as ONE script on one connection, and
+// the script checks its own work before COMMIT: every table must have the same
+// row count as before and PRAGMA foreign_key_check must not report anything new. A failed
+// check is a constraint error, the script stops, and the transaction is rolled
+// back, so nothing is half-changed.
+//
+// The new table is generated from the live table (PRAGMA table_info), not from
+// a hard-coded list, so a member column added by an older migration is carried
+// over. It is left alone when it is already nullable (fresh databases, or a
+// second instance that lost the race).
+async function migrateOptionalLeetcode(): Promise<void> {
+  const NOW_NULLABLE = ["leetcode_username", "last_updated"];
+  const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+  const alreadyDone = async (): Promise<boolean> => {
+    const r = await client.execute(
+      `SELECT "notnull" AS nn FROM pragma_table_info('users')
+       WHERE name IN ('leetcode_username', 'last_updated')`
+    );
+    return r.rows.length === NOW_NULLABLE.length && r.rows.every((x) => Number(x.nn) === 0);
+  };
+  if (await alreadyDone()) return;
+
+  const info = await client.execute(
+    `SELECT name, type, "notnull" AS nn, dflt_value, pk FROM pragma_table_info('users') ORDER BY cid`
+  );
+  const cols = info.rows.map((r) => ({
+    name: r.name as string,
+    type: (r.type as string) || "",
+    notNull: Number(r.nn) === 1,
+    dflt: r.dflt_value as string | null,
+    pk: Number(r.pk) > 0
+  }));
+  if (cols.filter((c) => c.pk).length !== 1) {
+    throw new Error("users has an unexpected primary key; refusing to rebuild it.");
+  }
+
+  // The new table is built from table_info, which does not describe CHECK,
+  // REFERENCES, UNIQUE or generated columns. None exist today; if one ever
+  // does, stop rather than silently drop it.
+  const created = await client.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'");
+  if (/\b(CHECK|REFERENCES|UNIQUE|GENERATED|AUTOINCREMENT)\b/i.test(String(created.rows[0]?.sql ?? ""))) {
+    throw new Error("users has constraints this migration doesn't know how to copy; refusing to rebuild it.");
+  }
+  const objects = await client.execute("SELECT name FROM sqlite_master WHERE type IN ('trigger', 'view')");
+  if (objects.rows.length > 0) {
+    throw new Error("The database has triggers or views; refusing to rebuild users without checking them first.");
+  }
+
+  const indexes = await client.execute(
+    "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'users' AND sql IS NOT NULL"
+  );
+  const tables = (
+    await client.execute(
+      `SELECT name FROM sqlite_master
+       WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+         AND name NOT LIKE '\\_%' ESCAPE '\\' AND name NOT LIKE 'libsql\\_%' ESCAPE '\\'`
+    )
+  ).rows.map((r) => r.name as string);
+
+  const columnDefs = cols.map((c) => {
+    const nullable = NOW_NULLABLE.includes(c.name);
+    return [
+      q(c.name),
+      c.type,
+      c.pk ? "PRIMARY KEY" : "",
+      c.notNull && !nullable && !c.pk ? "NOT NULL" : "",
+      c.dflt !== null ? `DEFAULT ${c.dflt}` : ""
+    ].filter(Boolean).join(" ");
+  });
+  const colList = cols.map((c) => q(c.name)).join(", ");
+
+  const script = [
+    "PRAGMA foreign_keys = OFF;",
+    "BEGIN IMMEDIATE;",
+    // _mig_chk only accepts ok = 1, so any failed check raises an error here.
+    "CREATE TEMP TABLE _mig_chk (ok INTEGER NOT NULL CHECK (ok = 1));",
+    // Another instance may have finished the rebuild while we waited for the lock.
+    `INSERT INTO _mig_chk SELECT CASE WHEN EXISTS (
+       SELECT 1 FROM pragma_table_info('users') WHERE name = 'leetcode_username' AND "notnull" = 1
+     ) THEN 1 ELSE 0 END;`,
+    // Row counts per table, plus how many foreign-key problems already exist
+    // (orphans from before this migration are not its fault, and must not
+    // block it; it only has to avoid creating new ones).
+    `CREATE TEMP TABLE _mig_before AS ${tables
+      .map((t) => `SELECT '${t.replace(/'/g, "''")}' AS t, COUNT(*) AS n FROM ${q(t)}`)
+      .concat("SELECT '__fk' AS t, COUNT(*) AS n FROM pragma_foreign_key_check")
+      .join(" UNION ALL ")};`,
+    "DROP TABLE IF EXISTS users_new;",
+    `CREATE TABLE users_new (${columnDefs.join(", ")});`,
+    `INSERT INTO users_new (${colList}) SELECT ${colList} FROM users;`,
+    "DROP TABLE users;",
+    "ALTER TABLE users_new RENAME TO users;",
+    ...indexes.rows.map((r) => `${String(r.sql)};`),
+    ...tables.map(
+      (t) => `INSERT INTO _mig_chk SELECT CASE WHEN (SELECT COUNT(*) FROM ${q(t)}) =
+        (SELECT n FROM _mig_before WHERE t = '${t.replace(/'/g, "''")}') THEN 1 ELSE 0 END;`
+    ),
+    `INSERT INTO _mig_chk SELECT CASE WHEN (SELECT COUNT(*) FROM pragma_foreign_key_check) <=
+       (SELECT n FROM _mig_before WHERE t = '__fk') THEN 1 ELSE 0 END;`,
+    "DROP TABLE _mig_chk;",
+    "DROP TABLE _mig_before;",
+    "COMMIT;",
+    "PRAGMA foreign_keys = ON;"
+  ].join("\n");
+
+  try {
+    await client.executeMultiple(script);
+  } catch (err: any) {
+    // A local connection stays inside the failed transaction; a remote one has
+    // already dropped it. Either way, make sure nothing is left half-done.
+    try { await client.execute("ROLLBACK"); } catch { /* no open transaction */ }
+    if (await alreadyDone()) return; // someone else finished it first
+    throw new Error(`Couldn't make the LeetCode columns optional (nothing was changed): ${err.message}`);
+  } finally {
+    try { await client.execute("PRAGMA foreign_keys = ON"); } catch { /* best effort */ }
+  }
 }
 
 // v12 — sticky "this LeetCode name stopped resolving" marker (idempotent).
