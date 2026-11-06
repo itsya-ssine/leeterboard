@@ -21,6 +21,7 @@
 CREATE TABLE users (
   id                 TEXT PRIMARY KEY,
   display_name       TEXT NOT NULL,
+  login_username     TEXT,                         -- site login name, lowercase, unique (migration 13; backfilled from leetcode_username)
   leetcode_username  TEXT NOT NULL,
   avatar_url         TEXT,
   school             TEXT NOT NULL DEFAULT '',     -- optional, member-edited; shown as a tag on the board
@@ -55,6 +56,7 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX idx_users_leetcode       ON users(leetcode_username);
 CREATE UNIQUE INDEX idx_users_leetcode_lower ON users(lower(leetcode_username));
+CREATE UNIQUE INDEX idx_users_login_username ON users(login_username);
 
 -- One cumulative snapshot per member per UTC day: the totals as of that day's
 -- last sync. The app keeps the newest 60 days per member.

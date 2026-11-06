@@ -315,7 +315,8 @@ const MIGRATIONS: Migration[] = [
   { version: 9, name: "user_hide_leetcode_stats", up: migrateUserHideLeetcodeStats },
   { version: 10, name: "rate_limits", up: migrateRateLimits },
   { version: 11, name: "feedback", up: migrateFeedback },
-  { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen }
+  { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen },
+  { version: 13, name: "user_login_username", up: migrateLoginUsername }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -338,6 +339,51 @@ async function runMigrations(): Promise<void> {
     });
     console.log(`[DB] Applied migration ${m.version}: ${m.name}`);
   }
+}
+
+// v13 — a login name that is separate from the LeetCode handle, so members can
+// later sign up without LeetCode. Stored lowercase and unique. Existing members
+// are backfilled from their LeetCode username, so their old login keeps working.
+// Idempotent: safe to run twice, or from two serverless instances at once.
+async function migrateLoginUsername(): Promise<void> {
+  if (!(await columnExists("users", "login_username"))) {
+    try {
+      await client.execute("ALTER TABLE users ADD COLUMN login_username TEXT");
+    } catch (err: any) {
+      // Another cold-started instance may have added it a moment ago.
+      if (!(await columnExists("users", "login_username"))) {
+        throw new Error(`Couldn't add users.login_username: ${err.message}`);
+      }
+    }
+  }
+
+  // Only fill rows that have no value yet, so a re-run never overwrites a
+  // login name a member has since chosen.
+  await client.execute(
+    "UPDATE users SET login_username = lower(leetcode_username) WHERE login_username IS NULL"
+  );
+
+  // Two LeetCode names that differ only by case would collide here. The
+  // case-insensitive index from migration 1 normally prevents that, but it is
+  // skipped when old data already clashed, so check and say exactly who.
+  const clash = await client.execute(
+    `SELECT login_username, COUNT(*) AS n FROM users
+     WHERE login_username IS NOT NULL
+     GROUP BY login_username HAVING n > 1`
+  );
+  if (clash.rows.length > 0) {
+    const names = clash.rows.map((r) => r.login_username as string).join(", ");
+    throw new Error(
+      `Can't make login names unique: more than one member maps to ${names}. ` +
+        `Rename or remove the duplicates, then run the migration again.`
+    );
+  }
+
+  // NULLs are allowed to repeat in a unique index, so members without a login
+  // name (there are none after the backfill) would never block each other.
+  await client.execute(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_username ON users(login_username)"
+  );
 }
 
 // v12 — sticky "this LeetCode name stopped resolving" marker (idempotent).
