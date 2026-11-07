@@ -124,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const startRegistration = useCallback(
     (leetcodeUsername: string, password: string, displayName?: string) =>
-      postJson<RegistrationChallenge>("/api/auth/register", { leetcodeUsername, password, displayName }),
+      postJson<RegistrationChallenge>("/api/auth/register/leetcode", { leetcodeUsername, password, displayName }),
     []
   );
 

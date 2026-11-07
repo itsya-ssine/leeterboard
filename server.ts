@@ -17,6 +17,7 @@ import {
   listUsers,
   getUserById,
   getUserAuthByUsername,
+  getUserAuthByLoginUsername,
   insertUser,
   updateUser,
   deleteUserById,
@@ -75,6 +76,7 @@ import { PLATFORMS, isPlatformId, type PlatformInfo } from "./platforms/registry
 import { PlatformNotFoundError } from "./platforms/common.js";
 import { buildPlatformTrend } from "./platformTrends.js";
 import { csrfProtection } from "./csrf.js";
+import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
@@ -998,11 +1000,83 @@ async function denyOwnershipRecovery(
   return true;
 }
 
-// POST — step 1 of sign-up / claim / password reset. Validates the input,
-// hashes the password, stores it as a pending registration and returns the
-// code to put in the LeetCode profile summary. Nothing about the account
-// changes until step 2 succeeds.
+// POST — sign up. One step: pick a username and a password and you are in.
+// Nothing here needs a LeetCode account; a member links LeetCode (and the other
+// platforms) afterwards from their account settings.
 app.post("/api/auth/register", registerLimiter, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    const check = checkUsername(body.username);
+    if (!check.ok) {
+      return res.status(400).json({ error: check.error });
+    }
+    const username = check.username;
+
+    const passwordError = validatePassword(body.password, username);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
+    // Look before hashing, so a taken name costs nothing. The unique index on
+    // login_username is what actually decides; see the catch below.
+    if (await getUserAuthByLoginUsername(username)) {
+      return res.status(409).json({ error: "That username is taken." });
+    }
+
+    const passwordHash = await hashPassword(body.password as string);
+    // A new member has no LeetCode data: no solved counts, no history, no
+    // baseline. All of that starts when they link LeetCode.
+    const user: User = {
+      id: `user-${crypto.randomUUID()}`,
+      displayName: cleanDisplayName(body.displayName, username),
+      leetcodeLinked: false,
+      leetcodeUsername: "",
+      avatarUrl: defaultAvatar(username),
+      school: "",
+      bio: "",
+      githubUrl: "",
+      linkedinUrl: "",
+      websiteUrl: "",
+      allTimeSolved: 0,
+      easySolved: 0,
+      mediumSolved: 0,
+      hardSolved: 0,
+      contestRating: null,
+      contestsAttended: 0,
+      currentStreak: null,
+      longestStreak: null,
+      weeklyProgress: 0,
+      monthlyProgress: 0,
+      rank: 0,
+      lastUpdated: null,
+      trackingStart: "",
+      baselineSolved: 0,
+      history: []
+    };
+    await insertUser(user, passwordHash, { loginUsername: username });
+
+    logSecurityEvent("account_created", { ip: req.ip, userId: user.id, username }, "info");
+    setSessionCookie(res, user, passwordHash);
+    res.status(201).json({ ...user, isAdmin: isAdminUser(user) });
+  } catch (error: any) {
+    if (String(error?.message).includes("UNIQUE")) {
+      // Two sign-ups for the same name raced each other and the other one won.
+      return res.status(409).json({ error: "That username is taken." });
+    }
+    console.error(`[Auth] sign-up failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — LEGACY, goes away in the next auth-refactor steps. Step 1 of the old
+// sign-up / claim / password-reset flow: validates the input, hashes the
+// password, stores it as a pending registration and returns the code to put in
+// the LeetCode profile summary. Nothing about the account changes until
+// /api/auth/register/verify succeeds. Moved here from /api/auth/register so
+// that path can be the new username sign-up; the proof logic is reused when a
+// member links LeetCode.
+app.post("/api/auth/register/leetcode", registerLimiter, async (req, res) => {
   try {
     const { leetcodeUsername, password, displayName } = req.body ?? {};
 

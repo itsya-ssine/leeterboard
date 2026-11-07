@@ -92,7 +92,7 @@ describe("admin rights follow the member id", () => {
 describe("the id-admin can't be taken over by proving the LeetCode name", () => {
   it("refuses to start a reset for the admin account (403)", async () => {
     const hashBefore = (await db.getUserAuthByUsername("f2_id_admin"))!.auth.passwordHash;
-    const res = await api("POST", "/api/auth/register", {
+    const res = await api("POST", "/api/auth/register/leetcode", {
       body: { leetcodeUsername: "f2_id_admin", password: "attacker-chosen-password-99" }
     });
     assert.equal(res.status, 403);
@@ -100,7 +100,7 @@ describe("the id-admin can't be taken over by proving the LeetCode name", () => 
   });
 
   it("does not treat a username that is only in the old list as protected", async () => {
-    const res = await api("POST", "/api/auth/register", {
+    const res = await api("POST", "/api/auth/register/leetcode", {
       body: { leetcodeUsername: "f2_member", password: "another-chosen-password-77" }
     });
     assert.notEqual(res.status, 403);

@@ -34,6 +34,7 @@ history if you want to look back further than that.
 | `password_reset_via_ownership` | warn | An account that already had a password had it replaced after an ownership proof. The owner also gets an in-app notice |
 | `platform_link_verified` / `platform_link_failed` | info / warn | Codeforces / CodinGame linking |
 | `password_changed` | info | A member changed their password (all older sessions are now invalid) |
+| `account_created` | info | Someone signed up with a username and password (`userId`, `username`); a burst from one `ip` can mean automated sign-ups |
 | `account_deleted` | info | A member deleted their own account |
 | `admin_user_removed` | info | An admin removed a member (`admin`, `target`) |
 | `admin_refresh` | info | An admin triggered a sync (`scope`: `member` or `all`) |

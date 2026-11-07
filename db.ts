@@ -890,6 +890,16 @@ export async function getUserAuthByUsername(leetcodeUsername: string): Promise<U
   return res.rows.length ? rowToUserWithAuth(res.rows[0] as unknown as Record<string, unknown>) : null;
 }
 
+// The name a member signs in with (users.login_username). Always stored in
+// lowercase, so the lookup lowercases whatever it is given.
+export async function getUserAuthByLoginUsername(loginUsername: string): Promise<UserWithAuth | null> {
+  const res = await client.execute({
+    sql: "SELECT * FROM users WHERE login_username = ?",
+    args: [loginUsername.trim().toLowerCase()]
+  });
+  return res.rows.length ? rowToUserWithAuth(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
 function upsertSnapshot(userId: string, h: HistoryRecord): InStatement {
   return {
     sql: `INSERT INTO history (${HISTORY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)

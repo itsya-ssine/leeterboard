@@ -8,7 +8,7 @@
 //
 // Events (see docs/security-operations.md for what to alert on):
 //   login_failed, account_locked, login_blocked_locked, reauth_failed,
-//   password_changed, account_deleted,
+//   password_changed, account_created, account_deleted,
 //   ownership_started, ownership_verified, ownership_failed,
 //   ownership_lookup_unavailable,
 //   ownership_blocked, password_reset_via_ownership,
@@ -22,6 +22,7 @@ export type SecurityEvent =
   | "login_blocked_locked"
   | "password_changed"
   | "reauth_failed"
+  | "account_created"
   | "account_deleted"
   | "ownership_started"
   | "ownership_verified"

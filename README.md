@@ -355,8 +355,9 @@ All endpoints live under `/api`.
 | GET | `/api/trends?platform=codingame` | Public | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
 | POST | `/api/users/:id/refresh` | Public, rate limited | Refresh one member from LeetCode |
 | POST | `/api/sync-if-stale` | Public, rate limited | Refresh stale members within a time budget (used by the page on every visit) |
-| POST | `/api/auth/register` | Public | Start a sign-up, claim or password reset |
-| POST | `/api/auth/register/verify` | Public | Verify the LeetCode profile code |
+| POST | `/api/auth/register` | Public | Sign up with a username and password (no LeetCode needed) |
+| POST | `/api/auth/register/leetcode` | Public | Legacy: start a LeetCode-proof sign-up, claim or password reset (being removed) |
+| POST | `/api/auth/register/verify` | Public | Legacy: verify the LeetCode profile code (being removed) |
 | POST | `/api/auth/login` | Public | Log in |
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |

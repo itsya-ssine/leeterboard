@@ -144,7 +144,7 @@ after(async () => {
 });
 
 const startReset = (username: string) =>
-  api("POST", "/api/auth/register", { body: { leetcodeUsername: username, password: ATTACKER_PW } });
+  api("POST", "/api/auth/register/leetcode", { body: { leetcodeUsername: username, password: ATTACKER_PW } });
 
 describe("recycled username can't take over an admin account", () => {
   it("refuses to start a reset for an admin (403), creating no challenge", async () => {
