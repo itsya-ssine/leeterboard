@@ -23,7 +23,8 @@ const HEALTH_ORDER: Health[] = ["not_found", "failing", "stale", "unknown", "ok"
 function healthOf(m: AdminSyncMember, now: number): Health {
   if (m.state === "not_found") return "not_found";
   if (m.state === "unavailable") return "failing";
-  const age = now - Date.parse(m.lastUpdated);
+  // A member without LeetCode, or one never synced, has no sync age to judge.
+  const age = m.leetcodeLinked && m.lastUpdated ? now - Date.parse(m.lastUpdated) : NaN;
   if (Number.isFinite(age) && age > STALE_AFTER_MS) return "stale";
   if (m.state === "unknown") return "unknown";
   return "ok";
@@ -575,7 +576,7 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
     .sort(
       (a, b) =>
         HEALTH_ORDER.indexOf(a.health) - HEALTH_ORDER.indexOf(b.health) ||
-        Date.parse(a.m.lastUpdated) - Date.parse(b.m.lastUpdated)
+        (a.m.lastUpdated ? Date.parse(a.m.lastUpdated) : 0) - (b.m.lastUpdated ? Date.parse(b.m.lastUpdated) : 0)
     );
 
   const count = (h: Health) => rows.filter((r) => r.health === h).length;

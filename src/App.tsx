@@ -1492,7 +1492,7 @@ export default function App() {
                             </div>
                             <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
                             <SchoolTag school={user.school} className="mt-1" />
-                            {!boardStale && isStale(user.lastUpdated, now) && (
+                            {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
                               <div
                                 className="mt-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1.5 py-0.5 text-xs text-amber-300 ring-1 ring-amber-300/20"
                                 title={`Last successful LeetCode fetch: ${new Date(user.lastUpdated).toLocaleString()}. The board synced more recently, so LeetCode's API may be failing for this account.`}

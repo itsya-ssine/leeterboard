@@ -767,7 +767,10 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
   return {
     id: row.id as string,
     displayName: row.display_name as string,
-    leetcodeUsername: row.leetcode_username as string,
+    // NULL in the database = no LeetCode linked. The API says so with an
+    // explicit flag, and uses "" for the name like every other optional text.
+    leetcodeLinked: row.leetcode_username != null,
+    leetcodeUsername: (row.leetcode_username as string | null) ?? "",
     avatarUrl: (row.avatar_url as string) || "",
     school: (row.school as string) || "",
     bio: (row.bio as string) || "",
@@ -788,8 +791,9 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
     contestsAttended: Number(row.contests_attended ?? 0),
     currentStreak: row.current_streak == null ? null : Number(row.current_streak),
     longestStreak: row.longest_streak == null ? null : Number(row.longest_streak),
-    lastUpdated: row.last_updated as string,
-    trackingStart: (row.tracking_start as string) || String(row.last_updated).slice(0, 10),
+    lastUpdated: (row.last_updated as string | null) ?? null,
+    trackingStart:
+      (row.tracking_start as string) || (row.last_updated ? String(row.last_updated).slice(0, 10) : ""),
     baselineSolved: Number(row.baseline_solved ?? 0),
     history
   };
@@ -899,20 +903,54 @@ function upsertSnapshot(userId: string, h: HistoryRecord): InStatement {
   };
 }
 
-export async function insertUser(user: User, passwordHash: string): Promise<void> {
+/**
+ * A member "has LeetCode" when users.leetcode_username is set. This is the one
+ * place that says so, so the rule can't drift between the leaderboard, the
+ * sync job and the profile page.
+ */
+export function isLeetcodeLinked(user: Pick<User, "leetcodeLinked">): boolean {
+  return user.leetcodeLinked;
+}
+
+/** Only the members on the LeetCode board, in the order given. */
+export function leetcodeLinkedUsers<T extends Pick<User, "leetcodeLinked">>(users: T[]): T[] {
+  return users.filter(isLeetcodeLinked);
+}
+
+export interface InsertUserOptions {
+  /**
+   * The name the member signs in with. Defaults to their LeetCode username in
+   * lowercase, which is how every existing member's login was backfilled
+   * (migration 13). A member without LeetCode has no such default and must
+   * pass one.
+   */
+  loginUsername?: string;
+}
+
+export async function insertUser(user: User, passwordHash: string, options: InsertUserOptions = {}): Promise<void> {
+  // No LeetCode linked is stored as NULL, never as "": NULLs may repeat in the
+  // unique index, empty strings may not.
+  // Records built by hand may lack the flag, so only an explicit false counts.
+  const leetcodeUsername =
+    user.leetcodeLinked !== false && (user.leetcodeUsername ?? "").trim() ? user.leetcodeUsername : null;
+  const loginUsername = (options.loginUsername ?? leetcodeUsername)?.toLowerCase() ?? null;
+  if (loginUsername === null) {
+    throw new Error("insertUser needs a loginUsername for a member without a LeetCode account.");
+  }
   await client.batch(
     [
       {
         sql: `INSERT INTO users
-          (id, display_name, leetcode_username, avatar_url, all_time_solved,
+          (id, display_name, login_username, leetcode_username, avatar_url, all_time_solved,
            easy_solved, medium_solved, hard_solved, weekly_progress, monthly_progress,
            last_updated, tracking_start, baseline_solved, contest_rating, contests_attended,
            current_streak, longest_streak, password_hash)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           user.id,
           user.displayName,
-          user.leetcodeUsername,
+          loginUsername,
+          leetcodeUsername,
           user.avatarUrl,
           user.allTimeSolved,
           user.easySolved,

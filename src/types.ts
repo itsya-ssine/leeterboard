@@ -7,7 +7,7 @@ export interface HistoryRecord {
   weeklyProgress: number; // weekly counter as of that day
 }
 
-// Extra platforms a member can link on top of their (required) LeetCode account.
+// Extra platforms a member can link on top of their (optional) LeetCode account.
 export type PlatformId = "codeforces" | "codingame";
 
 // One linked account and its current stats. rating null = unrated.
@@ -37,6 +37,12 @@ export interface User {
   // the leaderboard and in the global stats). Admins and the member see them anyway.
   hideLeetcodeStats?: boolean;
   displayName: string;
+  // True when the member has linked a LeetCode account (the users row has a
+  // LeetCode username). A member without one signs in with their own username,
+  // is not on the LeetCode board, and is never synced. The LeetCode fields
+  // below (username, solved counts, streaks, history, ...) mean nothing for them.
+  leetcodeLinked: boolean;
+  // "" = no LeetCode linked, like the other optional text fields on this type.
   leetcodeUsername: string;
   avatarUrl: string;
   // The member's school, shown as a tag on the leaderboard. "" = not set.
@@ -61,7 +67,7 @@ export interface User {
   // least one submission, UTC). null = not fetched yet — distinct from 0.
   currentStreak: number | null;
   longestStreak: number | null;
-  lastUpdated: string;
+  lastUpdated: string | null; // last successful LeetCode sync; null = never synced / not linked
   // The UTC day (YYYY-MM-DD) the member joined the board and their all-time
   // solved count at that moment. Everything solved before joining is
   // "baseline"; progress is only ever counted on top of it, starting from the
@@ -108,7 +114,8 @@ export interface AdminSyncMember {
   displayName: string;
   leetcodeUsername: string;
   avatarUrl: string;
-  lastUpdated: string; // last *successful* fetch
+  leetcodeLinked: boolean;
+  lastUpdated: string | null; // last *successful* fetch; null = never
   lastAttempt: string | null;
   state: SyncState | "unknown";
   error: string | null;

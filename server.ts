@@ -1183,6 +1183,7 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
       user = {
         id: `user-${crypto.randomUUID()}`,
         displayName: pending.displayName,
+        leetcodeLinked: true,
         leetcodeUsername: pending.leetcodeUsername,
         avatarUrl: scraped.avatarUrl || defaultAvatar(pending.leetcodeUsername),
         school: "",
@@ -1911,9 +1912,11 @@ async function syncAllUsers(
   let queue = users;
   if (opts.onlyStaleMs !== undefined) {
     const cutoff = Date.now() - opts.onlyStaleMs;
+    // Never synced (lastUpdated null) counts as stale and goes first.
+    const syncedAt = (u: User) => (u.lastUpdated ? Date.parse(u.lastUpdated) : 0) || 0;
     queue = users
-      .filter((u) => !(Date.parse(u.lastUpdated) > cutoff))
-      .sort((a, b) => (Date.parse(a.lastUpdated) || 0) - (Date.parse(b.lastUpdated) || 0));
+      .filter((u) => !(syncedAt(u) > cutoff))
+      .sort((a, b) => syncedAt(a) - syncedAt(b));
   }
   console.log(`[Sync All] Refreshing ${queue.length} of ${users.length} users.`);
 
@@ -2079,6 +2082,7 @@ app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
       return {
         id: u.id,
         displayName: u.displayName,
+        leetcodeLinked: u.leetcodeLinked,
         leetcodeUsername: u.leetcodeUsername,
         avatarUrl: u.avatarUrl,
         lastUpdated: u.lastUpdated,
