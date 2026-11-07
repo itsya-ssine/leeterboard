@@ -729,10 +729,12 @@ function withVisiblePlatforms<T extends { id: string; platforms?: Partial<Record
   return { ...user, platforms };
 }
 
-// GET all users (with automatic ranking update)
-app.get("/api/users", async (req, res) => {
+// GET all users (with automatic ranking update). Members only: the board is
+// not public, so there is always a signed-in viewer here.
+app.get("/api/users", requireAuth, async (req, res) => {
   try {
-    const viewer = await viewerOf(req);
+    const { id, isAdmin } = (req as any).user as { id: string; isAdmin: boolean };
+    const viewer: Viewer = { id, isAdmin };
     res.vary("Cookie"); // the answer depends on who is asking
     const users = (await listUsers()).map((u) => withVisiblePlatforms(u, viewer));
     sortAndRankUsers(users);
@@ -1785,13 +1787,14 @@ async function syncAllUsers(
   return { users, lastSyncAll, partial };
 }
 
-// POST sync-if-stale — called by the frontend whenever someone visits. This is
-// what keeps the board fresh on Vercel, where there is no background job. Open
-// to everyone because it only ever does the same real fetches a sync does, and
-// only when the board is actually stale; fresh boards return immediately.
-// A short-lived lock in the database stops simultaneous visitors (possibly on
-// different serverless instances) from all scraping LeetCode at once.
-app.post("/api/sync-if-stale", refreshLimiter, async (req, res) => {
+// POST sync-if-stale — called by the frontend whenever a member opens the
+// board. This is what keeps the board fresh on Vercel, where there is no
+// background job. Any signed-in member may call it because it only ever does the
+// same real fetches a sync does, and only when the board is actually stale;
+// fresh boards return immediately. A short-lived lock in the database stops
+// simultaneous visitors (possibly on different serverless instances) from all
+// scraping LeetCode at once.
+app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (req, res) => {
   try {
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
     const age = Date.now() - Date.parse(lastSyncAll);
@@ -1883,8 +1886,8 @@ app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
   }
 });
 
-// GET aggregated monthly trend metrics
-app.get("/api/trends", async (req, res) => {
+// GET aggregated monthly trend metrics (members only, like the board itself)
+app.get("/api/trends", requireAuth, async (req, res) => {
   try {
     const users = await listUsers();
 

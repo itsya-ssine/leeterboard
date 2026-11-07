@@ -235,7 +235,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     const resolved = await resolveSession(req);
     if (!resolved) return res.status(401).json({ error: "You must be logged in to do that." });
-    (req as any).user = { id: resolved.user.id, leetcodeUsername: resolved.user.leetcodeUsername };
+    (req as any).user = {
+      id: resolved.user.id,
+      leetcodeUsername: resolved.user.leetcodeUsername,
+      isAdmin: resolved.isAdmin
+    };
     next();
   } catch (err) {
     next(err);

@@ -542,13 +542,15 @@ describe("responses and headers", () => {
     assert.match(csp, /object-src 'none'/);
   });
 
-  it("never exposes password hashes, lockout state or secrets in public responses", async () => {
+  it("never exposes password hashes, lockout state or secrets in what the board returns", async () => {
     await createMember("sec_leak_user");
-    const res = await api("GET", "/api/users");
+    const session = await login("sec_leak_user");
+    assert.equal(session.status, 200);
+    const res = await api("GET", "/api/users", { cookie: session.cookie });
     assert.equal(res.status, 200);
     assert.ok(res.text.includes("sec_leak_user"));
     for (const needle of ["scrypt$", "passwordHash", "password_hash", "failedLogins", "lockedUntil", server.secret]) {
-      assert.ok(!res.text.includes(needle), `public response leaks "${needle}"`);
+      assert.ok(!res.text.includes(needle), `response leaks "${needle}"`);
     }
   });
 

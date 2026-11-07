@@ -349,15 +349,13 @@ All endpoints live under `/api`.
 
 | Method | Endpoint | Access | Description |
 | --- | --- | --- | --- |
-| GET | `/api/users` | Public | Leaderboard data, ranks, weekly winners and the last full sync time. Linked accounts a member has hidden are left out unless the viewer is that member or an admin |
-| GET | `/api/trends` | Public | LeetCode group trend, difficulty breakdown and top solver of the week |
-| GET | `/api/trends?platform=codeforces` | Public | The same shape, built from linked Codeforces accounts |
-| GET | `/api/trends?platform=codingame` | Public | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
-| POST | `/api/users/:id/refresh` | Public, rate limited | Refresh one member from LeetCode |
-| POST | `/api/sync-if-stale` | Public, rate limited | Refresh stale members within a time budget (used by the page on every visit) |
+| GET | `/api/users` | Members | Leaderboard data, ranks, weekly winners and the last full sync time. Linked accounts a member has hidden are left out unless the viewer is that member or an admin |
+| GET | `/api/trends` | Members | LeetCode group trend, difficulty breakdown and top solver of the week |
+| GET | `/api/trends?platform=codeforces` | Members | The same shape, built from linked Codeforces accounts |
+| GET | `/api/trends?platform=codingame` | Members | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
+| POST | `/api/users/:id/refresh` | Admin, rate limited | Refresh one member from LeetCode |
+| POST | `/api/sync-if-stale` | Members, rate limited | Refresh stale members within a time budget (used by the page whenever a member opens the board) |
 | POST | `/api/auth/register` | Public | Sign up with a username and password (no LeetCode needed) |
-| POST | `/api/auth/register/leetcode` | Public | Legacy: start a LeetCode-proof sign-up, claim or password reset (being removed) |
-| POST | `/api/auth/register/verify` | Public | Legacy: verify the LeetCode profile code (being removed) |
 | POST | `/api/auth/login` | Public | Log in with `username` + `password` (the old `leetcodeUsername` field is still accepted) |
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |
