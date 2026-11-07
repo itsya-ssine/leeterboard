@@ -358,7 +358,7 @@ All endpoints live under `/api`.
 | POST | `/api/auth/register` | Public | Sign up with a username and password (no LeetCode needed) |
 | POST | `/api/auth/register/leetcode` | Public | Legacy: start a LeetCode-proof sign-up, claim or password reset (being removed) |
 | POST | `/api/auth/register/verify` | Public | Legacy: verify the LeetCode profile code (being removed) |
-| POST | `/api/auth/login` | Public | Log in |
+| POST | `/api/auth/login` | Public | Log in with `username` + `password` (the old `leetcodeUsername` field is still accepted) |
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |
 | PATCH | `/api/account/profile` | Member | Change display name, school, bio, links and/or the hide-LeetCode-stats setting |

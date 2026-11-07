@@ -1336,11 +1336,21 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
 // Pulls the username and password out of a login body. Returns null unless
 // both are non-empty strings. This is input validation only, not an
 // authorization check.
-function readLoginCredentials(body: unknown): { leetcodeUsername: string; password: string } | null {
-  const { leetcodeUsername, password } = (body ?? {}) as Record<string, unknown>;
-  if (typeof leetcodeUsername !== "string" || typeof password !== "string") return null;
-  if (leetcodeUsername.trim().length === 0 || password.length === 0) return null;
-  return { leetcodeUsername, password };
+//
+// The name is NOT checked against the sign-up rules (checkUsername): members
+// who signed up with LeetCode were given their LeetCode name as login name, and
+// LeetCode allows "-" and ".". Login only normalises (trim, lowercase) and looks
+// the name up; an unknown name is just a failed login.
+//
+// `leetcodeUsername` is the old field name. It is still accepted so the current
+// login form keeps working; `username` wins if both are sent.
+function readLoginCredentials(body: unknown): { username: string; password: string } | null {
+  const { username, leetcodeUsername, password } = (body ?? {}) as Record<string, unknown>;
+  const name = typeof username === "string" ? username : leetcodeUsername;
+  if (typeof name !== "string" || typeof password !== "string") return null;
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || password.length === 0) return null;
+  return { username: trimmed.toLowerCase(), password };
 }
 
 // POST — password login.
@@ -1351,9 +1361,9 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     // the stored hash, never by anything the client sent.
     const credentials = readLoginCredentials(req.body);
     if (credentials === null) {
-      return res.status(400).json({ error: "Enter your LeetCode username and password." });
+      return res.status(400).json({ error: "Enter your username and password." });
     }
-    const { leetcodeUsername, password } = credentials;
+    const { username: loginName, password } = credentials;
 
     // One message for "no such user" and "wrong password", so the form can't
     // be used to probe which accounts have passwords.
@@ -1363,10 +1373,11 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       return res.status(401).json(INVALID);
     }
 
-    const record = await getUserAuthByUsername(leetcodeUsername.trim());
+    // Members are found by the name they sign in with, never by a LeetCode name.
+    const record = await getUserAuthByLoginUsername(loginName);
     if (!record) {
       await burnPasswordCheck(password); // same cost as a real check
-      logSecurityEvent("login_failed", { ip: req.ip, username: leetcodeUsername.trim(), reason: "unknown_user" });
+      logSecurityEvent("login_failed", { ip: req.ip, username: loginName, reason: "unknown_user" });
       return res.status(401).json(INVALID);
     }
 
@@ -1376,10 +1387,10 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     if (auth.lockedUntil) {
       const until = Date.parse(auth.lockedUntil);
       if (until > Date.now()) {
-        logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: user.leetcodeUsername });
+        logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: loginName });
         const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
         return res.status(429).json({
-          error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or reset your password from the Sign up tab.`
+          error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
         });
       }
       await clearFailedLogins(user.id); // lock has expired
@@ -1400,14 +1411,14 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       logSecurityEvent("login_failed", {
         ip: req.ip,
         userId: user.id,
-        username: user.leetcodeUsername,
+        username: loginName,
         failures: failuresBefore + 1
       });
       if (failuresBefore + 1 >= MAX_FAILED_LOGINS) {
         logSecurityEvent("account_locked", {
           ip: req.ip,
           userId: user.id,
-          username: user.leetcodeUsername,
+          username: loginName,
           minutes: LOCKOUT_MS / 60_000
         });
       }
