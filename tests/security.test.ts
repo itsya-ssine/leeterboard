@@ -15,8 +15,7 @@ import jwt from "jsonwebtoken";
 import { client, startServer, type TestServer } from "./helpers.js";
 
 const PW = "correct-horse-battery-9";
-const SEEDED_MEMBERS = ["sec_claim_target", "sec_claim_target2", "sec_csrf_user", "sec_delete_user", "sec_enum_user", "sec_feedback_user", "sec_idor_alice", "sec_idor_bob", "sec_leak_user", "sec_link_user", "sec_lock_user", "sec_log_removed", "sec_log_user", "sec_member_a", "sec_notif_a", "sec_notif_b", "sec_pwchange_user", "sec_score_user", "sec_session_user", "sec_tamper_user", "sec_victim_a", "test_admin"];
-const REPLAY_REGISTRATION_ID = crypto.randomBytes(32).toString("hex");
+const SEEDED_MEMBERS = ["sec_csrf_user", "sec_delete_user", "sec_enum_user", "sec_feedback_user", "sec_idor_alice", "sec_idor_bob", "sec_leak_user", "sec_link_user", "sec_lock_user", "sec_log_removed", "sec_log_user", "sec_member_a", "sec_notif_a", "sec_notif_b", "sec_pwchange_user", "sec_score_user", "sec_session_user", "sec_tamper_user", "sec_victim_a", "test_admin"];
 let tmpDir = "";
 let server: TestServer;
 let api: ReturnType<typeof client>;
@@ -91,14 +90,6 @@ before(async () => {
     await db.insertUser(user, hash);
     members.set(name, { id: user.id, leetcodeUsername: name });
   }
-  await db.createPendingRegistration({
-    id: REPLAY_REGISTRATION_ID,
-    leetcodeUsername: "sec_replay_user",
-    displayName: "x",
-    passwordHash: "scrypt$irrelevant",
-    code: "leeterboard-000000000000",
-    expiresAt: new Date(Date.now() + 3_600_000).toISOString()
-  });
   await db.createPendingLink({
     userId: members.get("sec_link_user")!.id,
     platform: "codeforces",
@@ -298,36 +289,7 @@ async function adminSession(): Promise<string> {
   return res.cookie!;
 }
 
-describe("account claiming and challenge replay", () => {
-  it("refuses to complete a sign-up without a challenge cookie", async () => {
-    const target = await createMember("sec_claim_target");
-    const hashBefore = (await db.getUserAuthByUsername(target.leetcodeUsername))!.auth.passwordHash;
-
-    const res = await api("POST", "/api/auth/register/verify", { body: {} });
-    assert.equal(res.status, 400);
-    assert.equal(res.cookie, null);
-    assert.equal((await db.getUserAuthByUsername(target.leetcodeUsername))!.auth.passwordHash, hashBefore);
-  });
-
-  it("refuses a forged or unknown challenge id and leaves the account untouched", async () => {
-    const target = await createMember("sec_claim_target2");
-    const hashBefore = (await db.getUserAuthByUsername(target.leetcodeUsername))!.auth.passwordHash;
-
-    for (const id of [crypto.randomBytes(32).toString("hex"), "A".repeat(64), "short", "../../etc/passwd"]) {
-      const res = await api("POST", "/api/auth/register/verify", { cookie: `registration=${id}`, body: {} });
-      assert.equal(res.status, 400, id);
-      assert.equal(res.cookie, null);
-    }
-    assert.equal((await db.getUserAuthByUsername(target.leetcodeUsername))!.auth.passwordHash, hashBefore);
-  });
-
-  it("lets exactly one of many concurrent requests consume a sign-up challenge", async () => {
-    const id = REPLAY_REGISTRATION_ID;
-    const results = await Promise.all(Array.from({ length: 12 }, () => db.consumePendingRegistration(id)));
-    assert.equal(results.filter(Boolean).length, 1);
-    assert.equal(await db.consumePendingRegistration(id), false, "a later replay must fail");
-  });
-
+describe("challenge replay", () => {
   it("lets exactly one of many concurrent requests consume a platform-link challenge", async () => {
     const member = await createMember("sec_link_user");
     const results = await Promise.all(Array.from({ length: 12 }, () => db.consumePendingLink(member.id, "codeforces")));

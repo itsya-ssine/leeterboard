@@ -284,7 +284,7 @@ users ──< platform_accounts     linked Codeforces / CodinGame accounts, with
 users ──< platform_history      one snapshot per member per platform per UTC day
 users ──< platform_sync_status  latest sync attempt per member per platform
 users ──< pending_links         open "prove you own this account" requests
-pending_registrations           sign-ups waiting for LeetCode ownership proof
+pending_registrations           unused since the username sign-up (kept empty for rollback)
 rate_limits                     counters for the sensitive rate limiters (shared across instances)
 meta                            key/value store (weekly winners archive, last full sync)
 schema_migrations               applied migrations

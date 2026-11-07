@@ -7,7 +7,7 @@ import path from "path";
 import fs from "fs";
 import "dotenv/config";
 import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./src/types.js";
-import { baselineNewMember, notifyNewAwards } from "./notifications.js";
+import { notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
@@ -16,7 +16,6 @@ import {
   initDb,
   listUsers,
   getUserById,
-  getUserAuthByUsername,
   getUserAuthByLoginUsername,
   insertUser,
   updateUser,
@@ -29,13 +28,7 @@ import {
   setPasswordHash,
   recordFailedLogin,
   clearFailedLogins,
-  createPendingRegistration,
-  getPendingRegistration,
-  bumpPendingAttempts,
-  deletePendingRegistration,
-  consumePendingRegistration,
   consumePendingLink,
-  purgeExpiredRegistrations,
   getMeta,
   setMeta,
   recordSyncResult,
@@ -52,8 +45,6 @@ import {
   removePlatformAccount,
   setPlatformHidden,
   setHideLeetcodeStats,
-  getResetFreeze,
-  createSecurityNotice,
   type UserWithAuth
 } from "./db.js";
 import {
@@ -755,16 +746,14 @@ app.get("/api/users", async (req, res) => {
 
 /* ---------- Auth: LeetCode username + password ---------- */
 //
-// Accounts are keyed by LeetCode username and protected by a password chosen
-// on this site (never the LeetCode password — we never ask for that).
+// Accounts are keyed by a username the member picks and protected by a password
+// chosen on this site (never a LeetCode password; we never ask for that).
 //
-// Because anyone could type any LeetCode username, creating an account (or
-// setting a new password) first requires proof that the LeetCode profile is
+// A LeetCode account is optional and is linked afterwards. Because anyone could
+// type any LeetCode username, linking one requires proof that the profile is
 // yours: the server hands out a random code, you paste it into your LeetCode
-// profile "Summary", and the server reads the public profile back to check
-// it. Nobody else can edit your profile, so nobody else can pass the check.
-// The same proof is how accounts that existed before passwords can be claimed,
-// and how a forgotten password is reset.
+// profile "Summary", and the server reads the public profile back to check it.
+// Nobody else can edit your profile, so nobody else can pass the check.
 
 const LEETCODE_USERNAME_RE = /^[A-Za-z0-9_.-]{1,50}$/;
 const MAX_DISPLAY_NAME_LENGTH = 40;
@@ -772,19 +761,10 @@ const MAX_SCHOOL_LENGTH = 60;
 const MAX_BIO_LENGTH = 200;
 const MAX_LINK_LENGTH = 200;
 
-const REGISTRATION_COOKIE = "registration";
-const REGISTRATION_TTL_MS = 30 * 60 * 1000;
-const MAX_VERIFY_ATTEMPTS = 10;
+const MAX_VERIFY_ATTEMPTS = 10; // wrong guesses allowed on one proof code before it is thrown away
 
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
-
-const registrationCookieOptions = {
-  httpOnly: true,
-  sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
-  path: "/api/auth"
-};
 
 // Strict allow-list: it keeps the username safe to embed in the third-party
 // URLs we call, and rejects anything that isn't a plausible LeetCode handle.
@@ -894,8 +874,8 @@ type AboutLookup =
   | { status: "unavailable" };
 
 // Reads a LeetCode profile's public "Summary" (aboutMe) and its canonical
-// username. This is the ONLY thing that proves account ownership (sign-up,
-// claim, password reset), so it must come from LeetCode itself.
+// username. This is the ONLY thing that proves someone owns a LeetCode account
+// (needed to link it), so it must come from LeetCode itself.
 //
 // SECURITY: never add a third-party fallback here (proxies, mirrors, caches).
 // Whoever controls that source could attest "this summary contains your code"
@@ -957,48 +937,6 @@ async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
 
 const LEETCODE_UNAVAILABLE_MESSAGE =
   "Couldn't reach LeetCode right now. Please try again in a moment.";
-
-// The same message for every reason, so the response doesn't reveal whether
-// an account is an admin or why it is frozen (the reason goes to the log).
-const RECOVERY_BLOCKED_MESSAGE =
-  "Claiming or resetting this account isn't available online. Please contact a Leeterboard admin.";
-
-// F2 — a LeetCode USERNAME is not a stable identity: if its owner renames or
-// deletes the LeetCode account, a stranger can later register the same name
-// and pass the ownership check for it. That must never be enough to take over
-// an existing leaderboard account when the stakes are high, so claim/reset
-// is refused (403) for:
-//   - admin accounts (recover them out-of-band: `npm run admin -- set-password`)
-//   - accounts whose LeetCode name stopped resolving, or whose syncs have been
-//     failing for days, until an admin approves (`npm run admin -- approve-reset`)
-// Returns true after it has sent the 403. `pendingId` is the sign-up to
-// discard when the block is found at the verify step.
-async function denyOwnershipRecovery(
-  req: express.Request,
-  res: express.Response,
-  existing: UserWithAuth | null,
-  stage: "register" | "verify" | "verify_after_proof",
-  pendingId?: string
-): Promise<boolean> {
-  if (!existing) return false;
-  const reason = isAdminUser(existing.user) ? "admin" : await getResetFreeze(existing.user.id);
-  if (!reason) return false;
-
-  logSecurityEvent("ownership_blocked", {
-    ip: req.ip,
-    userId: existing.user.id,
-    username: existing.user.leetcodeUsername,
-    purpose: isPasswordHash(existing.auth.passwordHash) ? "reset" : "claim",
-    reason,
-    stage
-  });
-  if (pendingId) {
-    await deletePendingRegistration(pendingId);
-    res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-  }
-  res.status(403).json({ error: RECOVERY_BLOCKED_MESSAGE });
-  return true;
-}
 
 // POST — sign up. One step: pick a username and a password and you are in.
 // Nothing here needs a LeetCode account; a member links LeetCode (and the other
@@ -1065,270 +1003,6 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
       return res.status(409).json({ error: "That username is taken." });
     }
     console.error(`[Auth] sign-up failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
-
-// POST — LEGACY, goes away in the next auth-refactor steps. Step 1 of the old
-// sign-up / claim / password-reset flow: validates the input, hashes the
-// password, stores it as a pending registration and returns the code to put in
-// the LeetCode profile summary. Nothing about the account changes until
-// /api/auth/register/verify succeeds. Moved here from /api/auth/register so
-// that path can be the new username sign-up; the proof logic is reused when a
-// member links LeetCode.
-app.post("/api/auth/register/leetcode", registerLimiter, async (req, res) => {
-  try {
-    const { leetcodeUsername, password, displayName } = req.body ?? {};
-
-    const username = parseLeetCodeUsername(leetcodeUsername);
-    if (!username) {
-      return res.status(400).json({
-        error: "Enter a valid LeetCode username (letters, numbers, dots, dashes and underscores)."
-      });
-    }
-    const passwordError = validatePassword(password, username);
-    if (passwordError) {
-      return res.status(400).json({ error: passwordError });
-    }
-
-    // Refuse before doing any outbound call or password hashing. LeetCode
-    // usernames are case-insensitive, so this finds the same account the
-    // canonical name below would.
-    if (await denyOwnershipRecovery(req, res, await getUserAuthByUsername(username), "register")) return;
-
-    // Fail fast with a clear message if the LeetCode account doesn't exist.
-    const lookup = await fetchLeetCodeAbout(username);
-    if (lookup.status === "not_found") {
-      return res.status(404).json({ error: `LeetCode user "${username}" doesn't exist.` });
-    }
-    if (lookup.status === "unavailable") {
-      logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, username, route: "register" });
-      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
-    }
-
-    const existing = await getUserAuthByUsername(lookup.username);
-    const purpose: "create" | "claim" | "reset" = !existing
-      ? "create"
-      : isPasswordHash(existing.auth.passwordHash)
-        ? "reset"
-        : "claim";
-    // Keep the casing already on the board for existing members.
-    const storedUsername = existing ? existing.user.leetcodeUsername : lookup.username;
-
-    const registrationId = crypto.randomBytes(32).toString("hex");
-    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
-    const now = Date.now();
-
-    await purgeExpiredRegistrations(new Date(now).toISOString());
-    await createPendingRegistration({
-      id: registrationId,
-      leetcodeUsername: storedUsername,
-      displayName: cleanDisplayName(displayName, storedUsername),
-      passwordHash: await hashPassword(password as string),
-      code,
-      expiresAt: new Date(now + REGISTRATION_TTL_MS).toISOString()
-    });
-
-    logSecurityEvent("ownership_started", { ip: req.ip, username: storedUsername, purpose }, "info");
-    res.cookie(REGISTRATION_COOKIE, registrationId, { ...registrationCookieOptions, maxAge: REGISTRATION_TTL_MS });
-    res.json({
-      code,
-      purpose,
-      leetcodeUsername: storedUsername,
-      expiresInMinutes: REGISTRATION_TTL_MS / 60_000
-    });
-  } catch (error: any) {
-    console.error(`[Auth] register failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
-
-// POST — step 2. Reads the person's public LeetCode summary and, if it
-// contains the code from step 1, creates the account (or sets the new
-// password on an existing one) and signs them in.
-app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
-  try {
-    const registrationId = req.cookies?.[REGISTRATION_COOKIE];
-    if (typeof registrationId !== "string" || !/^[a-f0-9]{64}$/.test(registrationId)) {
-      return res.status(400).json({ error: "No sign-up in progress. Please start again.", expired: true });
-    }
-
-    const pending = await getPendingRegistration(registrationId);
-    if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
-      if (pending) await deletePendingRegistration(pending.id);
-      res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-      return res.status(400).json({ error: "This sign-up has expired. Please start again.", expired: true });
-    }
-    if (pending.attempts >= MAX_VERIFY_ATTEMPTS) {
-      logSecurityEvent("ownership_failed", { ip: req.ip, username: pending.leetcodeUsername, reason: "too_many_attempts" });
-      await deletePendingRegistration(pending.id);
-      res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-      return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
-    }
-
-    // The account may have become an admin or been frozen since the sign-up
-    // started, so check again now, before any outbound call.
-    if (await denyOwnershipRecovery(req, res, await getUserAuthByUsername(pending.leetcodeUsername), "verify", pending.id)) {
-      return;
-    }
-
-    const lookup = await fetchLeetCodeAbout(pending.leetcodeUsername);
-    if (lookup.status === "not_found") {
-      return res.status(404).json({ error: `LeetCode user "${pending.leetcodeUsername}" doesn't exist.` });
-    }
-    if (lookup.status === "unavailable") {
-      logSecurityEvent("ownership_lookup_unavailable", {
-        ip: req.ip,
-        username: pending.leetcodeUsername,
-        route: "register_verify"
-      });
-      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
-    }
-
-    if (!lookup.aboutMe.toLowerCase().includes(pending.code.toLowerCase())) {
-      await bumpPendingAttempts(pending.id);
-      logSecurityEvent("ownership_failed", {
-        ip: req.ip,
-        username: pending.leetcodeUsername,
-        reason: "code_not_found",
-        attempts: pending.attempts + 1
-      });
-      return res.status(400).json({
-        error:
-          "We couldn't find the code in your LeetCode summary yet. Save your profile on LeetCode, wait a few seconds, then try again."
-      });
-    }
-
-    // Ownership proven. Re-check the account state now rather than trusting
-    // what it was when the sign-up started.
-    const existing = await getUserAuthByUsername(pending.leetcodeUsername);
-    if (await denyOwnershipRecovery(req, res, existing, "verify_after_proof", pending.id)) return;
-    let user: User;
-
-    // The challenge is single-use. Consuming it is one atomic DELETE, so of
-    // several concurrent verifications only one can proceed; the rest (and any
-    // replay) are rejected before anything is written.
-    const rejectReplay = () => {
-      logSecurityEvent("ownership_failed", { ip: req.ip, username: pending.leetcodeUsername, reason: "replay" });
-      res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-      return res
-        .status(400)
-        .json({ error: "This sign-up was already completed or has expired. Please start again.", expired: true });
-    };
-
-    if (existing) {
-      // Claiming a pre-password account, or resetting a forgotten password.
-      // Stats and history are untouched; changing the hash also signs out
-      // every older session.
-      if (!(await consumePendingRegistration(pending.id))) return rejectReplay();
-      await setPasswordHash(existing.user.id, pending.passwordHash);
-      user = existing.user;
-
-      // Replacing a password that already existed is the most sensitive thing
-      // this flow does (it is what a takeover looks like), so make it loud:
-      // a warn-level event to alert on, and a notice for the real owner.
-      if (isPasswordHash(existing.auth.passwordHash)) {
-        logSecurityEvent("password_reset_via_ownership", {
-          ip: req.ip,
-          userId: existing.user.id,
-          username: existing.user.leetcodeUsername
-        });
-        try {
-          await createSecurityNotice(
-            existing.user.id,
-            "Your password was reset",
-            "Your password was reset by proving ownership of your LeetCode account. " +
-              "If that wasn't you, contact a Leeterboard admin right away."
-          );
-        } catch (err: any) {
-          console.warn(`[Auth] Couldn't create the reset notice: ${err.message}`);
-        }
-      }
-    } else {
-      // Fetch real initial stats — throws if the username can't currently be
-      // verified. The rating/streak lookups never throw.
-      const [scraped, contest, streaks] = await Promise.all([
-        scrapeLeetCodeProfile(pending.leetcodeUsername),
-        fetchContestRating(pending.leetcodeUsername),
-        fetchStreaks(pending.leetcodeUsername, null)
-      ]);
-      const todayStr = new Date().toISOString().split("T")[0];
-
-      user = {
-        id: `user-${crypto.randomUUID()}`,
-        displayName: pending.displayName,
-        leetcodeLinked: true,
-        leetcodeUsername: pending.leetcodeUsername,
-        avatarUrl: scraped.avatarUrl || defaultAvatar(pending.leetcodeUsername),
-        school: "",
-        bio: "",
-        githubUrl: "",
-        linkedinUrl: "",
-        websiteUrl: "",
-        allTimeSolved: scraped.allTimeSolved,
-        easySolved: scraped.easySolved,
-        mediumSolved: scraped.mediumSolved,
-        hardSolved: scraped.hardSolved,
-        contestRating: contest?.rating ?? null,
-        contestsAttended: contest?.attended ?? 0,
-        currentStreak: streaks?.current ?? null,
-        longestStreak: streaks?.longest ?? null,
-        // Nothing solved *since joining* yet, so progress starts at 0. The
-        // total they have right now is their baseline: everything solved
-        // before today never counts, everything solved from now on does,
-        // starting with this first (partial) week.
-        weeklyProgress: 0,
-        monthlyProgress: 0,
-        rank: 0,
-        lastUpdated: new Date().toISOString(),
-        trackingStart: todayStr,
-        baselineSolved: scraped.allTimeSolved,
-        history: [
-          {
-            date: todayStr,
-            solvedCount: scraped.allTimeSolved,
-            easy: scraped.easySolved,
-            medium: scraped.mediumSolved,
-            hard: scraped.hardSolved,
-            weeklyProgress: 0
-          }
-        ]
-      };
-      if (!(await consumePendingRegistration(pending.id))) return rejectReplay();
-      await insertUser(user, pending.passwordHash);
-      // What they already hold when they join isn't news; only later awards notify.
-      try {
-        await baselineNewMember(user, await listUsers());
-      } catch (err: any) {
-        console.warn(`[Notifications] Baseline failed: ${err.message}`);
-      }
-    }
-
-    logSecurityEvent(
-      "ownership_verified",
-      {
-        ip: req.ip,
-        userId: user.id,
-        username: user.leetcodeUsername,
-        purpose: !existing ? "create" : isPasswordHash(existing.auth.passwordHash) ? "reset" : "claim"
-      },
-      "info"
-    );
-    res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-    setSessionCookie(res, user, pending.passwordHash);
-    res.status(existing ? 200 : 201).json({ ...user, isAdmin: isAdminUser(user) });
-  } catch (error: any) {
-    if (error instanceof LeetCodeUserNotFoundError) {
-      return res.status(404).json({ error: error.message });
-    }
-    if (error instanceof LeetCodeUnavailableError) {
-      return res.status(503).json({ error: error.message });
-    }
-    if (String(error?.message).includes("UNIQUE")) {
-      // Two sign-ups for the same username raced each other.
-      return res.status(409).json({ error: "That LeetCode username was just registered. Try logging in." });
-    }
-    console.error(`[Auth] verify failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
@@ -1401,7 +1075,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       // Account from before passwords existed: no password to check yet.
       await burnPasswordCheck(password);
       return res.status(401).json({
-        error: "This account has no password yet. Use the Sign up tab to verify your LeetCode profile and set one.",
+        error: "This account has no password yet. Please contact a Leeterboard admin to set one.",
         needsPassword: true
       });
     }

@@ -57,7 +57,7 @@ async function columnExists(table: string, column: string): Promise<boolean> {
  *
  *   users ──< history          one daily snapshot per member per UTC day
  *   users ──  sync_status      latest sync attempt per member (admin dashboard)
- *   pending_registrations      sign-ups waiting for LeetCode ownership proof
+ *   pending_registrations      unused since the username sign-up; kept (empty) for rollback
  *   meta                       small key/value store (e.g. weekly winners archive)
  *   schema_migrations          which migrations have been applied
  *
@@ -257,9 +257,10 @@ export async function initDb(): Promise<void> {
         key TEXT PRIMARY KEY,
         value TEXT
       )`,
-      // A sign-up that has been started but not yet proven: the chosen
-      // password (already hashed) waits here until the person shows they own
-      // the LeetCode account. The browser only ever holds the random `id`.
+      // UNUSED. Sign-up used to wait here until the person proved they own a
+      // LeetCode account; it is now one step (username + password). The table
+      // is kept, and always empty (migration 15), so rolling back to the
+      // previous release still works. Drop it in a later migration.
       `CREATE TABLE IF NOT EXISTS pending_registrations (
         id TEXT PRIMARY KEY,
         leetcode_username TEXT NOT NULL,
@@ -318,7 +319,8 @@ const MIGRATIONS: Migration[] = [
   { version: 11, name: "feedback", up: migrateFeedback },
   { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen },
   { version: 13, name: "user_login_username", up: migrateLoginUsername },
-  { version: 14, name: "optional_leetcode_columns", up: migrateOptionalLeetcode }
+  { version: 14, name: "optional_leetcode_columns", up: migrateOptionalLeetcode },
+  { version: 15, name: "clear_pending_registrations", up: migrateClearPendingRegistrations }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -515,6 +517,15 @@ async function migrateOptionalLeetcode(): Promise<void> {
   } finally {
     try { await client.execute("PRAGMA foreign_keys = ON"); } catch { /* best effort */ }
   }
+}
+
+// v15 — the LeetCode-proof sign-up is gone, so a sign-up that was waiting for
+// its proof can never be finished. Each of those rows holds a hashed password
+// and a code, and nothing purges them any more: empty the table. The table
+// itself stays so a rollback to the previous release still has somewhere to
+// write. Safe to run twice.
+async function migrateClearPendingRegistrations(): Promise<void> {
+  await client.execute("DELETE FROM pending_registrations");
 }
 
 // v12 — sticky "this LeetCode name stopped resolving" marker (idempotent).
@@ -1309,7 +1320,7 @@ export async function deletePendingLink(userId: string, platform: PlatformId): P
   await client.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?", args: [userId, platform] });
 }
 
-// Atomic single-use take, like consumePendingRegistration.
+// Atomic single-use take: true for exactly one caller.
 export async function consumePendingLink(userId: string, platform: PlatformId): Promise<boolean> {
   const res = await client.execute({
     sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?",
@@ -1795,64 +1806,6 @@ export async function clearFailedLogins(id: string): Promise<void> {
     sql: "UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?",
     args: [id]
   });
-}
-
-/* ---------- Pending registrations ---------- */
-
-export interface PendingRegistration {
-  id: string;
-  leetcodeUsername: string;
-  displayName: string;
-  passwordHash: string;
-  code: string;
-  attempts: number;
-  expiresAt: string;
-}
-
-export async function createPendingRegistration(p: Omit<PendingRegistration, "attempts">): Promise<void> {
-  await client.execute({
-    sql: `INSERT INTO pending_registrations
-      (id, leetcode_username, display_name, password_hash, code, attempts, expires_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?)`,
-    args: [p.id, p.leetcodeUsername, p.displayName, p.passwordHash, p.code, p.expiresAt]
-  });
-}
-
-export async function getPendingRegistration(id: string): Promise<PendingRegistration | null> {
-  const res = await client.execute({ sql: "SELECT * FROM pending_registrations WHERE id = ?", args: [id] });
-  if (!res.rows.length) return null;
-  const r = res.rows[0] as unknown as Record<string, unknown>;
-  return {
-    id: r.id as string,
-    leetcodeUsername: r.leetcode_username as string,
-    displayName: r.display_name as string,
-    passwordHash: r.password_hash as string,
-    code: r.code as string,
-    attempts: Number(r.attempts),
-    expiresAt: r.expires_at as string
-  };
-}
-
-export async function bumpPendingAttempts(id: string): Promise<void> {
-  await client.execute({
-    sql: "UPDATE pending_registrations SET attempts = attempts + 1 WHERE id = ?",
-    args: [id]
-  });
-}
-
-export async function deletePendingRegistration(id: string): Promise<void> {
-  await client.execute({ sql: "DELETE FROM pending_registrations WHERE id = ?", args: [id] });
-}
-
-// Atomically takes the challenge: true for exactly one caller, false for any
-// concurrent or later one. Use this (not delete) to make a challenge single-use.
-export async function consumePendingRegistration(id: string): Promise<boolean> {
-  const res = await client.execute({ sql: "DELETE FROM pending_registrations WHERE id = ?", args: [id] });
-  return (res.rowsAffected ?? 0) > 0;
-}
-
-export async function purgeExpiredRegistrations(nowIso: string): Promise<void> {
-  await client.execute({ sql: "DELETE FROM pending_registrations WHERE expires_at < ?", args: [nowIso] });
 }
 
 export async function getMeta(key: string): Promise<string | null> {

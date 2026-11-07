@@ -13,7 +13,7 @@
 --          ├─< platform_sync_status (1 member : 1 latest sync result per linked platform)
 --          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
 --          └─< pending_links     (1 member : open "prove you own this account" requests)
---   pending_registrations        (standalone; becomes a users row once verified)
+--   pending_registrations        (standalone; UNUSED, kept empty for rollback; see below)
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
 
@@ -85,7 +85,10 @@ CREATE TABLE sync_status (
                                                    -- an admin: `npm run admin -- approve-reset <user>`
 );
 
--- A sign-up waiting for the person to prove they own the LeetCode account.
+-- UNUSED. Sign-up used to wait here until the person proved they own a LeetCode
+-- account; it is now one step (username + password), and migration 15 emptied
+-- this table. Kept so rolling back to the previous release still works. Drop it
+-- in a later migration.
 CREATE TABLE pending_registrations (
   id                 TEXT PRIMARY KEY,
   leetcode_username  TEXT NOT NULL,

@@ -180,6 +180,18 @@ describe("two sign-ups for the same name at once", () => {
   });
 });
 
+describe("the old LeetCode-proof sign-up is gone", () => {
+  it("has no start or verify endpoint any more, and stores no challenge", async () => {
+    for (const url of ["/api/auth/register/leetcode", "/api/auth/register/verify"]) {
+      const res = await api("POST", url, { body: { leetcodeUsername: "bob_99", password: PW } });
+      assert.equal(res.status, 404, url);
+      assert.equal(res.cookie, null, url);
+    }
+    const rows = await db.client.execute("SELECT COUNT(*) AS n FROM pending_registrations");
+    assert.equal(Number(rows.rows[0].n), 0);
+  });
+});
+
 describe("sign-up is rate limited", () => {
   it("answers 429 once the hourly allowance is used up", async () => {
     // Ten requests have been spent above; the next one is over the limit.
