@@ -911,6 +911,39 @@ export async function getUserAuthByLoginUsername(loginUsername: string): Promise
   return res.rows.length ? rowToUserWithAuth(res.rows[0] as unknown as Record<string, unknown>) : null;
 }
 
+export interface AdminLookup {
+  record: UserWithAuth;
+  /** The name they sign in with. */
+  loginUsername: string | null;
+  /** Which name the lookup matched, so the person at the keyboard can check it was the one they meant. */
+  matchedBy: "login" | "leetcode";
+}
+
+// For the admin command line. Finds a member by the name they sign in with and,
+// failing that, by their LeetCode username (how members were known before
+// sign-in names existed). A login name always wins: if one member's login name
+// is another member's LeetCode name, the login name is the member meant.
+export async function findUserForAdmin(name: string): Promise<AdminLookup | null> {
+  const wanted = name.trim().toLowerCase();
+  if (!wanted) return null;
+  const attempts = [
+    { matchedBy: "login", sql: "SELECT * FROM users WHERE login_username = ?" },
+    { matchedBy: "leetcode", sql: "SELECT * FROM users WHERE lower(leetcode_username) = ?" }
+  ] as const;
+  for (const { matchedBy, sql } of attempts) {
+    const res = await client.execute({ sql, args: [wanted] });
+    if (res.rows.length) {
+      const row = res.rows[0] as unknown as Record<string, unknown>;
+      return {
+        record: await rowToUserWithAuth(row),
+        loginUsername: (row.login_username as string | null) ?? null,
+        matchedBy
+      };
+    }
+  }
+  return null;
+}
+
 function upsertSnapshot(userId: string, h: HistoryRecord): InStatement {
   return {
     sql: `INSERT INTO history (${HISTORY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)

@@ -1,9 +1,13 @@
 /**
  * Out-of-band account recovery for the people running Leeterboard.
  *
- *   npm run admin -- show-id <leetcodeUsername>
- *   npm run admin -- set-password <leetcodeUsername> [--password-stdin]
- *   npm run admin -- approve-reset <leetcodeUsername>
+ *   npm run admin -- show-id <username>
+ *   npm run admin -- set-password <username> [--password-stdin]
+ *   npm run admin -- approve-reset <username>
+ *
+ * <username> is the name the member signs in with. A member who signed up
+ * before sign-in names existed can also be found by their LeetCode username;
+ * the command always prints which member it matched and how.
  *
  * Why this exists: admin accounts, and accounts whose LeetCode name stopped
  * resolving, can't be claimed or reset through the website (a recycled
@@ -30,7 +34,7 @@ import "dotenv/config";
 
 const args = process.argv.slice(2);
 const flags = new Set(args.filter((a) => a.startsWith("--")));
-const [command, username] = args.filter((a) => !a.startsWith("--"));
+const [command, name] = args.filter((a) => !a.startsWith("--"));
 
 function fail(message: string): never {
   console.error(`\n${message}\n`);
@@ -78,12 +82,12 @@ async function readStdin(): Promise<string> {
 }
 
 async function main() {
-  if (!command || !["show-id", "set-password", "approve-reset"].includes(command) || !username) {
+  if (!command || !["show-id", "set-password", "approve-reset"].includes(command) || !name) {
     fail(
       "Usage:\n" +
-        "  npm run admin -- show-id <leetcodeUsername>\n" +
-        "  npm run admin -- set-password <leetcodeUsername> [--password-stdin]\n" +
-        "  npm run admin -- approve-reset <leetcodeUsername>\n" +
+        "  npm run admin -- show-id <username>\n" +
+        "  npm run admin -- set-password <username> [--password-stdin]\n" +
+        "  npm run admin -- approve-reset <username>\n" +
         "Add --confirm-remote when TURSO_DATABASE_URL points at a remote database."
     );
   }
@@ -101,13 +105,19 @@ async function main() {
   const db = await import("../db.js");
   await db.initDb(); // makes sure the latest migration (sync_status.reset_frozen_at) is applied
 
-  const found = await db.getUserAuthByUsername(username);
-  if (!found) fail(`No member with the LeetCode username "${username}".`);
-  const { user, auth } = found;
+  const found = await db.findUserForAdmin(name);
+  if (!found) fail(`No member with the username "${name}".`);
+  const { user, auth } = found.record;
+  // What to call this member in messages: the name they sign in with.
+  const label = found.loginUsername ?? user.leetcodeUsername;
+
+  // Say exactly who was matched before doing anything to them.
+  console.log(`Matched:       ${label} (by ${found.matchedBy === "login" ? "login username" : "LeetCode username"})`);
 
   if (command === "show-id") {
     const freeze = await db.getResetFreeze(user.id);
-    console.log(`Member:        ${user.leetcodeUsername}`);
+    console.log(`Login name:    ${found.loginUsername ?? "(none)"}`);
+    console.log(`LeetCode:      ${user.leetcodeUsername || "(not linked)"}`);
     console.log(`Internal id:   ${user.id}   <- use this in ADMIN_USER_IDS`);
     console.log(`Has password:  ${auth.passwordHash ? "yes" : "no"}`);
     console.log(`Reset freeze:  ${freeze ?? "none"}`);
@@ -117,8 +127,8 @@ async function main() {
     const lifted = await db.approveReset(user.id);
     console.log(
       lifted
-        ? `Approved: ${user.leetcodeUsername} can claim/reset through the website again.`
-        : `Nothing to approve: ${user.leetcodeUsername} has no sticky freeze.` +
+        ? `Approved: ${label} can claim/reset through the website again.`
+        : `Nothing to approve: ${label} has no sticky freeze.` +
             ((await db.getResetFreeze(user.id)) === "sync_failing"
               ? " (Syncs have been failing for days; that lifts by itself once they succeed.)"
               : "")
@@ -136,7 +146,7 @@ async function main() {
     if (flags.has("--password-stdin")) {
       password = await readStdin();
     } else if (process.stdin.isTTY) {
-      password = await readHidden(`New password for ${user.leetcodeUsername}: `);
+      password = await readHidden(`New password for ${label}: `);
       if (password !== (await readHidden("Repeat it: "))) fail("The two passwords don't match.");
     } else {
       fail("No terminal to prompt on. Pipe the password in and add --password-stdin.");
@@ -144,11 +154,14 @@ async function main() {
 
     if (password.length < MIN_LENGTH) fail(`Password must be at least ${MIN_LENGTH} characters.`);
     if (password.length > MAX_PASSWORD_LENGTH) fail(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`);
-    if (password.toLowerCase() === user.leetcodeUsername.toLowerCase()) fail("Password can't be the username.");
+    const lowered = password.toLowerCase();
+    if (lowered === (found.loginUsername ?? "").toLowerCase() || lowered === user.leetcodeUsername.toLowerCase()) {
+      fail("Password can't be the username.");
+    }
 
     // Changing the hash invalidates every existing session; this also clears any lockout.
     await db.setPasswordHash(user.id, await hashPassword(password));
-    console.log(`Password set for ${user.leetcodeUsername}. All their existing sessions are now invalid.`);
+    console.log(`Password set for ${label}. All their existing sessions are now invalid.`);
   }
 
   process.exit(0);

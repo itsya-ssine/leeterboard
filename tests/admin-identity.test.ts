@@ -46,10 +46,30 @@ before(async () => {
     await db.recordSyncResult(user.id, { ok: true });
   }
 
+  // Members who signed up with a username only (no LeetCode account). One is an
+  // admin by id, the other is not.
+  for (const name of ["f2_plain_admin", "f2_plain_member"]) {
+    const user = makeUser(name, {
+      leetcodeLinked: false,
+      leetcodeUsername: "",
+      lastUpdated: null,
+      trackingStart: "",
+      allTimeSolved: 0,
+      easySolved: 0,
+      mediumSolved: 0,
+      hardSolved: 0,
+      weeklyProgress: 0,
+      monthlyProgress: 0,
+      baselineSolved: 0
+    });
+    await db.insertUser(user, hash, { loginUsername: name });
+    ids.set(name, user.id);
+  }
+
   server = await startServer({
     TURSO_DATABASE_URL: dbUrl,
     JWT_SECRET: secret,
-    ADMIN_USER_IDS: ids.get("f2_id_admin")!,
+    ADMIN_USER_IDS: `${ids.get("f2_id_admin")!},${ids.get("f2_plain_admin")!}`,
     ADMIN_LEETCODE_USERNAMES: "f2_name_listed"
   });
   api = client(server);
@@ -61,7 +81,7 @@ after(async () => {
 });
 
 const login = (username: string) =>
-  api("POST", "/api/auth/login", { body: { leetcodeUsername: username, password: PW } });
+  api("POST", "/api/auth/login", { body: { username, password: PW } });
 
 describe("admin rights follow the member id", () => {
   it("makes the member whose id is listed an admin", async () => {
@@ -82,6 +102,31 @@ describe("admin rights follow the member id", () => {
 
   it("gives nobody admin rights without a session (401)", async () => {
     assert.equal((await api("GET", "/api/admin/sync-status")).status, 401);
+  });
+});
+
+describe("a member without a LeetCode account can be an admin", () => {
+  it("is an admin when their id is listed, however they sign in", async () => {
+    const res = await login("f2_plain_admin");
+    assert.equal(res.status, 200);
+    assert.equal(res.json.isAdmin, true);
+    assert.equal(res.json.leetcodeLinked, false);
+
+    const session = await api("GET", "/api/auth/session", { cookie: res.cookie });
+    assert.equal(session.json.user.isAdmin, true);
+  });
+
+  it("can use the admin pages", async () => {
+    const res = await login("f2_plain_admin");
+    const report = await api("GET", "/api/admin/sync-status", { cookie: res.cookie });
+    assert.equal(report.status, 200);
+  });
+
+  it("is not an admin when only another member without LeetCode is listed", async () => {
+    const res = await login("f2_plain_member");
+    assert.equal(res.status, 200);
+    assert.equal(res.json.isAdmin, false);
+    assert.equal((await api("GET", "/api/admin/sync-status", { cookie: res.cookie })).status, 403);
   });
 });
 
