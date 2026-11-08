@@ -17,6 +17,16 @@ import {
   listUsers,
   getUserById,
   getUserAuthByLoginUsername,
+  getLinkedHandle,
+  getResetFreeze,
+  createSecurityNotice,
+  createPendingReset,
+  getPendingReset,
+  bumpPendingResetAttempts,
+  deletePendingReset,
+  consumePendingReset,
+  deletePendingResetsFor,
+  purgeExpiredPendingResets,
   insertUser,
   updateUser,
   deleteUserById,
@@ -45,7 +55,9 @@ import {
   removePlatformAccount,
   setPlatformHidden,
   setHideLeetcodeStats,
-  type UserWithAuth
+  type UserWithAuth,
+  type RecoveryPlatform,
+  type ResetFreezeReason
 } from "./db.js";
 import {
   setSessionCookie,
@@ -71,7 +83,7 @@ import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
-import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
+import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -1009,6 +1021,226 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
   }
 });
 
+// POST — forgot password, step 1. Someone who can't sign in can still prove they
+// own an account the member linked (LeetCode, Codeforces or CodinGame) by putting
+// a one-time code in that account's public profile. They choose the new password
+// now; it is hashed and held server-side, so nothing secret is sent again. A
+// member with nothing linked can't do this: they change their password from
+// their account settings (which asks for the old one), or an admin removes the
+// account and they sign up again.
+//
+// Never allowed through here, for any reason the response won't reveal:
+//   - admin accounts (recovered with `npm run admin`),
+//   - an account whose linked name stopped resolving (it may now belong to
+//     someone else; an admin lifts that with `npm run admin -- approve-reset`),
+//   - an unknown username, or a platform the member hasn't linked.
+const RESET_COOKIE = "pwreset";
+const RESET_TTL_MS = 30 * 60 * 1000;
+const resetCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/api/auth"
+};
+const RESET_PLATFORMS: readonly RecoveryPlatform[] = ["leetcode", "codeforces", "codingame"];
+const RESET_PLATFORM_LABELS: Record<RecoveryPlatform, string> = {
+  leetcode: "LeetCode",
+  codeforces: "Codeforces",
+  codingame: "CodinGame"
+};
+const LEETCODE_PROOF_HELP =
+  "On LeetCode open your profile, click Edit Profile, paste the code into the Summary field and save. Then press Verify. You can remove the code afterward.";
+
+// The same answer for every reason a reset can't go ahead, so it doesn't reveal
+// which usernames exist, which are admins, or which are frozen.
+const RESET_BLOCKED_MESSAGE =
+  "This password can't be reset online. If you remember your current password, sign in and change it in your account settings. " +
+  "Otherwise create a new account with a different username, or ask an admin to remove the old one.";
+
+type ResetEligibility = { ok: true; handle: string } | { ok: false; reason: "admin" | "not_linked" | ResetFreezeReason };
+
+async function resetEligibility(user: { id: string; leetcodeUsername: string }, platform: RecoveryPlatform): Promise<ResetEligibility> {
+  if (isAdminUser(user)) return { ok: false, reason: "admin" };
+  const handle = await getLinkedHandle(user.id, platform);
+  if (!handle) return { ok: false, reason: "not_linked" };
+  const freeze = await getResetFreeze(user.id, platform);
+  return freeze ? { ok: false, reason: freeze } : { ok: true, handle };
+}
+
+app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const username = typeof body.username === "string" ? body.username.trim().toLowerCase() : "";
+    if (!username || username.length > 100) {
+      return res.status(400).json({ error: "Enter your username." });
+    }
+    const platform = RESET_PLATFORMS.find((p) => p === body.platform);
+    if (!platform) {
+      return res.status(400).json({ error: "Choose the account you linked: LeetCode, Codeforces or CodinGame." });
+    }
+    const passwordError = validatePassword(body.password, username);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
+    // Hash before looking anyone up, so a refusal takes as long as an
+    // acceptance and response time doesn't say which usernames can be reset.
+    const passwordHash = await hashPassword(body.password as string);
+
+    const record = await getUserAuthByLoginUsername(username);
+    const eligibility = record ? await resetEligibility(record.user, platform) : null;
+    if (!record || !eligibility || !eligibility.ok) {
+      logSecurityEvent("ownership_blocked", {
+        ip: req.ip,
+        userId: record?.user.id,
+        username,
+        platform,
+        reason: eligibility && !eligibility.ok ? eligibility.reason : "unknown_user",
+        stage: "start"
+      });
+      return res.status(403).json({ error: RESET_BLOCKED_MESSAGE });
+    }
+
+    await purgeExpiredPendingResets(new Date().toISOString());
+    const id = crypto.randomBytes(32).toString("hex");
+    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
+    await createPendingReset({
+      id,
+      userId: record.user.id,
+      platform,
+      handle: eligibility.handle,
+      passwordHash,
+      code,
+      expiresAt: new Date(Date.now() + RESET_TTL_MS).toISOString()
+    });
+
+    logSecurityEvent("ownership_started", { ip: req.ip, userId: record.user.id, platform, purpose: "reset" }, "info");
+    res.cookie(RESET_COOKIE, id, { ...resetCookieOptions, maxAge: RESET_TTL_MS });
+    res.json({
+      code,
+      platform,
+      instructions: platform === "leetcode" ? LEETCODE_PROOF_HELP : PLATFORMS[platform].proofHelp,
+      expiresInMinutes: RESET_TTL_MS / 60_000
+    });
+  } catch (error: any) {
+    console.error(`[Auth] reset start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — forgot password, step 2. Reads the linked account's public profile and,
+// if the code is there, sets the new password, signs the person in, signs out
+// everyone else and leaves the owner a notice.
+app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
+  try {
+    const cookieValue = req.cookies?.[RESET_COOKIE];
+    const pending =
+      typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingReset(cookieValue) : null;
+    if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
+      if (pending) await deletePendingReset(pending.id);
+      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      return res.status(400).json({ error: "This reset request has expired. Please start again.", expired: true });
+    }
+    if (pending.attempts >= MAX_VERIFY_ATTEMPTS) {
+      await deletePendingReset(pending.id);
+      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
+    }
+
+    // Things can change between the two steps: check again.
+    const user = await getUserById(pending.userId);
+    const eligibility = user ? await resetEligibility(user, pending.platform) : null;
+    if (!user || !eligibility || !eligibility.ok || eligibility.handle.toLowerCase() !== pending.handle.toLowerCase()) {
+      await deletePendingReset(pending.id);
+      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      logSecurityEvent("ownership_blocked", {
+        ip: req.ip,
+        userId: pending.userId,
+        platform: pending.platform,
+        reason: eligibility && !eligibility.ok ? eligibility.reason : "changed",
+        stage: "verify"
+      });
+      return res.status(403).json({ error: RESET_BLOCKED_MESSAGE });
+    }
+
+    // Read the public profile of the account the MEMBER linked, never one the
+    // requester names.
+    const label = RESET_PLATFORM_LABELS[pending.platform];
+    let texts: string[];
+    if (pending.platform === "leetcode") {
+      const lookup = await fetchLeetCodeAbout(pending.handle);
+      if (lookup.status === "unavailable") {
+        logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: user.id, platform: "leetcode", purpose: "reset" });
+        return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+      }
+      if (lookup.status === "not_found") {
+        await deletePendingReset(pending.id);
+        logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: "leetcode", reason: "name_not_found", stage: "verify" });
+        return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
+      }
+      texts = [lookup.aboutMe];
+    } else {
+      try {
+        texts = (await PLATFORMS[pending.platform].fetchProfile!(pending.handle)).texts;
+      } catch (err: any) {
+        if (err instanceof PlatformNotFoundError) {
+          await deletePendingReset(pending.id);
+          logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: pending.platform, reason: "name_not_found", stage: "verify" });
+          return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
+        }
+        logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset" });
+        return res.status(503).json({ error: err.message });
+      }
+    }
+
+    const needle = pending.code.toLowerCase();
+    if (!texts.some((t) => t.toLowerCase().includes(needle))) {
+      await bumpPendingResetAttempts(pending.id);
+      logSecurityEvent("ownership_failed", {
+        ip: req.ip,
+        userId: user.id,
+        platform: pending.platform,
+        purpose: "reset",
+        attempts: pending.attempts + 1
+      });
+      return res.status(400).json({
+        error: `We couldn't find the code on your ${label} profile yet. Save it there, wait a few seconds, then try again.`
+      });
+    }
+
+    // Ownership proven. Take the challenge atomically so it can't be replayed
+    // or used by two concurrent requests.
+    if (!(await consumePendingReset(pending.id))) {
+      logSecurityEvent("ownership_failed", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset", reason: "replay" });
+      return res.status(400).json({ error: "This reset request was already used or has expired. Please start again.", expired: true });
+    }
+
+    const hadPassword = isPasswordHash((await getUserAuthById(user.id))?.auth.passwordHash);
+    // New hash = every older session is signed out, and any lockout is cleared.
+    await setPasswordHash(user.id, pending.passwordHash);
+    await deletePendingResetsFor(user.id);
+    await createSecurityNotice(
+      user.id,
+      "Your password was reset",
+      `Someone proved they own your ${label} account "${pending.handle}" and used it to set a new password. ` +
+        "If that was you, nothing more to do. If it wasn't, change your password in your account settings and ask an admin for help."
+    );
+    logSecurityEvent("ownership_verified", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset" }, "info");
+    logSecurityEvent(
+      "password_reset_via_ownership",
+      { ip: req.ip, userId: user.id, platform: pending.platform, handle: pending.handle, hadPassword },
+      hadPassword ? "warn" : "info"
+    );
+
+    res.clearCookie(RESET_COOKIE, resetCookieOptions);
+    setSessionCookie(res, user, pending.passwordHash);
+    res.json({ ...user, isAdmin: isAdminUser(user) });
+  } catch (error: any) {
+    console.error(`[Auth] reset verify failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
 // Pulls the username and password out of a login body. Returns null unless
 // both are non-empty strings. This is input validation only, not an
 // authorization check.
@@ -1077,7 +1309,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       // Account from before passwords existed: no password to check yet.
       await burnPasswordCheck(password);
       return res.status(401).json({
-        error: "This account has no password yet. Please contact a Leeterboard admin to set one.",
+        error: "This account has no password yet. Use \"Forgot password\" to set one by verifying a linked account, or contact a Leeterboard admin.",
         needsPassword: true
       });
     }
@@ -1153,7 +1385,7 @@ async function checkCurrentPassword(
   if (!isPasswordHash(record.auth.passwordHash)) {
     return fail(
       409,
-      "This account has no password yet. Log out, then use Sign up to verify your LeetCode profile and set one."
+      "This account has no password yet. Log out, then use \"Forgot password\" to set one by verifying a linked account."
     );
   }
 

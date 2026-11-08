@@ -4,10 +4,10 @@
  * may now belong to someone else (the LeetCode account was renamed or deleted,
  * or has not synced for days).
  *
- * Nothing in the app asks this any more, since signing up and logging in no
- * longer involve a LeetCode proof. The markers and `npm run admin --
- * approve-reset` are kept until a decision is made about how forgotten
- * passwords are reset; this keeps their logic covered in the meantime.
+ * "Forgot password" asks this before it will accept a proof, for the specific
+ * account being used (LeetCode, Codeforces or CodinGame), and `npm run admin --
+ * approve-reset` lifts it. The HTTP side is in password-reset*.test.ts; this
+ * covers the marker logic itself.
  */
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -48,6 +48,28 @@ before(async () => {
   await db.recordSyncResult(id("name_gone_approved"), { ok: true });
   await db.approveReset(id("name_gone_approved"));
 
+  // The same markers for a linked Codeforces account.
+  for (const name of ["cf_healthy", "cf_gone", "cf_failing_long", "both_frozen"]) {
+    const user = makeUser(name);
+    await db.insertUser(user, "hash");
+    ids.set(name, user.id);
+    await db.insertPlatformAccount(user.id, "codeforces", `${name}_handle`);
+  }
+  await db.recordPlatformSyncResult(id("cf_healthy"), "codeforces", { ok: true });
+  await db.recordPlatformSyncResult(id("cf_gone"), "codeforces", { ok: false, state: "not_found", error: "gone" });
+  await db.recordPlatformSyncResult(id("cf_gone"), "codeforces", { ok: true });
+  await db.recordPlatformSyncResult(id("cf_failing_long"), "codeforces", { ok: false, state: "unavailable", error: "boom" });
+  await db.client.execute({
+    sql: "UPDATE platform_sync_status SET failing_since = ? WHERE user_id = ? AND platform = 'codeforces'",
+    args: [new Date(Date.now() - 8 * DAY).toISOString(), id("cf_failing_long")]
+  });
+  // Frozen on both LeetCode and Codeforces.
+  for (const platform of ["leetcode", "codeforces"] as const) {
+    const result = { ok: false as const, state: "not_found" as const, error: "gone" };
+    if (platform === "leetcode") await db.recordSyncResult(id("both_frozen"), result);
+    else await db.recordPlatformSyncResult(id("both_frozen"), platform, result);
+  }
+
   // Failing (not "not found") for 8 days versus 1 hour.
   for (const [name, ago] of [["failing_long", 8 * DAY], ["failing_recent", 3_600_000]] as const) {
     await db.recordSyncResult(id(name), { ok: false, state: "unavailable", error: "boom" });
@@ -76,5 +98,47 @@ describe("getResetFreeze", () => {
 
   it("is lifted by an admin's approval", async () => {
     assert.equal(await db.getResetFreeze(ids.get("name_gone_approved")!), null);
+  });
+});
+
+describe("getResetFreeze for a linked Codeforces account", () => {
+  it("is null while the handle resolves", async () => {
+    assert.equal(await db.getResetFreeze(ids.get("cf_healthy")!, "codeforces"), null);
+  });
+
+  it("is sticky once the handle stopped resolving, even after it 'resolves' again", async () => {
+    assert.equal(await db.getResetFreeze(ids.get("cf_gone")!, "codeforces"), "name_not_found");
+  });
+
+  it("also freezes an account whose syncs have been failing for days", async () => {
+    assert.equal(await db.getResetFreeze(ids.get("cf_failing_long")!, "codeforces"), "sync_failing");
+  });
+
+  it("is kept apart per platform: one frozen account doesn't freeze another", async () => {
+    // Frozen on Codeforces only: LeetCode (and CodinGame) are unaffected.
+    assert.equal(await db.getResetFreeze(ids.get("cf_gone")!, "leetcode"), null);
+    assert.equal(await db.getResetFreeze(ids.get("cf_gone")!, "codingame"), null);
+    // Frozen on LeetCode only: Codeforces is unaffected.
+    assert.equal(await db.getResetFreeze(ids.get("name_gone")!, "codeforces"), null);
+  });
+});
+
+describe("approveReset", () => {
+  it("lifts the freeze on every linked account, and says so once", async () => {
+    const id = ids.get("both_frozen")!;
+    assert.equal(await db.getResetFreeze(id, "leetcode"), "name_not_found");
+    assert.equal(await db.getResetFreeze(id, "codeforces"), "name_not_found");
+
+    assert.equal(await db.approveReset(id), true);
+    assert.equal(await db.getResetFreeze(id, "leetcode"), null);
+    assert.equal(await db.getResetFreeze(id, "codeforces"), null);
+
+    assert.equal(await db.approveReset(id), false, "nothing left to approve");
+  });
+
+  it("is enough for a Codeforces-only freeze too", async () => {
+    const id = ids.get("cf_gone")!;
+    assert.equal(await db.approveReset(id), true);
+    assert.equal(await db.getResetFreeze(id, "codeforces"), null);
   });
 });

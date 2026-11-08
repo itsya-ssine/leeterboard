@@ -285,6 +285,7 @@ users ──< platform_history      one snapshot per member per platform per UTC
 users ──< platform_sync_status  latest sync attempt per member per platform
 users ──< pending_links         open "prove you own this account" requests
 pending_registrations           unused since the username sign-up (kept empty for rollback)
+pending_resets                   "forgot password" requests waiting for the proof code
 rate_limits                     counters for the sensitive rate limiters (shared across instances)
 meta                            key/value store (weekly winners archive, last full sync)
 schema_migrations               applied migrations
@@ -357,6 +358,8 @@ All endpoints live under `/api`.
 | POST | `/api/sync-if-stale` | Members, rate limited | Refresh stale members within a time budget (used by the page whenever a member opens the board) |
 | POST | `/api/auth/register` | Public | Sign up with a username and password (no LeetCode needed) |
 | POST | `/api/auth/login` | Public | Log in with `username` + `password` (the old `leetcodeUsername` field is still accepted) |
+| POST | `/api/auth/reset/start` | Public, rate limited | Forgot password, step 1: name the account to prove (LeetCode, Codeforces or CodinGame), choose the new password, get a one-time code |
+| POST | `/api/auth/reset/verify` | Public, rate limited | Forgot password, step 2: reads the profile, and if the code is there sets the password and signs the person in |
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |
 | PATCH | `/api/account/profile` | Member | Change display name, school, bio, links and/or the hide-LeetCode-stats setting |

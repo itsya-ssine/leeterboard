@@ -26,12 +26,12 @@ history if you want to look back further than that.
 | `account_locked` | warn | An account hit the failed-login limit and is locked for 15 minutes |
 | `login_blocked_locked` | warn | A login was refused because the account is locked |
 | `reauth_failed` | warn | Wrong current password on a password change or account deletion (`action`) |
-| `ownership_started` | info | A sign-up / claim / reset challenge was issued (`purpose`) |
-| `ownership_verified` | info | LeetCode ownership proven; account `create`d, `claim`ed or `reset` |
+| `ownership_started` | info | A "forgot password" challenge was issued (`purpose`: `reset`; `platform`: `leetcode`, `codeforces` or `codingame`) |
+| `ownership_verified` | info | Ownership of a linked account proven and the password reset (`purpose`: `reset`; `platform`) |
 | `ownership_failed` | warn | Code not found, replayed challenge, or too many attempts (`reason`) |
-| `ownership_lookup_unavailable` | warn | LeetCode didn't answer the ownership check, so the request was refused with a 503 (fail closed, no third-party fallback) |
-| `ownership_blocked` | warn | A claim/reset was refused because the account is an admin or is frozen (`reason`: `admin`, `name_not_found`, `sync_failing`; `stage`) |
-| `password_reset_via_ownership` | warn | An account that already had a password had it replaced after an ownership proof. The owner also gets an in-app notice |
+| `ownership_lookup_unavailable` | warn | LeetCode, Codeforces or CodinGame didn't answer the ownership check, so the request was refused with a 503 (fail closed, no third-party fallback) |
+| `ownership_blocked` | warn | A password reset was refused (`reason`: `unknown_user`, `not_linked`, `admin`, `name_not_found`, `sync_failing`, `changed`; `stage`: `start` or `verify`). The person always sees the same message |
+| `password_reset_via_ownership` | warn | A password was replaced after an ownership proof (`warn` when the account already had one, `info` when it had none). The owner also gets an in-app notice |
 | `platform_link_verified` / `platform_link_failed` | info / warn | Codeforces / CodinGame linking |
 | `password_changed` | info | A member changed their password (all older sessions are now invalid) |
 | `account_created` | info | Someone signed up with a username and password (`userId`, `username`); a burst from one `ip` can mean automated sign-ups |
@@ -53,7 +53,7 @@ Start with these thresholds and tune them to your real traffic.
 | Credential guessing | 10 or more `login_failed` from one `ip` in 10 minutes |
 | Targeted account | any `account_locked`, or 5 or more `login_failed` for one `username` in 10 minutes |
 | Account-takeover attempts | 5 or more `ownership_failed` for one `username` in an hour; any `ownership_verified` with `purpose":"reset"` that its owner doesn't recognise |
-| LeetCode unreachable | a burst of `ownership_lookup_unavailable` (LeetCode may be blocking this server's IP, so sign-ups and resets will fail until it clears) |
+| LeetCode unreachable | a burst of `ownership_lookup_unavailable` (LeetCode may be blocking this server's IP, so password resets through LeetCode will fail until it clears) |
 | Scraping / abuse | 20 or more `rate_limited` in 15 minutes, or any `admin_refresh` you didn't trigger |
 | Request forgery | any burst of `csrf_blocked` |
 | Privilege use | any `admin_*` event outside the times you were working |
@@ -90,7 +90,7 @@ it as leaked.
 
 Search the logs for `"event":"admin_` and check each `admin`, `ip` and time
 against what you actually did. Also check `ownership_verified` events with
-`"purpose":"reset"` or `"claim"`, since those can hand over an account.
+`"purpose":"reset"`, since those can hand over an account.
 
 ### Unauthorized score or account changes
 
@@ -147,28 +147,42 @@ repository settings:
 - **CodeQL and CSRF:** `.github/codeql/codeql-config.yml` turns off one CodeQL rule, "Missing CSRF middleware" (`js/missing-token-validation`). It only recognises CSRF libraries like `csurf`, but leeterboard uses its own middleware (`csrf.ts`), so the rule flagged every route handler that reads `req.user`, and raised a new alert each time a route was added. The protection is verified by the CSRF tests in `tests/security.test.ts` (a required check) instead. Don't remove `csrf.ts`, or its `app.use("/api", csrfProtection)` line in `server.ts`, without putting equivalent protection and tests in its place.
 - Pin third-party actions to a commit SHA once you're ready for that; `.github/dependabot.yml` already keeps the actions up to date.
 
-## Recycled LeetCode usernames
+## Forgot password, and recycled usernames
 
-A LeetCode username isn't a permanent identity: if its owner renames or deletes
-their LeetCode account, a stranger can register that name and pass the "put this
-code in your summary" check. So the website refuses to claim or reset:
+A member who can't sign in can reset their password by proving they own an
+account they linked (LeetCode, Codeforces or CodinGame): the site gives a
+one-time code, they put it in that account's public profile, and the site reads
+it back. A member with nothing linked can't do this; they change their password
+in their account settings (which asks for the old one), or an admin removes the
+account and they sign up again.
+
+A platform handle isn't a permanent identity: if its owner renames or deletes
+that account, a stranger can register the name and pass the "put this code in
+your profile" check. So the website refuses to reset:
 
 - **admin accounts**, always. Admin rights follow the member's internal id
   (`ADMIN_USER_IDS`), never a username, and these accounts are recovered by you:
   `npm run admin -- set-password <username>` (hidden prompt, or
   `--password-stdin`; add `--confirm-remote` for a remote database).
-- **accounts whose LeetCode name stopped resolving.** The first time a sync gets
-  "no such user", the account is frozen, and stays frozen even if the name later
-  resolves again (that is exactly what a recycled name looks like). Once you have
-  checked the person is the original owner (ask them to message you from
+- **through an account whose name stopped resolving.** The first time a sync
+  gets "no such user" for a linked account, that account is frozen for password
+  resets, and stays frozen even if the name later resolves again (that is exactly
+  what a recycled name looks like). Each platform is frozen separately. Once you
+  have checked the person is the original owner (ask them to message you from
   somewhere you already trust), lift it with
   `npm run admin -- approve-reset <username>`. If the name is still missing, the
   next failed sync freezes it again.
-- accounts whose syncs have failed for 7+ days are refused too, until a sync
+- **through an account whose syncs have failed for 7+ days**, until a sync
   succeeds.
 
-Members see one generic message ("contact a Leeterboard admin") for every case,
-so it can't be used to find out who the admins are.
+The proof is always read from the account the *member* linked, never one the
+requester names, and the new password is chosen at the start and held hashed on
+the server, so nothing secret is sent twice. A successful reset signs out every
+older session and leaves the owner a notice in the app.
+
+Everyone sees one generic message ("can't be reset online") for every refusal,
+so it can't be used to find out which usernames exist, who the admins are, or
+which accounts are frozen.
 
 **Alert on:** any `ownership_blocked` (someone tried), and any
 `password_reset_via_ownership` for a member who didn't just ask for a reset.

@@ -9,10 +9,10 @@
  * before sign-in names existed can also be found by their LeetCode username;
  * the command always prints which member it matched and how.
  *
- * Why this exists: admin accounts, and accounts whose LeetCode name stopped
- * resolving, can't be claimed or reset through the website (a recycled
- * LeetCode username must not be enough to take them over). Recovery happens
- * here instead, by someone who controls the database credentials.
+ * Why this exists: admin accounts, and accounts whose linked name stopped
+ * resolving, can't be reset through the website (a recycled username must not
+ * be enough to take them over). Recovery happens here instead, by someone who
+ * controls the database credentials.
  *
  *   show-id        prints the member's internal id, which is what
  *                  ADMIN_USER_IDS expects.
@@ -21,9 +21,10 @@
  *                  password is read from a hidden prompt, or from stdin with
  *                  --password-stdin so it never lands in shell history:
  *                    printf '%s' "$NEW_PW" | npm run admin -- set-password alice --password-stdin
- *   approve-reset  lifts the "name stopped resolving" freeze so the member can
- *                  claim/reset through the website again. Do this only after
- *                  you have checked the person really is the original owner.
+ *   approve-reset  lifts the "name stopped resolving" freeze (on every linked
+ *                  account) so the member can use "Forgot password" through a
+ *                  linked account again. Do this only after you have checked
+ *                  the person really is the original owner.
  *
  * Uses TURSO_DATABASE_URL / TURSO_AUTH_TOKEN from the environment or .env
  * (local.db when unset). A remote database needs --confirm-remote, the same
@@ -115,21 +116,26 @@ async function main() {
   console.log(`Matched:       ${label} (by ${found.matchedBy === "login" ? "login username" : "LeetCode username"})`);
 
   if (command === "show-id") {
-    const freeze = await db.getResetFreeze(user.id);
     console.log(`Login name:    ${found.loginUsername ?? "(none)"}`);
     console.log(`LeetCode:      ${user.leetcodeUsername || "(not linked)"}`);
     console.log(`Internal id:   ${user.id}   <- use this in ADMIN_USER_IDS`);
     console.log(`Has password:  ${auth.passwordHash ? "yes" : "no"}`);
-    console.log(`Reset freeze:  ${freeze ?? "none"}`);
+    // Which linked accounts can't currently be used to reset this member's password.
+    const freezes: string[] = [];
+    for (const platform of ["leetcode", "codeforces", "codingame"] as const) {
+      const freeze = await db.getResetFreeze(user.id, platform);
+      if (freeze) freezes.push(`${platform}: ${freeze}`);
+    }
+    console.log(`Reset freeze:  ${freezes.length ? freezes.join(", ") : "none"}`);
   }
 
   if (command === "approve-reset") {
     const lifted = await db.approveReset(user.id);
     console.log(
       lifted
-        ? `Approved: ${label} can claim/reset through the website again.`
+        ? `Approved: ${label} can reset their password through a linked account again.`
         : `Nothing to approve: ${label} has no sticky freeze.` +
-            ((await db.getResetFreeze(user.id)) === "sync_failing"
+            ((await db.getResetFreeze(user.id, "leetcode")) === "sync_failing"
               ? " (Syncs have been failing for days; that lifts by itself once they succeed.)"
               : "")
     );

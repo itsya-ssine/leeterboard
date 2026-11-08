@@ -8,6 +8,15 @@
 //   <dir>/<username lower-cased>.txt  -> the user exists, summary = file content
 //   no such file                      -> LeetCode says the user doesn't exist
 //
+// The profile lookups behind "link / recover with Codeforces or CodinGame" are
+// faked the same way, from files in $FAKE_PLATFORM_DIR:
+//
+//   <dir>/codeforces/<handle lower-cased>.txt  -> the handle exists, its
+//                                                 "organization" = file content
+//   <dir>/codingame/<handle lower-cased>.txt   -> the handle exists, its
+//                                                 "tagline" = file content
+//   no such file                               -> the platform says "not found"
+//
 // Every other request goes to the real fetch.
 import fs from "node:fs";
 import path from "node:path";
@@ -27,6 +36,30 @@ globalThis.fetch = async (input, init) => {
       status: 200,
       headers: { "content-type": "application/json" }
     });
+  }
+  const platformDir = process.env.FAKE_PLATFORM_DIR;
+  if (platformDir && url.startsWith("https://codeforces.com/api/user.info?")) {
+    const handle = new URL(url).searchParams.get("handles") ?? "";
+    const file = path.join(platformDir, "codeforces", `${handle.toLowerCase()}.txt`);
+    if (!fs.existsSync(file)) {
+      return new Response(JSON.stringify({ status: "FAILED", comment: `handles: User with handle ${handle} not found` }), {
+        status: 400,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    return new Response(
+      JSON.stringify({ status: "OK", result: [{ handle, organization: fs.readFileSync(file, "utf8") }] }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }
+  if (platformDir && url === "https://www.codingame.com/services/CodinGamer/findCodingamePointsStatsByHandle") {
+    const [handle] = JSON.parse(String(init?.body ?? "[]"));
+    const file = path.join(platformDir, "codingame", `${String(handle).toLowerCase()}.txt`);
+    if (!fs.existsSync(file)) return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
+    return new Response(
+      JSON.stringify({ codingamer: { publicHandle: String(handle), tagline: fs.readFileSync(file, "utf8") }, xp: 0 }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
   }
   return realFetch(input, init);
 };

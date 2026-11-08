@@ -12,7 +12,8 @@
 --          ├─< platform_history  (1 member : many daily snapshots per linked platform)
 --          ├─< platform_sync_status (1 member : 1 latest sync result per linked platform)
 --          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
---          └─< pending_links     (1 member : open "prove you own this account" requests)
+--          ├─< pending_links     (1 member : open "prove you own this account" requests)
+--          └─< pending_resets    (1 member : open "forgot password" requests)
 --   pending_registrations        (standalone; UNUSED, kept empty for rollback; see below)
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
@@ -173,6 +174,7 @@ CREATE TABLE platform_sync_status (
   error          TEXT,
   failures       INTEGER NOT NULL DEFAULT 0,
   failing_since  TEXT,
+  reset_frozen_at TEXT,                            -- set when the platform said the handle doesn't exist; sticky (migration 16)
   PRIMARY KEY (user_id, platform)
 ) WITHOUT ROWID;
 
@@ -198,6 +200,24 @@ CREATE TABLE pending_links (
   expires_at  TEXT NOT NULL,
   PRIMARY KEY (user_id, platform)
 ) WITHOUT ROWID;
+
+-- A "forgot password" request, waiting for the person to put `code` in the
+-- public profile of an account the member linked. The NEW password is chosen at
+-- the start and held here, already hashed. `handle` is the linked account as it
+-- was then; the reset is refused if it has changed since. The browser only ever
+-- holds `id`.
+CREATE TABLE pending_resets (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform       TEXT NOT NULL CHECK (platform IN ('leetcode', 'codeforces', 'codingame')),
+  handle         TEXT NOT NULL,
+  password_hash  TEXT NOT NULL,
+  code           TEXT NOT NULL,
+  attempts       INTEGER NOT NULL DEFAULT 0,
+  expires_at     TEXT NOT NULL
+);
+CREATE INDEX idx_pending_resets_user ON pending_resets(user_id);
+CREATE INDEX idx_pending_resets_expires ON pending_resets(expires_at);
 
 -- Counters for the sensitive rate limiters (login, sign-up, verification,
 -- account and refresh routes), kept in the database so the limits hold across

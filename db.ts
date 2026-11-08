@@ -140,6 +140,7 @@ const PLATFORM_DDL = [
     error TEXT,
     failures INTEGER NOT NULL DEFAULT 0,
     failing_since TEXT,
+    reset_frozen_at TEXT,
     PRIMARY KEY (user_id, platform)
   ) WITHOUT ROWID`,
   // One snapshot per member per platform per UTC day (trend charts, and weekly
@@ -270,6 +271,24 @@ export async function initDb(): Promise<void> {
         attempts INTEGER NOT NULL DEFAULT 0,
         expires_at TEXT NOT NULL
       )`,
+      // A password reset that has been started but not yet proven. The NEW
+      // password (already hashed) waits here until the person shows they own an
+      // account the member linked (LeetCode, Codeforces or CodinGame). The
+      // browser only ever holds the random `id`. `handle` is the linked account
+      // as it was when the reset started, so a handle that changed hands in the
+      // meantime can't be used.
+      `CREATE TABLE IF NOT EXISTS pending_resets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL CHECK (platform IN ('leetcode', 'codeforces', 'codingame')),
+        handle TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        code TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_pending_resets_user ON pending_resets(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_pending_resets_expires ON pending_resets(expires_at)`,
       // The result of the latest sync attempt per member, for the admin
       // dashboard. Separate from users so none of it can leak into the public
       // API, and so a member's row carries no sync noise.
@@ -320,7 +339,8 @@ const MIGRATIONS: Migration[] = [
   { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen },
   { version: 13, name: "user_login_username", up: migrateLoginUsername },
   { version: 14, name: "optional_leetcode_columns", up: migrateOptionalLeetcode },
-  { version: 15, name: "clear_pending_registrations", up: migrateClearPendingRegistrations }
+  { version: 15, name: "clear_pending_registrations", up: migrateClearPendingRegistrations },
+  { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -526,6 +546,20 @@ async function migrateOptionalLeetcode(): Promise<void> {
 // write. Safe to run twice.
 async function migrateClearPendingRegistrations(): Promise<void> {
   await client.execute("DELETE FROM pending_registrations");
+}
+
+// v16 — the same sticky "this handle stopped resolving" marker LeetCode has
+// (sync_status.reset_frozen_at), for the other linked platforms. Password reset
+// can now be proven through any linked account, so a Codeforces or CodinGame
+// handle that changed hands must not be enough either. Safe to run twice.
+async function migratePlatformResetFreeze(): Promise<void> {
+  if (await columnExists("platform_sync_status", "reset_frozen_at")) return;
+  try {
+    await client.execute("ALTER TABLE platform_sync_status ADD COLUMN reset_frozen_at TEXT");
+  } catch (err: any) {
+    // A second instance may have added it a moment ago.
+    if (!(await columnExists("platform_sync_status", "reset_frozen_at"))) throw err;
+  }
 }
 
 // v12 — sticky "this LeetCode name stopped resolving" marker (idempotent).
@@ -1290,13 +1324,17 @@ export async function recordPlatformSyncResult(userId: string, platform: Platfor
       });
     } else {
       await client.execute({
-        sql: `INSERT INTO platform_sync_status (user_id, platform, last_attempt, state, error, failures, failing_since)
-              VALUES (?, ?, ?, ?, ?, 1, ?)
+        // `reset_frozen_at` is STICKY, exactly as for LeetCode (see
+        // recordSyncResult): set when the platform positively says the handle
+        // doesn't exist, never cleared by a later success.
+        sql: `INSERT INTO platform_sync_status (user_id, platform, last_attempt, state, error, failures, failing_since, reset_frozen_at)
+              VALUES (?, ?, ?, ?, ?, 1, ?, ?)
               ON CONFLICT(user_id, platform) DO UPDATE SET
                 last_attempt = excluded.last_attempt, state = excluded.state,
                 error = excluded.error, failures = platform_sync_status.failures + 1,
-                failing_since = COALESCE(platform_sync_status.failing_since, excluded.failing_since)`,
-        args: [userId, platform, now, result.state, result.error.slice(0, MAX_ERROR_LENGTH), now]
+                failing_since = COALESCE(platform_sync_status.failing_since, excluded.failing_since),
+                reset_frozen_at = COALESCE(platform_sync_status.reset_frozen_at, excluded.reset_frozen_at)`,
+        args: [userId, platform, now, result.state, result.error.slice(0, MAX_ERROR_LENGTH), now, result.state === "not_found" ? now : null]
       });
     }
   } catch (err: any) {
@@ -1774,11 +1812,25 @@ export type ResetFreezeReason = "name_not_found" | "sync_failing";
 // succeed again.
 export const SYNC_FAILING_FREEZE_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function getResetFreeze(userId: string, nowMs = Date.now()): Promise<ResetFreezeReason | null> {
-  const res = await client.execute({
-    sql: "SELECT state, failing_since, reset_frozen_at FROM sync_status WHERE user_id = ?",
-    args: [userId]
-  });
+// Which linked account a reset is being proven through. LeetCode lives on the
+// users row; the others are platform_accounts rows.
+export type RecoveryPlatform = "leetcode" | PlatformId;
+
+export async function getResetFreeze(
+  userId: string,
+  platform: RecoveryPlatform = "leetcode",
+  nowMs = Date.now()
+): Promise<ResetFreezeReason | null> {
+  const res =
+    platform === "leetcode"
+      ? await client.execute({
+          sql: "SELECT state, failing_since, reset_frozen_at FROM sync_status WHERE user_id = ?",
+          args: [userId]
+        })
+      : await client.execute({
+          sql: "SELECT state, failing_since, reset_frozen_at FROM platform_sync_status WHERE user_id = ? AND platform = ?",
+          args: [userId, platform]
+        });
   const row = res.rows[0] as unknown as Record<string, unknown> | undefined;
   if (!row) return null;
   if (row.reset_frozen_at) return "name_not_found";
@@ -1787,15 +1839,93 @@ export async function getResetFreeze(userId: string, nowMs = Date.now()): Promis
   return null;
 }
 
-// Admin decision: lets this member claim/reset again. If their name is still
-// missing the next failed sync freezes it again. Returns false if the member
-// had no freeze recorded.
+// Admin decision: lets this member reset through their linked accounts again,
+// for every platform. If a name is still missing the next failed sync freezes
+// it again. Returns false if the member had no freeze recorded.
 export async function approveReset(userId: string): Promise<boolean> {
-  const res = await client.execute({
+  const leetcode = await client.execute({
     sql: "UPDATE sync_status SET reset_frozen_at = NULL WHERE user_id = ? AND reset_frozen_at IS NOT NULL",
     args: [userId]
   });
+  const others = await client.execute({
+    sql: "UPDATE platform_sync_status SET reset_frozen_at = NULL WHERE user_id = ? AND reset_frozen_at IS NOT NULL",
+    args: [userId]
+  });
+  return (leetcode.rowsAffected ?? 0) + (others.rowsAffected ?? 0) > 0;
+}
+
+/* ---------- Password reset challenges ---------- */
+
+export interface PendingReset {
+  id: string;
+  userId: string;
+  platform: RecoveryPlatform;
+  handle: string;
+  passwordHash: string;
+  code: string;
+  attempts: number;
+  expiresAt: string;
+}
+
+// The account the member linked on this platform, or null. Always read from the
+// member's own record, never from what the person asking typed.
+export async function getLinkedHandle(userId: string, platform: RecoveryPlatform): Promise<string | null> {
+  const res =
+    platform === "leetcode"
+      ? await client.execute({ sql: "SELECT leetcode_username AS handle FROM users WHERE id = ?", args: [userId] })
+      : await client.execute({
+          sql: "SELECT handle FROM platform_accounts WHERE user_id = ? AND platform = ?",
+          args: [userId, platform]
+        });
+  const handle = res.rows[0]?.handle;
+  return typeof handle === "string" && handle ? handle : null;
+}
+
+export async function createPendingReset(p: Omit<PendingReset, "attempts">): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO pending_resets (id, user_id, platform, handle, password_hash, code, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    args: [p.id, p.userId, p.platform, p.handle, p.passwordHash, p.code, p.expiresAt]
+  });
+}
+
+export async function getPendingReset(id: string): Promise<PendingReset | null> {
+  const res = await client.execute({ sql: "SELECT * FROM pending_resets WHERE id = ?", args: [id] });
+  const r = res.rows[0] as unknown as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return {
+    id: r.id as string,
+    userId: r.user_id as string,
+    platform: r.platform as RecoveryPlatform,
+    handle: r.handle as string,
+    passwordHash: r.password_hash as string,
+    code: r.code as string,
+    attempts: Number(r.attempts ?? 0),
+    expiresAt: r.expires_at as string
+  };
+}
+
+export async function bumpPendingResetAttempts(id: string): Promise<void> {
+  await client.execute({ sql: "UPDATE pending_resets SET attempts = attempts + 1 WHERE id = ?", args: [id] });
+}
+
+export async function deletePendingReset(id: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_resets WHERE id = ?", args: [id] });
+}
+
+// Atomic single-use take: true for exactly one caller.
+export async function consumePendingReset(id: string): Promise<boolean> {
+  const res = await client.execute({ sql: "DELETE FROM pending_resets WHERE id = ?", args: [id] });
   return (res.rowsAffected ?? 0) > 0;
+}
+
+// After a successful reset every other open challenge for the member is moot.
+export async function deletePendingResetsFor(userId: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_resets WHERE user_id = ?", args: [userId] });
+}
+
+export async function purgeExpiredPendingResets(nowIso: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_resets WHERE expires_at < ?", args: [nowIso] });
 }
 
 // A notice written by the system (no sender) that shows up in the member's
