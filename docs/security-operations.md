@@ -26,13 +26,14 @@ history if you want to look back further than that.
 | `account_locked` | warn | An account hit the failed-login limit and is locked for 15 minutes |
 | `login_blocked_locked` | warn | A login was refused because the account is locked |
 | `reauth_failed` | warn | Wrong current password on a password change or account deletion (`action`) |
-| `ownership_started` | info | A "forgot password" challenge was issued (`purpose`: `reset`; `platform`: `leetcode`, `codeforces` or `codingame`) |
-| `ownership_verified` | info | Ownership of a linked account proven and the password reset (`purpose`: `reset`; `platform`) |
+| `ownership_started` | info | An ownership challenge was issued (`purpose`: `reset` for a forgotten password, `link` for linking LeetCode; `platform`: `leetcode`, `codeforces` or `codingame`) |
+| `ownership_verified` | info | Ownership proven (`purpose`: `reset` = password reset, `link` = LeetCode linked; `platform`) |
 | `ownership_failed` | warn | Code not found, replayed challenge, or too many attempts (`reason`) |
 | `ownership_lookup_unavailable` | warn | LeetCode, Codeforces or CodinGame didn't answer the ownership check, so the request was refused with a 503 (fail closed, no third-party fallback) |
 | `ownership_blocked` | warn | A password reset was refused (`reason`: `unknown_user`, `not_linked`, `admin`, `name_not_found`, `sync_failing`, `changed`; `stage`: `start` or `verify`). The person always sees the same message |
 | `password_reset_via_ownership` | warn | A password was replaced after an ownership proof (`warn` when the account already had one, `info` when it had none). The owner also gets an in-app notice |
 | `platform_link_verified` / `platform_link_failed` | info / warn | Codeforces / CodinGame linking |
+| `platform_unlinked` | info | A member removed a linked account (`platform`: `leetcode`, `codeforces` or `codingame`) |
 | `password_changed` | info | A member changed their password (all older sessions are now invalid) |
 | `account_created` | info | Someone signed up with a username and password (`userId`, `username`); a burst from one `ip` can mean automated sign-ups |
 | `account_deleted` | info | A member deleted their own account |

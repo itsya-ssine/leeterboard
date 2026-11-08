@@ -11,12 +11,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { createClient } from "@libsql/client";
 import { client, startServer, type TestServer } from "./helpers.js";
 import { makeUser } from "./f2-seed.js";
 
 const PW = "correct-horse-battery-9";
 
 let tmpDir = "";
+let dbUrl = "";
 let server: TestServer;
 let api: ReturnType<typeof client>;
 let db: typeof import("../db.js");
@@ -24,12 +26,22 @@ let legacyHash = "";
 
 const register = (body: unknown) => api("POST", "/api/auth/register", { body });
 
-const hashOf = async (loginUsername: string) => (await db.getUserAuthByLoginUsername(loginUsername))?.auth.passwordHash;
+// Read on a fresh connection each time, like a separate process: a long-lived
+// one could keep reading an old snapshot and make "unchanged" pass for the wrong reason.
+const hashOf = async (loginUsername: string) => {
+  const c = createClient({ url: dbUrl });
+  try {
+    const rows = (await c.execute({ sql: "SELECT password_hash FROM users WHERE login_username = ?", args: [loginUsername] })).rows;
+    return rows.length ? (rows[0].password_hash as string) : undefined;
+  } finally {
+    c.close();
+  }
+};
 
 before(async () => {
   const secret = crypto.randomBytes(48).toString("hex");
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "leeterboard-register-"));
-  const dbUrl = `file:${path.join(tmpDir, "test.db")}`;
+  dbUrl = `file:${path.join(tmpDir, "test.db")}`;
 
   process.env.JWT_SECRET = secret;
   process.env.TURSO_DATABASE_URL = dbUrl;
@@ -187,8 +199,13 @@ describe("the old LeetCode-proof sign-up is gone", () => {
       assert.equal(res.status, 404, url);
       assert.equal(res.cookie, null, url);
     }
-    const rows = await db.client.execute("SELECT COUNT(*) AS n FROM pending_registrations");
-    assert.equal(Number(rows.rows[0].n), 0);
+    const c = createClient({ url: dbUrl });
+    try {
+      const rows = await c.execute("SELECT COUNT(*) AS n FROM pending_registrations");
+      assert.equal(Number(rows.rows[0].n), 0);
+    } finally {
+      c.close();
+    }
   });
 });
 

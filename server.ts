@@ -7,7 +7,7 @@ import path from "path";
 import fs from "fs";
 import "dotenv/config";
 import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./src/types.js";
-import { notifyNewAwards } from "./notifications.js";
+import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
@@ -18,6 +18,9 @@ import {
   getUserById,
   getUserAuthByLoginUsername,
   getLinkedHandle,
+  findLeetcodeOwner,
+  linkLeetcodeAccount,
+  unlinkLeetcodeAccount,
   getResetFreeze,
   createSecurityNotice,
   createPendingReset,
@@ -1654,11 +1657,190 @@ app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, asyn
     if (!(await removePlatformAccount(id, platform.id))) {
       return res.status(404).json({ error: `You don't have a ${platform.label} account linked.` });
     }
+    logSecurityEvent("platform_unlinked", { ip: req.ip, userId: id, platform: platform.id }, "info");
     const updated = await userJson(id);
     if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] unlink failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// Linking a LeetCode account. LeetCode is optional: a member signs up with just a
+// username and password and can attach one afterwards. Because anyone could type
+// any LeetCode username, it takes proof that the profile is theirs: a one-time
+// code in the profile Summary, read back from LeetCode itself.
+//
+// POST start: pick the username, get the code.
+app.post("/api/account/leetcode/start", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const handle = parseLeetCodeUsername((req.body as any)?.leetcodeUsername);
+    if (!handle) {
+      return res.status(400).json({ error: "Enter a valid LeetCode username (letters, numbers, _ . - only)." });
+    }
+    const me = await getUserById(id);
+    if (!me) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (me.leetcodeLinked) {
+      return res.status(409).json({ error: "You already have a LeetCode account linked. Remove it first to link a different one." });
+    }
+    if (await findLeetcodeOwner(handle)) {
+      return res.status(409).json({ error: "That LeetCode account is already linked to another member." });
+    }
+
+    // The proof comes from LeetCode itself, never from a third-party mirror.
+    const lookup = await fetchLeetCodeAbout(handle);
+    if (lookup.status === "unavailable") {
+      logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" });
+      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+    }
+    if (lookup.status === "not_found") {
+      return res.status(404).json({ error: "We couldn't find that LeetCode account. Check the spelling." });
+    }
+
+    await purgeExpiredPendingLinks(new Date().toISOString());
+    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
+    await createPendingLink({
+      userId: id,
+      platform: "leetcode",
+      handle: lookup.username,
+      code,
+      expiresAt: new Date(Date.now() + LINK_TTL_MS).toISOString()
+    });
+    logSecurityEvent("ownership_started", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" }, "info");
+    res.json({
+      code,
+      platform: "leetcode",
+      handle: lookup.username,
+      instructions: LEETCODE_PROOF_HELP,
+      expiresInMinutes: LINK_TTL_MS / 60_000
+    });
+  } catch (error: any) {
+    console.error(`[Account] LeetCode link start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST verify: reads the profile; if the code is there, links the account and
+// starts tracking from now.
+app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const pending = await getPendingLink(id, "leetcode");
+    if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
+      if (pending) await deletePendingLink(id, "leetcode");
+      return res.status(400).json({ error: "This link request has expired. Please start again.", expired: true });
+    }
+    if (pending.attempts >= MAX_LINK_ATTEMPTS) {
+      await deletePendingLink(id, "leetcode");
+      return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
+    }
+    const me = await getUserById(id);
+    if (!me) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (me.leetcodeLinked) {
+      await deletePendingLink(id, "leetcode");
+      return res.status(409).json({ error: "You already have a LeetCode account linked." });
+    }
+
+    const lookup = await fetchLeetCodeAbout(pending.handle);
+    if (lookup.status === "unavailable") {
+      logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" });
+      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+    }
+    if (lookup.status === "not_found") {
+      await deletePendingLink(id, "leetcode");
+      return res.status(404).json({ error: "That LeetCode account no longer exists." });
+    }
+    if (!lookup.aboutMe.toLowerCase().includes(pending.code.toLowerCase())) {
+      await bumpPendingLinkAttempts(id, "leetcode");
+      logSecurityEvent("ownership_failed", {
+        ip: req.ip,
+        userId: id,
+        platform: "leetcode",
+        purpose: "link",
+        attempts: pending.attempts + 1
+      });
+      return res.status(400).json({
+        error: "We couldn't find the code on your LeetCode profile yet. Save it in the Summary, wait a few seconds, then try again."
+      });
+    }
+
+    // Ownership proven. Read the real stats BEFORE spending the challenge, so a
+    // flaky moment at LeetCode doesn't make them start over.
+    let stats: Awaited<ReturnType<typeof scrapeLeetCodeProfile>>;
+    try {
+      stats = await scrapeLeetCodeProfile(pending.handle);
+    } catch (err: any) {
+      if (err instanceof LeetCodeUserNotFoundError) {
+        await deletePendingLink(id, "leetcode");
+        return res.status(404).json({ error: "That LeetCode account no longer exists." });
+      }
+      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+    }
+    const [contest, streaks] = await Promise.all([fetchContestRating(pending.handle), fetchStreaks(pending.handle, null)]);
+
+    // Take the challenge atomically, so two requests can't both link.
+    if (!(await consumePendingLink(id, "leetcode"))) {
+      return res.status(400).json({ error: "This link request was already used or has expired. Please start again.", expired: true });
+    }
+    const now = new Date();
+    let linked: boolean;
+    try {
+      linked = await linkLeetcodeAccount(id, {
+        leetcodeUsername: pending.handle,
+        avatarUrl: stats.avatarUrl ?? null,
+        allTimeSolved: stats.allTimeSolved,
+        easySolved: stats.easySolved,
+        mediumSolved: stats.mediumSolved,
+        hardSolved: stats.hardSolved,
+        contestRating: contest?.rating ?? null,
+        contestsAttended: contest?.attended ?? 0,
+        currentStreak: streaks?.current ?? null,
+        longestStreak: streaks?.longest ?? null,
+        today: now.toISOString().split("T")[0],
+        nowIso: now.toISOString()
+      });
+    } catch (err: any) {
+      if (String(err?.message).includes("UNIQUE")) {
+        // Another member linked this username between the start and now.
+        return res.status(409).json({ error: "That LeetCode account was just linked to another member." });
+      }
+      throw err;
+    }
+    if (!linked) return res.status(409).json({ error: "You already have a LeetCode account linked." });
+
+    // What they already hold when they link isn't news; only later awards notify.
+    const updated = await getUserById(id);
+    if (updated) {
+      try {
+        await baselineNewMember(updated, await listUsers());
+      } catch (err: any) {
+        console.warn(`[Notifications] Baseline failed: ${err.message}`);
+      }
+    }
+    logSecurityEvent("ownership_verified", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" }, "info");
+    res.status(201).json(await userJson(id));
+  } catch (error: any) {
+    console.error(`[Account] LeetCode link verify failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// DELETE: unlink. Removes the LeetCode stats, history and sync status; the
+// member, their other linked accounts and their settings stay.
+app.delete("/api/account/leetcode", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    if (!(await unlinkLeetcodeAccount(id))) {
+      return res.status(404).json({ error: "You don't have a LeetCode account linked." });
+    }
+    logSecurityEvent("platform_unlinked", { ip: req.ip, userId: id, platform: "leetcode" }, "info");
+    const updated = await userJson(id);
+    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    res.json(updated);
+  } catch (error: any) {
+    console.error(`[Account] LeetCode unlink failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });

@@ -190,7 +190,8 @@ CREATE TABLE platform_history (
 CREATE INDEX idx_platform_history_date ON platform_history(date);
 
 -- A request to link an account, waiting for the member to put `code` in the
--- profile of that account. One open request per member per platform.
+-- profile of that account. One open request per member per platform. `platform`
+-- is 'leetcode' (the account on the member's own row) or an extra platform.
 CREATE TABLE pending_links (
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   platform    TEXT NOT NULL,

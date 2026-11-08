@@ -1,12 +1,18 @@
 // Preloaded into the TEST server process only (NODE_OPTIONS=--import <this file>).
 //
-// Answers the one LeetCode call the ownership check makes
-// (POST https://leetcode.com/graphql, matchedUser) from files in
+// Answers the LeetCode calls (POST https://leetcode.com/graphql) from files in
 // $FAKE_LEETCODE_DIR, so tests can prove "the person really did put the code in
-// their LeetCode summary" without touching the network:
+// their LeetCode summary", and link an account, without touching the network:
 //
 //   <dir>/<username lower-cased>.txt  -> the user exists, summary = file content
-//   no such file                      -> LeetCode says the user doesn't exist
+//   <dir>/<username lower-cased>.stats.json (optional)
+//                                     -> {"all","easy","medium","hard"} solved
+//                                        counts (default 42 / 20 / 15 / 7)
+//   no .txt file                      -> LeetCode says the user doesn't exist
+//
+// Which question is being asked is told apart by its query text: the profile
+// summary (default), solved counts, contest rating (always "never entered") and
+// the submission calendar (always empty).
 //
 // The profile lookups behind "link / recover with Codeforces or CodinGame" are
 // faked the same way, from files in $FAKE_PLATFORM_DIR:
@@ -29,13 +35,40 @@ globalThis.fetch = async (input, init) => {
     const { variables } = JSON.parse(String(init?.body ?? "{}"));
     const name = String(variables?.username ?? "");
     const file = path.join(process.env.FAKE_LEETCODE_DIR, `${name.toLowerCase()}.txt`);
-    const matchedUser = fs.existsSync(file)
-      ? { username: name, profile: { aboutMe: fs.readFileSync(file, "utf8") } }
-      : null;
-    return new Response(JSON.stringify({ data: { matchedUser } }), {
-      status: 200,
-      headers: { "content-type": "application/json" }
-    });
+    const exists = fs.existsSync(file);
+    const query = String(JSON.parse(String(init?.body ?? "{}")).query ?? "");
+    const reply = (data) =>
+      new Response(JSON.stringify({ data }), { status: 200, headers: { "content-type": "application/json" } });
+
+    if (query.includes("submitStatsGlobal")) {
+      const statsFile = path.join(process.env.FAKE_LEETCODE_DIR, `${name.toLowerCase()}.stats.json`);
+      const s = fs.existsSync(statsFile)
+        ? JSON.parse(fs.readFileSync(statsFile, "utf8"))
+        : { all: 42, easy: 20, medium: 15, hard: 7 };
+      return reply({
+        matchedUser: exists
+          ? {
+              profile: { userAvatar: "https://assets.leetcode.com/users/fake/avatar.png" },
+              submitStatsGlobal: {
+                acSubmissionNum: [
+                  { difficulty: "All", count: s.all },
+                  { difficulty: "Easy", count: s.easy },
+                  { difficulty: "Medium", count: s.medium },
+                  { difficulty: "Hard", count: s.hard }
+                ]
+              }
+            }
+          : null
+      });
+    }
+    if (query.includes("userContestRanking")) return reply({ userContestRanking: null });
+    if (query.includes("userProfileCalendar")) {
+      return reply({
+        matchedUser: exists ? { userCalendar: { activeYears: [], streak: 0, submissionCalendar: "{}" } } : null
+      });
+    }
+    const matchedUser = exists ? { username: name, profile: { aboutMe: fs.readFileSync(file, "utf8") } } : null;
+    return reply({ matchedUser });
   }
   const platformDir = process.env.FAKE_PLATFORM_DIR;
   if (platformDir && url.startsWith("https://codeforces.com/api/user.info?")) {

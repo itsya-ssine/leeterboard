@@ -1346,7 +1346,7 @@ export async function recordPlatformSyncResult(userId: string, platform: Platfor
 
 export interface PendingLink {
   userId: string;
-  platform: PlatformId;
+  platform: RecoveryPlatform; // 'leetcode' or an extra platform
   handle: string;
   code: string;
   attempts: number;
@@ -1363,7 +1363,7 @@ export async function createPendingLink(p: Omit<PendingLink, "attempts">): Promi
   });
 }
 
-export async function getPendingLink(userId: string, platform: PlatformId): Promise<PendingLink | null> {
+export async function getPendingLink(userId: string, platform: RecoveryPlatform): Promise<PendingLink | null> {
   const res = await client.execute({
     sql: "SELECT * FROM pending_links WHERE user_id = ? AND platform = ?",
     args: [userId, platform]
@@ -1372,7 +1372,7 @@ export async function getPendingLink(userId: string, platform: PlatformId): Prom
   const r = res.rows[0] as unknown as Record<string, unknown>;
   return {
     userId: r.user_id as string,
-    platform: r.platform as PlatformId,
+    platform: r.platform as RecoveryPlatform,
     handle: r.handle as string,
     code: r.code as string,
     attempts: Number(r.attempts ?? 0),
@@ -1380,19 +1380,19 @@ export async function getPendingLink(userId: string, platform: PlatformId): Prom
   };
 }
 
-export async function bumpPendingLinkAttempts(userId: string, platform: PlatformId): Promise<void> {
+export async function bumpPendingLinkAttempts(userId: string, platform: RecoveryPlatform): Promise<void> {
   await client.execute({
     sql: "UPDATE pending_links SET attempts = attempts + 1 WHERE user_id = ? AND platform = ?",
     args: [userId, platform]
   });
 }
 
-export async function deletePendingLink(userId: string, platform: PlatformId): Promise<void> {
+export async function deletePendingLink(userId: string, platform: RecoveryPlatform): Promise<void> {
   await client.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?", args: [userId, platform] });
 }
 
 // Atomic single-use take: true for exactly one caller.
-export async function consumePendingLink(userId: string, platform: PlatformId): Promise<boolean> {
+export async function consumePendingLink(userId: string, platform: RecoveryPlatform): Promise<boolean> {
   const res = await client.execute({
     sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?",
     args: [userId, platform]
@@ -1852,6 +1852,131 @@ export async function approveReset(userId: string): Promise<boolean> {
     args: [userId]
   });
   return (leetcode.rowsAffected ?? 0) + (others.rowsAffected ?? 0) > 0;
+}
+
+/* ---------- Linking and unlinking LeetCode ---------- */
+
+// The member who has this LeetCode username, if any. Case-insensitive, like
+// the unique index on it.
+export async function findLeetcodeOwner(leetcodeUsername: string): Promise<string | null> {
+  const res = await client.execute({
+    sql: "SELECT id FROM users WHERE lower(leetcode_username) = lower(?)",
+    args: [leetcodeUsername]
+  });
+  return res.rows.length ? (res.rows[0].id as string) : null;
+}
+
+export interface LeetcodeLinkData {
+  leetcodeUsername: string;
+  avatarUrl: string | null; // LeetCode's picture; null keeps the member's current one
+  allTimeSolved: number;
+  easySolved: number;
+  mediumSolved: number;
+  hardSolved: number;
+  contestRating: number | null;
+  contestsAttended: number;
+  currentStreak: number | null;
+  longestStreak: number | null;
+  today: string; // UTC day, YYYY-MM-DD
+  nowIso: string;
+}
+
+// Attaches a LeetCode account to a member who has none, and starts tracking from
+// now: what they have already solved is their baseline and never counts towards
+// progress, everything solved from this moment on does. Writes the first history
+// snapshot in the same transaction. Returns false (changing nothing) when the
+// member already has a LeetCode account; throws on a UNIQUE violation when
+// someone else got that username first.
+export async function linkLeetcodeAccount(userId: string, d: LeetcodeLinkData): Promise<boolean> {
+  const tx = await client.transaction("write");
+  try {
+    const res = await tx.execute({
+      sql: `UPDATE users SET
+              leetcode_username = ?, avatar_url = COALESCE(?, avatar_url),
+              all_time_solved = ?, easy_solved = ?, medium_solved = ?, hard_solved = ?,
+              weekly_progress = 0, monthly_progress = 0,
+              last_updated = ?, tracking_start = ?, baseline_solved = ?,
+              contest_rating = ?, contests_attended = ?, current_streak = ?, longest_streak = ?
+            WHERE id = ? AND leetcode_username IS NULL`,
+      args: [
+        d.leetcodeUsername,
+        d.avatarUrl,
+        d.allTimeSolved,
+        d.easySolved,
+        d.mediumSolved,
+        d.hardSolved,
+        d.nowIso,
+        d.today,
+        d.allTimeSolved,
+        d.contestRating,
+        d.contestsAttended,
+        d.currentStreak,
+        d.longestStreak,
+        userId
+      ]
+    });
+    if ((res.rowsAffected ?? 0) === 0) {
+      await tx.rollback();
+      return false;
+    }
+    await tx.execute(
+      upsertSnapshot(userId, {
+        date: d.today,
+        solvedCount: d.allTimeSolved,
+        easy: d.easySolved,
+        medium: d.mediumSolved,
+        hard: d.hardSolved,
+        weeklyProgress: 0
+      })
+    );
+    await tx.execute({ sql: "DELETE FROM sync_status WHERE user_id = ?", args: [userId] });
+    await tx.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = 'leetcode'", args: [userId] });
+    await tx.commit();
+    return true;
+  } catch (err) {
+    try {
+      await tx.rollback();
+    } catch {
+      /* already rolled back */
+    }
+    throw err;
+  }
+}
+
+// Detaches the member's LeetCode account and everything stored for it: the
+// stats, history and sync status. The member and everything else (their other
+// linked accounts, awards, notifications, settings) stay. Returns false when
+// they had none.
+export async function unlinkLeetcodeAccount(userId: string): Promise<boolean> {
+  const tx = await client.transaction("write");
+  try {
+    const res = await tx.execute({
+      sql: `UPDATE users SET
+              leetcode_username = NULL,
+              all_time_solved = 0, easy_solved = 0, medium_solved = 0, hard_solved = 0,
+              weekly_progress = 0, monthly_progress = 0,
+              last_updated = NULL, tracking_start = '', baseline_solved = 0,
+              contest_rating = NULL, contests_attended = 0, current_streak = NULL, longest_streak = NULL
+            WHERE id = ? AND leetcode_username IS NOT NULL`,
+      args: [userId]
+    });
+    if ((res.rowsAffected ?? 0) === 0) {
+      await tx.rollback();
+      return false;
+    }
+    await tx.execute({ sql: "DELETE FROM history WHERE user_id = ?", args: [userId] });
+    await tx.execute({ sql: "DELETE FROM sync_status WHERE user_id = ?", args: [userId] });
+    await tx.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = 'leetcode'", args: [userId] });
+    await tx.commit();
+    return true;
+  } catch (err) {
+    try {
+      await tx.rollback();
+    } catch {
+      /* already rolled back */
+    }
+    throw err;
+  }
 }
 
 /* ---------- Password reset challenges ---------- */

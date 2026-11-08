@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
+import { createClient } from "@libsql/client";
 import { client, startServer, type TestServer } from "./helpers.js";
 import { makeFakeLeetCode, makeUser } from "./f2-seed.js";
 
@@ -20,6 +21,7 @@ const OLD_PW = "the-old-password-1";
 const NEW_PW = "a-brand-new-password-42";
 
 let tmpDir = "";
+let dbUrl = "";
 let server: TestServer;
 let api: ReturnType<typeof client>;
 let db: typeof import("../db.js");
@@ -45,12 +47,21 @@ const start = (body: Record<string, unknown>) => api("POST", "/api/auth/reset/st
 const verify = (cookie: string | null) => api("POST", "/api/auth/reset/verify", { cookie });
 const login = (username: string, password: string) => api("POST", "/api/auth/login", { body: { username, password } });
 const resetCookieOf = (res: { headers: Headers }) => res.headers.get("set-cookie")?.match(/pwreset=[^;]+/)?.[0] ?? null;
-const pendingCount = async () => Number((await db.client.execute("SELECT COUNT(*) AS n FROM pending_resets")).rows[0].n);
+// A fresh connection per read, like a separate process: a long-lived one could
+// keep reading an old snapshot and make "nothing was stored" pass for the wrong reason.
+const pendingCount = async () => {
+  const c = createClient({ url: dbUrl });
+  try {
+    return Number((await c.execute("SELECT COUNT(*) AS n FROM pending_resets")).rows[0].n);
+  } finally {
+    c.close();
+  }
+};
 
 before(async () => {
   const secret = crypto.randomBytes(48).toString("hex");
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "leeterboard-reset-blocked-"));
-  const dbUrl = `file:${path.join(tmpDir, "test.db")}`;
+  dbUrl = `file:${path.join(tmpDir, "test.db")}`;
 
   process.env.JWT_SECRET = secret;
   process.env.TURSO_DATABASE_URL = dbUrl;

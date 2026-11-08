@@ -46,6 +46,10 @@ export function makeFakeLeetCode() {
     setAbout(username: string, about: string) {
       fs.writeFileSync(path.join(dir, `${username.toLowerCase()}.txt`), about);
     },
+    // The solved counts LeetCode reports for `username` (default 42 / 20 / 15 / 7).
+    setStats(username: string, stats: { all: number; easy: number; medium: number; hard: number }) {
+      fs.writeFileSync(path.join(dir, `${username.toLowerCase()}.stats.json`), JSON.stringify(stats));
+    },
     // Makes `username` stop existing on "LeetCode" (renamed or deleted).
     removeAbout(username: string) {
       fs.rmSync(path.join(dir, `${username.toLowerCase()}.txt`), { force: true });

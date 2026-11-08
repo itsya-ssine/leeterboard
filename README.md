@@ -363,6 +363,9 @@ All endpoints live under `/api`.
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |
 | PATCH | `/api/account/profile` | Member | Change display name, school, bio, links and/or the hide-LeetCode-stats setting |
+| POST | `/api/account/leetcode/start` | Member, rate limited | Start linking a LeetCode account (optional) and get the proof code to put in its profile Summary |
+| POST | `/api/account/leetcode/verify` | Member, rate limited | Verify the code, link the account and start tracking from now |
+| DELETE | `/api/account/leetcode` | Member | Unlink LeetCode and delete its stats and history; the member stays |
 | POST | `/api/account/platforms/:platform/start` | Member | Start linking a Codeforces or CodinGame account and get the proof code |
 | POST | `/api/account/platforms/:platform/verify` | Member | Verify the proof code and finish linking |
 | PATCH | `/api/account/platforms/:platform` | Member | Show or hide a linked account. Body `{ "hidden": boolean }` |
