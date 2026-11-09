@@ -26,8 +26,10 @@ export interface PlatformAccount {
   extra: Record<string, unknown>;
   linkedAt: string;
   lastUpdated: string | null; // last successful sync; null = linked but not synced yet
-  // The member chose to hide this platform from other members. Only the member
-  // and admins ever receive a hidden account, so for everyone else it is absent.
+  // The member chose to hide this platform's details on their profile. Other
+  // members still receive the account, because the leaderboard and trends count
+  // it, but without the day-by-day series; the profile page doesn't show it to
+  // them. The member and admins get everything.
   hidden: boolean;
 }
 

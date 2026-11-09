@@ -23,6 +23,10 @@
 //                                                 "tagline" = file content
 //   no such file                               -> the platform says "not found"
 //
+// An existing handle also has fixed stats, so a first sync after linking works:
+// Codeforces: rating 1250 (max 1300, "pupil"), 2 rated contests and 3 solved
+// problems rated 800 / 1300 / 1900. CodinGame: 5000 XP, level 12, rank 345.
+//
 // Every other request goes to the real fetch.
 import fs from "node:fs";
 import path from "node:path";
@@ -81,8 +85,42 @@ globalThis.fetch = async (input, init) => {
       });
     }
     return new Response(
-      JSON.stringify({ status: "OK", result: [{ handle, organization: fs.readFileSync(file, "utf8") }] }),
+      JSON.stringify({
+        status: "OK",
+        result: [
+          {
+            handle,
+            organization: fs.readFileSync(file, "utf8"),
+            rating: 1250,
+            maxRating: 1300,
+            rank: "pupil"
+          }
+        ]
+      }),
       { status: 200, headers: { "content-type": "application/json" } }
+    );
+  }
+  if (platformDir && (url.startsWith("https://codeforces.com/api/user.rating?") || url.startsWith("https://codeforces.com/api/user.status?"))) {
+    const method = url.includes("user.rating?") ? "rating" : "status";
+    const handle = new URL(url).searchParams.get("handle") ?? "";
+    const exists = fs.existsSync(path.join(platformDir, "codeforces", `${handle.toLowerCase()}.txt`));
+    const ok = (result) =>
+      new Response(JSON.stringify({ status: "OK", result }), { status: 200, headers: { "content-type": "application/json" } });
+    if (!exists) {
+      return new Response(JSON.stringify({ status: "FAILED", comment: `handle: User with handle ${handle} not found` }), {
+        status: 400,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (method === "rating") return ok([{ contestId: 1 }, { contestId: 2 }]);
+    const now = Math.floor(Date.now() / 1000);
+    return ok(
+      [800, 1300, 1900].map((rating, i) => ({
+        contestId: 1001 + i,
+        creationTimeSeconds: now - 3600 * (i + 1),
+        verdict: "OK",
+        problem: { contestId: 1001 + i, index: "A", rating }
+      }))
     );
   }
   if (platformDir && url === "https://www.codingame.com/services/CodinGamer/findCodingamePointsStatsByHandle") {
@@ -90,7 +128,12 @@ globalThis.fetch = async (input, init) => {
     const file = path.join(platformDir, "codingame", `${String(handle).toLowerCase()}.txt`);
     if (!fs.existsSync(file)) return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
     return new Response(
-      JSON.stringify({ codingamer: { publicHandle: String(handle), tagline: fs.readFileSync(file, "utf8") }, xp: 0 }),
+      JSON.stringify({
+        codingamer: { publicHandle: String(handle), tagline: fs.readFileSync(file, "utf8") },
+        xp: 5000,
+        level: 12,
+        rank: 345
+      }),
       { status: 200, headers: { "content-type": "application/json" } }
     );
   }

@@ -191,14 +191,18 @@ Logged-in members click their name in the header and choose **Account settings**
 
 ## Linked accounts
 
-From **Account settings**, a member can link a Codeforces or CodinGame account on top of their LeetCode one:
+Signing up needs only a username and a password. Everything else is optional: from **Account settings**, a member can link any of **LeetCode**, **Codeforces** and **CodinGame**, in any combination (none, one, or all three), and remove them again.
 
 1. Choose the platform and enter the handle.
-2. Copy the one-time code (valid for 30 minutes) and paste it where the page says: the Organization field on Codeforces, the Tagline on CodinGame.
+2. Copy the one-time code (valid for 30 minutes) and paste it where the page says: the Summary on LeetCode, the Organization field on Codeforces, the Tagline on CodinGame.
 3. Press **Verify**. The app reads the public profile and looks for the code.
 4. Remove the code from the profile afterwards if you like.
 
-A handle can belong to at most one member. A linked account can be unlinked at any time, or hidden from other members (the owner and admins still see it). Hidden accounts are removed from other people's views of the board, profiles and trends by the server, not just the interface.
+A handle can belong to at most one member. Linking LeetCode starts tracking from that moment: what the member already solved is their starting point and doesn't count towards weekly or monthly progress, and badges they already hold don't arrive as notifications. Unlinking LeetCode deletes its stats and history; the member and their other linked accounts stay.
+
+A linked account can be unlinked at any time, or hidden on the member's profile. A hidden account still counts on the leaderboard and in the trends; other members' browsers receive it flagged as hidden and without the day-by-day series, and the profile page doesn't show it. The owner and admins see everything.
+
+A linked account is also how a forgotten password is recovered (see [Security and operations](docs/security-operations.md)): a member with none linked can only change their password by entering the old one, or ask an admin to remove the account.
 
 ## Badges and tiers
 
