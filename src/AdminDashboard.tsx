@@ -23,8 +23,8 @@ const HEALTH_ORDER: Health[] = ["not_found", "failing", "stale", "unknown", "ok"
 function healthOf(m: AdminSyncMember, now: number): Health {
   if (m.state === "not_found") return "not_found";
   if (m.state === "unavailable") return "failing";
-  // A member without LeetCode, or one never synced, has no sync age to judge.
-  const age = m.leetcodeLinked && m.lastUpdated ? now - Date.parse(m.lastUpdated) : NaN;
+  // A member who has never synced has no sync age to judge.
+  const age = m.lastUpdated ? now - Date.parse(m.lastUpdated) : NaN;
   if (Number.isFinite(age) && age > STALE_AFTER_MS) return "stale";
   if (m.state === "unknown") return "unknown";
   return "ok";

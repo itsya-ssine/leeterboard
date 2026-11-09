@@ -262,15 +262,15 @@ The theme is driven by CSS variables in `src/index.css`:
 
 ## Data syncing
 
-On a server that stays running, all members are refreshed every 30 minutes. On Vercel there is no background job, so the board syncs itself when someone visits: if it was last synced more than 30 minutes ago, the page asks the server to refresh the stale members (a few at a time, within a short time budget, continuing on the next visit if needed). The same pass refreshes linked Codeforces and CodinGame accounts with whatever time is left.
+On a server that stays running, all members who linked LeetCode are refreshed every 30 minutes. On Vercel there is no background job, so the board syncs itself when a member opens it: if it was last synced more than 30 minutes ago, the page asks the server to refresh the stale members (a few at a time, within a short time budget, continuing on the next visit if needed). The same pass refreshes linked Codeforces and CodinGame accounts (including those of members who never linked LeetCode) with whatever time is left. A member without a LeetCode account is never fetched from LeetCode: there is nothing to fetch, and they aren't ranked.
 
-An admin can force a full refresh with the **Sync all** button, and any visitor can refresh a single member (rate limited).
+An admin can force a full refresh with the **Sync all** button, or refresh a single member (rate limited). For a member without LeetCode that refreshes just their other linked accounts.
 
 Each sync reads LeetCode's public data for easy / medium / hard counts, streaks, contest rating and the avatar, then stores one cumulative snapshot for that UTC day. The newest 60 days are kept per member.
 
 ## Sync health (admins)
 
-Admins get a **Sync health** page (`#/admin`) in the navbar. It shows each member's last successful sync and last attempt, who is failing to sync and for how long, and the last error. A member whose LeetCode account was removed or renamed is flagged as "Account not found" (LeetCode confirmed the username doesn't exist), which is different from LeetCode simply not answering. From there an admin can retry a sync or remove the member. The page also holds the **Send a message** form and the list of messages sent, with how many members received and read each.
+Admins get a **Sync health** page (`#/admin`) in the navbar. It lists the members who have linked LeetCode (those without have nothing to sync) with each one's last successful sync and last attempt, who is failing to sync and for how long, and the last error. A member whose LeetCode account was removed or renamed is flagged as "Account not found" (LeetCode confirmed the username doesn't exist), which is different from LeetCode simply not answering. From there an admin can retry a sync or remove the member. The page also holds the **Send a message** form and the list of messages sent, with how many members received and read each.
 
 The data comes from a `sync_status` table that every sync attempt writes to, served through the admin-only `GET /api/admin/sync-status`. Linked platforms record the same information in `platform_sync_status`.
 
@@ -305,7 +305,7 @@ Changes to an existing database are versioned migrations in `db.ts` (`MIGRATIONS
 
 ## Notifications
 
-After every sync the server works out each member's badges and weekly wins and compares them with the `user_awards` ledger. Anything not in the ledger is new: it is announced once as a row in `notifications`.
+After every sync the server works out the badges and weekly wins of the members who linked LeetCode (badges and wins are LeetCode-based) and compares them with the `user_awards` ledger. Anything not in the ledger is new: it is announced once as a row in `notifications`.
 
 - A member's **first check is silent**: it only records what they already hold, so nothing is announced on the day this ships and a new member isn't congratulated for what they walked in with.
 - Each contest tier is its own award; **weekly champion** is the achievement.
@@ -354,7 +354,7 @@ All endpoints live under `/api`.
 
 | Method | Endpoint | Access | Description |
 | --- | --- | --- | --- |
-| GET | `/api/users` | Members | Leaderboard data, ranks, weekly winners and the last full sync time. Linked accounts a member has hidden are left out unless the viewer is that member or an admin |
+| GET | `/api/users` | Members | Leaderboard data, ranks, weekly winners and the last full sync time. Members without LeetCode come last and unranked (`rank` 0). A linked account a member has hidden is flagged `hidden` and sent without its day-by-day series, unless the viewer is that member or an admin |
 | GET | `/api/trends` | Members | LeetCode group trend, difficulty breakdown and top solver of the week |
 | GET | `/api/trends?platform=codeforces` | Members | The same shape, built from linked Codeforces accounts |
 | GET | `/api/trends?platform=codingame` | Members | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
@@ -379,7 +379,7 @@ All endpoints live under `/api`.
 | GET | `/api/notifications` and related | Member | See [Notification API](#notification-api) |
 | POST | `/api/refresh-all` | Admin | Refresh every member |
 | DELETE | `/api/users/:id` | Admin | Remove a member |
-| GET | `/api/admin/sync-status` | Admin | Per-member sync health |
+| GET | `/api/admin/sync-status` | Admin | LeetCode sync health, one row per member who linked LeetCode |
 | GET / POST | `/api/admin/notifications` | Admin | See [Notification API](#notification-api) |
 | POST | `/api/feedback` | Public, rate limited | Send feedback; see [Feedback](#feedback) |
 | GET / PATCH / DELETE | `/api/admin/feedback` | Admin | Read and manage the feedback inbox; see [Feedback](#feedback) |

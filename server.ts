@@ -19,6 +19,7 @@ import {
   getUserAuthByLoginUsername,
   getLinkedHandle,
   findLeetcodeOwner,
+  leetcodeLinkedUsers,
   linkLeetcodeAccount,
   unlinkLeetcodeAccount,
   getResetFreeze,
@@ -159,18 +160,23 @@ app.use((req, res, next) => {
 
 // Utility to calculate ranks and progress metrics
 function sortAndRankUsers(users: User[]) {
-  // We sort primarily by Weekly Progress (to encourage active, weekly problem solving momentum!)
-  // In case of a tie, we sort by All-Time solved counts
+  // The ranking is the LeetCode board, so only members with a LeetCode account
+  // take part: they come first, by Weekly Progress (to encourage active, weekly
+  // problem solving momentum!) and, in case of a tie, by All-Time solved counts.
+  // Members without LeetCode follow, unranked (rank 0) and never ahead of
+  // anyone, not even a linked member who has solved nothing yet.
   users.sort((a, b) => {
+    if (a.leetcodeLinked !== b.leetcodeLinked) return a.leetcodeLinked ? -1 : 1;
     if (b.weeklyProgress !== a.weeklyProgress) {
       return b.weeklyProgress - a.weeklyProgress;
     }
     return b.allTimeSolved - a.allTimeSolved;
   });
 
-  users.forEach((u, index) => {
-    u.rank = index + 1;
-  });
+  let rank = 0;
+  for (const u of users) {
+    u.rank = u.leetcodeLinked ? ++rank : 0;
+  }
 }
 
 // Fetches real solved-problem counts for a LeetCode username.
@@ -674,9 +680,10 @@ const WINNERS_META_KEY = "weeklyWinners";
 // (or even slow down the error path of) a sync or a sign-up.
 async function checkNewAwards(users?: User[]): Promise<void> {
   try {
-    // Group badges depend on everyone, so look at the whole board.
+    // Group badges depend on everyone on the LeetCode board, so look at all of
+    // it. A member without LeetCode has no LeetCode badges to earn or compare.
     const board = users ?? (await listUsers());
-    await notifyNewAwards(board, await resolveWinners(board));
+    await notifyNewAwards(leetcodeLinkedUsers(board), await resolveWinners(board));
   } catch (err: any) {
     console.warn(`[Notifications] Award check failed: ${err.message}`);
   }
@@ -688,8 +695,9 @@ async function resolveWinners(users: User[]): Promise<WeeklyWinner[]> {
   if (users.length === 0) return [];
   try {
     const stored = parseWinnerArchive(await getMeta(WINNERS_META_KEY));
-    const merged = mergeWinnerArchive(stored, computeWeeklyWinners(users, Date.now()));
-    // Members who left the board take their wins with them.
+    const merged = mergeWinnerArchive(stored, computeWeeklyWinners(leetcodeLinkedUsers(users), Date.now()));
+    // Members who left the site take their wins with them. (Everyone counts
+    // here, not only members with LeetCode: unlinking LeetCode isn't leaving.)
     const ids = new Set(users.map((u) => u.id));
     const kept = merged.filter((w) => ids.has(w.userId));
     if (JSON.stringify(kept) !== JSON.stringify(stored)) {
@@ -1814,7 +1822,7 @@ app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req,
     const updated = await getUserById(id);
     if (updated) {
       try {
-        await baselineNewMember(updated, await listUsers());
+        await baselineNewMember(updated, leetcodeLinkedUsers(await listUsers()));
       } catch (err: any) {
         console.warn(`[Notifications] Baseline failed: ${err.message}`);
       }
@@ -1963,6 +1971,19 @@ app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res
       return res.status(404).json({ error: "User not found." });
     }
 
+    // No LeetCode account, nothing to fetch from LeetCode (and no username to
+    // fetch it with): refresh only the other accounts this member has linked.
+    if (!user.leetcodeLinked) {
+      try {
+        await syncPlatformAccountsForUser(user.id);
+      } catch (err: any) {
+        console.warn(`[Refresh] Linked accounts failed for ${user.displayName}: ${err.message}`);
+      }
+      user.platforms = await getPlatformAccounts(user.id);
+      res.vary("Cookie");
+      return res.json(withVisiblePlatforms(user, await viewerOf(req)));
+    }
+
     let scraped;
     let contest: ContestRating | null = null;
     let streaks: StreakInfo | null = null;
@@ -2084,16 +2105,20 @@ async function syncAllUsers(
 ): Promise<{ users: User[]; lastSyncAll: string; partial: boolean }> {
   const users = await listUsers();
 
-  let queue = users;
+  // Only members with a LeetCode account have anything to fetch from LeetCode
+  // (and a username to fetch it with). Everyone else's linked accounts are
+  // handled by the platform pass further down.
+  const onBoard = leetcodeLinkedUsers(users);
+  let queue = onBoard;
   if (opts.onlyStaleMs !== undefined) {
     const cutoff = Date.now() - opts.onlyStaleMs;
     // Never synced (lastUpdated null) counts as stale and goes first.
     const syncedAt = (u: User) => (u.lastUpdated ? Date.parse(u.lastUpdated) : 0) || 0;
-    queue = users
+    queue = onBoard
       .filter((u) => !(syncedAt(u) > cutoff))
       .sort((a, b) => syncedAt(a) - syncedAt(b));
   }
-  console.log(`[Sync All] Refreshing ${queue.length} of ${users.length} users.`);
+  console.log(`[Sync All] Refreshing ${queue.length} of ${onBoard.length} LeetCode members (${users.length} members in all).`);
 
   const startedAt = Date.now();
   let partial = false;
@@ -2241,10 +2266,11 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (req, res) => 
   }
 });
 
-// GET sync health for every member — admin only. Combines each member's last
-// successful fetch (users.last_updated) with the outcome of the latest attempt
-// (sync_status), so a member whose LeetCode account was removed or renamed
-// shows up as "not_found" instead of just quietly going stale.
+// GET LeetCode sync health — admin only. One row per member WITH a LeetCode
+// account (members without one have nothing to sync). Combines each member's
+// last successful fetch (users.last_updated) with the outcome of the latest
+// attempt (sync_status), so a member whose LeetCode account was removed or
+// renamed shows up as "not_found" instead of just quietly going stale.
 app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
   try {
     const [users, statuses, lastSyncAll] = await Promise.all([
@@ -2253,12 +2279,11 @@ app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
       getMeta("lastSyncAll")
     ]);
 
-    const members: AdminSyncMember[] = users.map((u) => {
+    const members: AdminSyncMember[] = leetcodeLinkedUsers(users).map((u) => {
       const s = statuses.get(u.id);
       return {
         id: u.id,
         displayName: u.displayName,
-        leetcodeLinked: u.leetcodeLinked,
         leetcodeUsername: u.leetcodeUsername,
         avatarUrl: u.avatarUrl,
         lastUpdated: u.lastUpdated,
@@ -2316,11 +2341,13 @@ app.get("/api/trends", requireAuth, async (req, res) => {
     // BEGAN, not the sum of everyone's lifetime totals. Each member is measured
     // against their own first snapshot, so a newly added member contributes 0
     // on the day they join and only their later solves count.
+    // Members without LeetCode have no LeetCode numbers to add to these.
+    const board = leetcodeLinkedUsers(users);
     const allDates = new Set<string>();
-    users.forEach(u => u.history.forEach(h => allDates.add(h.date)));
+    board.forEach(u => u.history.forEach(h => allDates.add(h.date)));
     const sortedDates = [...allDates].sort();
 
-    const perUser = users
+    const perUser = board
       .map(u => {
         const history = [...u.history].sort((a, b) => a.date.localeCompare(b.date));
         // Measured from the total they joined with when their first snapshot is
@@ -2353,7 +2380,7 @@ app.get("/api/trends", requireAuth, async (req, res) => {
     let easyTotal = 0;
     let mediumTotal = 0;
     let hardTotal = 0;
-    users.forEach(u => {
+    board.forEach(u => {
       easyTotal += u.easySolved;
       mediumTotal += u.mediumSolved;
       hardTotal += u.hardSolved;
@@ -2362,7 +2389,7 @@ app.get("/api/trends", requireAuth, async (req, res) => {
     // Top solver of the week
     let topSolver = "None";
     let topCount = 0;
-    users.forEach(u => {
+    board.forEach(u => {
       if (u.weeklyProgress > topCount) {
         topCount = u.weeklyProgress;
         topSolver = u.displayName;
@@ -2378,7 +2405,7 @@ app.get("/api/trends", requireAuth, async (req, res) => {
       ],
       topSolverThisWeek: topSolver,
       topSolverThisWeekCount: topCount,
-      totalSolved: users.reduce((acc, u) => acc + u.allTimeSolved, 0)
+      totalSolved: board.reduce((acc, u) => acc + u.allTimeSolved, 0)
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

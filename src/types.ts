@@ -116,7 +116,6 @@ export interface AdminSyncMember {
   displayName: string;
   leetcodeUsername: string;
   avatarUrl: string;
-  leetcodeLinked: boolean;
   lastUpdated: string | null; // last *successful* fetch; null = never
   lastAttempt: string | null;
   state: SyncState | "unknown";
