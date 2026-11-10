@@ -137,7 +137,7 @@ router.post("/admin/notifications", accountLimiter, requireAdmin, async (req, re
     }
     logSecurityEvent(
       "admin_message_sent",
-      { ip: req.ip, adminId: sender.id, admin: sender.leetcodeUsername, to: to === "all" ? "all" : to, recipients: sent },
+      { ip: req.ip, adminId: sender.id, admin: sender.loginUsername, to: to === "all" ? "all" : to, recipients: sent },
       "info"
     );
     res.status(201).json({ sent });

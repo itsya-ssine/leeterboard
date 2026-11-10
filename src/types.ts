@@ -39,6 +39,13 @@ export interface User {
   // the leaderboard and in the global stats). Admins and the member see them anyway.
   hideLeetcodeStats?: boolean;
   displayName: string;
+  // The name the member signs in with (users.login_username): lowercase,
+  // unique, never empty, and the identity everywhere on the site (profile and
+  // compare URLs, @handles, share cards, admin tables). Members who signed up
+  // with a LeetCode handle before accounts were separate were given that handle
+  // (lowercased) as their login name. It never changes when LeetCode is linked
+  // or unlinked.
+  loginUsername: string;
   // True when the member has linked a LeetCode account (the users row has a
   // LeetCode username). A member without one signs in with their own username,
   // is not on the LeetCode board, and is never synced. The LeetCode fields
@@ -114,6 +121,7 @@ export type SyncState = "ok" | "unavailable" | "not_found";
 export interface AdminSyncMember {
   id: string;
   displayName: string;
+  loginUsername: string;
   leetcodeUsername: string;
   avatarUrl: string;
   lastUpdated: string | null; // last *successful* fetch; null = never

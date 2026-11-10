@@ -165,7 +165,7 @@ export default function FeedbackWidget() {
                   />
                   <p className="mt-1.5 text-xs text-mist-500">
                     {user
-                      ? `Sent as ${user.displayName} (@${user.leetcodeUsername}).`
+                      ? `Sent as ${user.displayName} (@${user.loginUsername}).`
                       : "You're not signed in, so this will be sent anonymously."}
                   </p>
                 </div>

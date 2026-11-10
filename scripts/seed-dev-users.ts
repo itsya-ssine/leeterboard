@@ -121,6 +121,7 @@ function buildUser(seed: Seed, nowMs: number): User {
   return {
     id: `user-${crypto.randomUUID()}`,
     displayName: seed.displayName,
+    loginUsername: seed.leetcodeUsername.toLowerCase(),
     leetcodeLinked: true,
     leetcodeUsername: seed.leetcodeUsername,
     avatarUrl: avatarFor(seed.displayName, seed.color),

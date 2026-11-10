@@ -12,7 +12,7 @@ export type CardTheme = "dark" | "light";
 
 export interface CardData {
   displayName: string;
-  leetcodeUsername: string;
+  loginUsername: string;
   avatarUrl: string;
   school: string;
   rank: number | null;
@@ -292,7 +292,7 @@ export async function renderShareCard(data: CardData, format: CardFormat, theme:
     { size: 24, weight: 500, color: p.muted, align: "right" }
   );
 
-  const initial = (data.displayName || data.leetcodeUsername).trim().charAt(0).toUpperCase() || "?";
+  const initial = (data.displayName || data.loginUsername).trim().charAt(0).toUpperCase() || "?";
   const rankText = data.rank != null ? `#${data.rank}` : "–";
   const rankFill = rankColor(data.rank, p);
 
@@ -311,7 +311,7 @@ export async function renderShareCard(data: CardData, format: CardFormat, theme:
     const rankBlockW = 250;
     const nameMax = W - padX - rankBlockW - 24 - textX;
     drawText(ctx, data.displayName, textX, cy - 8, { size: 46, weight: 700, color: p.strong, maxWidth: nameMax });
-    drawText(ctx, `@${data.leetcodeUsername}`, textX, cy + 30, {
+    drawText(ctx, `@${data.loginUsername}`, textX, cy + 30, {
       size: 26,
       weight: 500,
       color: p.muted,
@@ -340,7 +340,7 @@ export async function renderShareCard(data: CardData, format: CardFormat, theme:
     const cx = W / 2;
     drawAvatar(ctx, avatar, initial, cx, 250, 100, p);
     drawText(ctx, data.displayName, cx, 424, { size: 60, weight: 700, color: p.strong, align: "center", maxWidth: innerW });
-    drawText(ctx, `@${data.leetcodeUsername}`, cx, 470, {
+    drawText(ctx, `@${data.loginUsername}`, cx, 470, {
       size: 30,
       weight: 500,
       color: p.muted,

@@ -291,7 +291,7 @@ export default function Podium({
       entries={leaders.slice(0, 3).map((user) => ({
         id: user.id,
         name: user.displayName,
-        handle: `@${user.leetcodeUsername}`,
+        handle: `@${user.loginUsername}`,
         school: user.school,
         ...metric(user, sortBy),
         movement: movements?.[user.id],

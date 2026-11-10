@@ -234,7 +234,7 @@ function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
           {rated.map(({ user, account }, i) => (
             <a
               key={user.id}
-              href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
+              href={`#/u/${encodeURIComponent(user.loginUsername)}`}
               title={`${user.displayName} · ${account.rating!.toLocaleString()} · ${formatRankTitle(account.rankTitle)}`}
               aria-label={`${user.displayName}, rating ${account.rating}`}
               className={`group/pin absolute flex -translate-x-1/2 flex-col items-center ${focusRing}`}
@@ -312,6 +312,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
   const matches = ({ user, account }: CodeforcesMember) =>
     !q ||
     user.displayName.toLowerCase().includes(q) ||
+    user.loginUsername.toLowerCase().includes(q) ||
     user.leetcodeUsername.toLowerCase().includes(q) ||
     (user.school ?? "").toLowerCase().includes(q) ||
     account.handle.toLowerCase().includes(q);
@@ -330,7 +331,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
     handleClassName: rankTextClass(account.rankTitle),
     school: user.school,
     ...podiumMetric(account, sortBy),
-    href: `#/u/${encodeURIComponent(user.leetcodeUsername)}`,
+    href: `#/u/${encodeURIComponent(user.loginUsername)}`,
     avatar: (className) => (
       <FramedAvatar
         src={user.avatarUrl}
@@ -461,8 +462,8 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
                   {/* Member: the handle is coloured by rank, as on Codeforces */}
                   <div className="flex min-w-0 items-center gap-3 md:col-span-3">
                     <a
-                      href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
-                      title={`View profile (@${user.leetcodeUsername})`}
+                      href={`#/u/${encodeURIComponent(user.loginUsername)}`}
+                      title={`View profile (@${user.loginUsername})`}
                       className={`group/member flex min-w-0 items-center gap-3 rounded-lg text-left ${focusRing}`}
                     >
                       <FramedAvatar

@@ -753,6 +753,7 @@ export default function App() {
     const q = searchQuery.toLowerCase();
     return (
       u.displayName.toLowerCase().includes(q) ||
+      u.loginUsername.toLowerCase().includes(q) ||
       u.leetcodeUsername.toLowerCase().includes(q) ||
       (u.school ?? "").toLowerCase().includes(q)
     );
@@ -822,7 +823,7 @@ export default function App() {
         .slice(0, 3)
         .map(({ user, account }) => ({
           user,
-          handle: user.leetcodeUsername,
+          handle: user.loginUsername,
           easy: 0,
           medium: 0,
           hard: 0,
@@ -849,7 +850,7 @@ export default function App() {
         })
     : topWeekly.map((user) => ({
         user,
-        handle: user.leetcodeUsername,
+        handle: user.loginUsername,
         easy: user.easySolved,
         medium: user.mediumSolved,
         hard: user.hardSolved,
@@ -1490,7 +1491,7 @@ export default function App() {
                               {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
                               <RankMovement movement={movements[user.id]} />
                             </div>
-                            <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
+                            <div className="truncate text-sm text-mist-500">@{user.loginUsername}</div>
                             <SchoolTag school={user.school} className="mt-1" />
                             {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
                               <div
@@ -1636,7 +1637,7 @@ export default function App() {
                     </h3>
                     {selectedUser.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak className="size-4" />}
                   </div>
-                  <div className="truncate text-sm text-mist-500">@{selectedUser.leetcodeUsername}</div>
+                  <div className="truncate text-sm text-mist-500">@{selectedUser.loginUsername}</div>
                   <div className="mt-0.5 text-sm text-mist-400">
                     {sortBy === "rating" ? "Contest rank" : "Rank"}{" "}
                     <span className={`font-semibold tabular-nums ${rankColor(displayRank(selectedUser) ?? 0)}`}>
@@ -1699,7 +1700,7 @@ export default function App() {
               {/* Actions */}
               <div className="mt-5 flex flex-col gap-2 border-t border-line pt-4">
                 <a
-                  href={`#/u/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                  href={`#/u/${encodeURIComponent(selectedUser.loginUsername)}`}
                   onClick={() => setSelectedUser(null)}
                   className={`${btnPrimary} w-full`}
                   id="view-full-profile-btn"
@@ -1708,17 +1709,19 @@ export default function App() {
                   View full profile
                 </a>
                 <div className="flex gap-2">
+                  {selectedUser.leetcodeLinked && (
+                    <a
+                      href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`${btnSecondary} min-w-0 flex-1`}
+                    >
+                      <span className="truncate">LeetCode</span>
+                      <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
+                    </a>
+                  )}
                   <a
-                    href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`${btnSecondary} min-w-0 flex-1`}
-                  >
-                    <span className="truncate">LeetCode</span>
-                    <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
-                  </a>
-                  <a
-                    href={`#/compare/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                    href={`#/compare/${encodeURIComponent(selectedUser.loginUsername)}`}
                     onClick={() => setSelectedUser(null)}
                     className={`${btnSecondary} min-w-0 flex-1`}
                   >

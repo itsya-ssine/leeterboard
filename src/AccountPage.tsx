@@ -683,7 +683,7 @@ export default function AccountPage({
     );
   }
 
-  const profileHref = `#/u/${encodeURIComponent(user.leetcodeUsername)}`;
+  const profileHref = `#/u/${encodeURIComponent(user.loginUsername)}`;
 
   const handleRename = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -852,8 +852,10 @@ export default function AccountPage({
       <div className="card-aurora flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
         <TierAvatar user={user} className="size-14" showGem gemSize="sm" />
         <div className="min-w-0">
-          <p className="truncate font-mono text-sm font-bold text-strong">@{user.leetcodeUsername}</p>
-          <p className="mt-0.5 text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
+          <p className="truncate font-mono text-sm font-bold text-strong">@{user.loginUsername}</p>
+          {user.leetcodeLinked && (
+            <p className="mt-0.5 text-xs text-mist-500">Your avatar comes from LeetCode and updates automatically.</p>
+          )}
         </div>
       </div>
 
@@ -1014,7 +1016,7 @@ export default function AccountPage({
                 type="text"
                 name="username"
                 autoComplete="username"
-                value={user.leetcodeUsername}
+                value={user.loginUsername}
                 readOnly
                 hidden
               />
@@ -1077,7 +1079,7 @@ export default function AccountPage({
           <Card icon={<LogOut className="size-4 text-teal-300" />} title="Log out">
             <div className="flex flex-col gap-3">
               <p className="text-sm leading-relaxed text-mist-400">
-                Sign out of <span className="font-medium text-strong">@{user.leetcodeUsername}</span> on this device.
+                Sign out of <span className="font-medium text-strong">@{user.loginUsername}</span> on this device.
                 Your stats and history are kept.
               </p>
               <button type="button" onClick={handleLogout} className={btnSecondary} id="logout-btn">
@@ -1103,7 +1105,7 @@ export default function AccountPage({
               <form onSubmit={handleDelete} className="flex flex-col gap-3">
                 <p className="text-sm leading-relaxed text-rose-300">
                   This can't be undone. Enter your password to permanently delete{" "}
-                  <span className="font-semibold">@{user.leetcodeUsername}</span>.
+                  <span className="font-semibold">@{user.loginUsername}</span>.
                 </p>
                 <div>
                   <label htmlFor="acct-delete-pw" className="sr-only">

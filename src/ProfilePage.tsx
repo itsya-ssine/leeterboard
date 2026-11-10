@@ -70,7 +70,7 @@ const longDate = (iso: string) =>
     timeZone: "UTC"
   });
 
-const profileHref = (u: User) => `#/u/${encodeURIComponent(u.leetcodeUsername)}`;
+const profileHref = (u: User) => `#/u/${encodeURIComponent(u.loginUsername)}`;
 
 function formatAge(iso: string, now: number): string {
   const ms = now - new Date(iso).getTime();
@@ -278,7 +278,7 @@ function Hero({
               <span className="hidden lg:inline">Leaderboard</span>
             </a>
             <a
-              href={`#/compare/${encodeURIComponent(user.leetcodeUsername)}`}
+              href={`#/compare/${encodeURIComponent(user.loginUsername)}`}
               className={btnAction}
               aria-label="Compare with another member"
               title="Compare"
@@ -338,15 +338,20 @@ function Hero({
               </span>
             )}
           </div>
-          <a
-            href={`https://leetcode.com/${encodeURIComponent(user.leetcodeUsername)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`mt-0.5 inline-flex items-center gap-1 rounded font-mono text-sm text-mist-400 transition-colors hover:text-teal-300 ${focusRing}`}
-          >
-            @{user.leetcodeUsername}
-            <ArrowUpRight className="size-3.5" aria-hidden="true" />
-          </a>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-sm text-mist-400">
+            <span>@{user.loginUsername}</span>
+            {user.leetcodeLinked && (
+              <a
+                href={`https://leetcode.com/${encodeURIComponent(user.leetcodeUsername)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`inline-flex items-center gap-1 rounded transition-colors hover:text-teal-300 ${focusRing}`}
+              >
+                LeetCode: @{user.leetcodeUsername}
+                <ArrowUpRight className="size-3.5" aria-hidden="true" />
+              </a>
+            )}
+          </div>
 
           {user.bio && (
             <p className="mt-3 max-w-2xl whitespace-pre-line break-words text-sm leading-relaxed text-mist-400">
@@ -1718,7 +1723,7 @@ export default function ProfilePage({
   lastSyncAll: string;
 }) {
   const user = username
-    ? users.find((u) => u.leetcodeUsername.toLowerCase() === username.toLowerCase())
+    ? users.find((u) => u.loginUsername.toLowerCase() === username.toLowerCase())
     : undefined;
   const nowMs = Date.now();
 

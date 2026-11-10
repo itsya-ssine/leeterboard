@@ -165,7 +165,7 @@ function MessagesPanel({ members }: { members: AdminSyncMember[] }) {
             <option value="all">Everyone ({members.length})</option>
             {sortedMembers.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.displayName} (@{m.leetcodeUsername})
+                {m.displayName} (@{m.loginUsername})
               </option>
             ))}
           </select>
@@ -530,10 +530,10 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
       const res = await fetch(`/api/users/${m.id}/refresh`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Sync failed.");
-      setNotice({ kind: "success", message: `@${m.leetcodeUsername} synced.` });
+      setNotice({ kind: "success", message: `@${m.loginUsername} synced.` });
       onChanged();
     } catch (err: any) {
-      setNotice({ kind: "error", message: `@${m.leetcodeUsername}: ${err.message}` });
+      setNotice({ kind: "error", message: `@${m.loginUsername}: ${err.message}` });
     } finally {
       setBusyId(null);
       await load();
@@ -541,7 +541,7 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
   };
 
   const remove = async (m: AdminSyncMember) => {
-    if (!confirm(`Remove ${m.displayName} (@${m.leetcodeUsername}) from the board?`)) return;
+    if (!confirm(`Remove ${m.displayName} (@${m.loginUsername}) from the board?`)) return;
     setBusyId(m.id);
     setNotice(null);
     try {
@@ -710,7 +710,9 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
                       className="size-10 shrink-0 rounded-full bg-ink-800 object-cover ring-1 ring-line-strong"
                     />
                     <div className="min-w-0">
-                      <div className="truncate font-medium text-strong">{m.displayName}</div>
+                      <div className="truncate font-medium text-strong">
+                        {m.displayName} <span className="font-normal text-mist-500">@{m.loginUsername}</span>
+                      </div>
                       <a
                         href={`https://leetcode.com/u/${encodeURIComponent(m.leetcodeUsername)}/`}
                         target="_blank"

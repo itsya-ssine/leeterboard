@@ -993,6 +993,7 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
     const user: User = {
       id: `user-${crypto.randomUUID()}`,
       displayName: cleanDisplayName(body.displayName, username),
+      loginUsername: username,
       leetcodeLinked: false,
       leetcodeUsername: "",
       avatarUrl: defaultAvatar(username),
@@ -1416,7 +1417,7 @@ async function checkCurrentPassword(
     logSecurityEvent("reauth_failed", {
       ip,
       userId,
-      username: record.user.leetcodeUsername,
+      username: record.user.loginUsername,
       action,
       failures: failuresBefore + 1
     });
@@ -1424,7 +1425,7 @@ async function checkCurrentPassword(
       logSecurityEvent("account_locked", {
         ip,
         userId,
-        username: record.user.leetcodeUsername,
+        username: record.user.loginUsername,
         minutes: LOCKOUT_MS / 60_000
       });
     }
@@ -1879,13 +1880,13 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
 // session and keeps this one signed in with a fresh cookie.
 app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, leetcodeUsername } = (req as any).user as { id: string; leetcodeUsername: string };
+    const { id, loginUsername } = (req as any).user as { id: string; loginUsername: string };
     const { currentPassword, newPassword } = req.body ?? {};
 
     const check = await checkCurrentPassword(id, currentPassword, "password_change", req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error });
 
-    const passwordError = validatePassword(newPassword, leetcodeUsername);
+    const passwordError = validatePassword(newPassword, loginUsername);
     if (passwordError) return res.status(400).json({ error: passwordError });
     if (newPassword === currentPassword) {
       return res.status(400).json({ error: "Your new password must be different from the current one." });
@@ -1893,7 +1894,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 
     const newHash = await hashPassword(newPassword as string);
     await setPasswordHash(id, newHash);
-    logSecurityEvent("password_changed", { ip: req.ip, userId: id, username: leetcodeUsername }, "info");
+    logSecurityEvent("password_changed", { ip: req.ip, userId: id, username: loginUsername }, "info");
     setSessionCookie(res, check.record.user, newHash);
     res.json({ success: true });
   } catch (error: any) {
@@ -1912,7 +1913,7 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
     if (!check.record) return res.status(check.status).json({ error: check.error });
 
     await deleteUserById(id);
-    logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.leetcodeUsername }, "info");
+    logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.loginUsername }, "info");
     clearSessionCookie(res);
     res.json({ success: true });
   } catch (error: any) {
@@ -1927,7 +1928,7 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
 // the account page, which requires their password.
 app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   const id = req.params.id as string;
-  const session = (req as any).user as { id: string; leetcodeUsername: string };
+  const session = (req as any).user as { id: string; loginUsername: string };
 
   try {
     const target = await getUserById(id);
@@ -1946,7 +1947,7 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
     }
     logSecurityEvent(
       "admin_user_removed",
-      { ip: req.ip, adminId: session.id, admin: session.leetcodeUsername, targetId: target.id, target: target.leetcodeUsername },
+      { ip: req.ip, adminId: session.id, admin: session.loginUsername, targetId: target.id, target: target.loginUsername },
       "info"
     );
     res.json({ success: true, message: "Member removed successfully." });
@@ -1961,8 +1962,8 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 // only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
 app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res) => {
   const id = req.params.id as string;
-  const admin = (req as any).user as { id: string; leetcodeUsername: string };
-  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, scope: "member", targetId: id }, "info");
+  const admin = (req as any).user as { id: string; loginUsername: string };
+  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "member", targetId: id }, "info");
 
   try {
     const user = await getUserById(id);
@@ -2066,7 +2067,7 @@ app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res
     try {
       await syncPlatformAccountsForUser(user.id);
     } catch (err: any) {
-      console.warn(`[Refresh] Linked accounts failed for ${user.leetcodeUsername}: ${err.message}`);
+      console.warn(`[Refresh] Linked accounts failed for ${user.loginUsername}: ${err.message}`);
     }
     user.platforms = await getPlatformAccounts(user.id);
 
@@ -2190,7 +2191,7 @@ async function syncAllUsers(
       // Leave this user's stats untouched for this cycle rather than
       // guessing — the next sync will pick them up again. The failure is
       // recorded so the admin dashboard can show who is stuck and why.
-      console.warn(`[Sync All] Skipping ${user.leetcodeUsername}: ${err.message}`);
+      console.warn(`[Sync All] Skipping ${user.loginUsername}: ${err.message}`);
       await recordSyncResult(user.id, {
         ok: false,
         state: err instanceof LeetCodeUserNotFoundError ? "not_found" : "unavailable",
@@ -2284,6 +2285,7 @@ app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
       return {
         id: u.id,
         displayName: u.displayName,
+        loginUsername: u.loginUsername,
         leetcodeUsername: u.leetcodeUsername,
         avatarUrl: u.avatarUrl,
         lastUpdated: u.lastUpdated,
@@ -2315,8 +2317,8 @@ app.use("/api", feedbackRoutes);
 
 // POST refresh all users — admin only
 app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
-  const admin = (req as any).user as { id: string; leetcodeUsername: string };
-  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, scope: "all" }, "info");
+  const admin = (req as any).user as { id: string; loginUsername: string };
+  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "all" }, "info");
   try {
     const result = await syncAllUsers();
     res.json({ success: true, ...result });

@@ -53,8 +53,8 @@ export default function ShareCardModal({
 
   // Link to this member's public profile page.
   const profileUrl = useMemo(
-    () => `${window.location.origin}${window.location.pathname}#/u/${encodeURIComponent(user.leetcodeUsername)}`,
-    [user.leetcodeUsername]
+    () => `${window.location.origin}${window.location.pathname}#/u/${encodeURIComponent(user.loginUsername)}`,
+    [user.loginUsername]
   );
 
   const [caption, setCaption] = useState(() => {
@@ -74,7 +74,7 @@ export default function ShareCardModal({
   const data = useMemo(
     () => ({
       displayName: user.displayName,
-      leetcodeUsername: user.leetcodeUsername,
+      loginUsername: user.loginUsername,
       avatarUrl: user.avatarUrl,
       school: user.school ?? "",
       rank,
@@ -126,7 +126,7 @@ export default function ShareCardModal({
     []
   );
 
-  const filename = `leeterboard-${user.leetcodeUsername}-${format}.png`;
+  const filename = `leeterboard-${user.loginUsername}-${format}.png`;
   const canShareFile = useMemo(() => {
     if (!blob || typeof navigator.canShare !== "function" || typeof navigator.share !== "function") return false;
     try {

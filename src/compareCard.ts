@@ -18,7 +18,7 @@ import {
 
 export interface CompareCardMember {
   displayName: string;
-  leetcodeUsername: string;
+  loginUsername: string;
   avatarUrl: string;
 }
 
@@ -145,7 +145,7 @@ export async function renderCompareCard(data: CompareCardData, format: CardForma
   const r = square ? 80 : 50;
   const nameMax = square ? 440 : 420;
 
-  const initial = (m: CompareCardMember) => (m.displayName || m.leetcodeUsername).trim().charAt(0).toUpperCase() || "?";
+  const initial = (m: CompareCardMember) => (m.displayName || m.loginUsername).trim().charAt(0).toUpperCase() || "?";
   drawRingAvatar(ctx, imgA, initial(data.a), cxA, cy, r, colorA, p);
   drawRingAvatar(ctx, imgB, initial(data.b), cxB, cy, r, colorB, p);
 
@@ -161,7 +161,7 @@ export async function renderCompareCard(data: CompareCardData, format: CardForma
       align: "center",
       maxWidth: nameMax
     });
-    drawText(ctx, `@${m.leetcodeUsername}`, cx, nameY + (square ? 36 : 30), {
+    drawText(ctx, `@${m.loginUsername}`, cx, nameY + (square ? 36 : 30), {
       size: square ? 24 : 20,
       weight: 500,
       color: p.muted,

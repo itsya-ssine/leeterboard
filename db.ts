@@ -812,6 +812,9 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
   return {
     id: row.id as string,
     displayName: row.display_name as string,
+    // Backfilled for every member by migration 13 and required on sign-up, so
+    // it is never NULL in practice; "" only guards a hand-edited row.
+    loginUsername: (row.login_username as string | null) ?? "",
     // NULL in the database = no LeetCode linked. The API says so with an
     // explicit flag, and uses "" for the name like every other optional text.
     leetcodeLinked: row.leetcode_username != null,

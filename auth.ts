@@ -97,7 +97,9 @@ const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface SessionPayload {
   id: string;
-  leetcodeUsername: string;
+  // Informational only: every request re-reads the member from the database.
+  // Tokens issued before login names existed carry `leetcodeUsername` instead.
+  loginUsername: string;
   // Fingerprint of the account's password hash at login time (see
   // sessionStamp). Absent only on tokens issued before passwords existed.
   ps?: string;
@@ -174,10 +176,10 @@ const cookieBase = {
   path: "/"
 };
 
-export function setSessionCookie(res: Response, user: { id: string; leetcodeUsername: string }, passwordHash: string): void {
+export function setSessionCookie(res: Response, user: { id: string; loginUsername: string }, passwordHash: string): void {
   const payload: SessionPayload = {
     id: user.id,
-    leetcodeUsername: user.leetcodeUsername,
+    loginUsername: user.loginUsername,
     ps: sessionStamp(passwordHash)
   };
   const token = jwt.sign(payload, JWT_SECRET!, { algorithm: "HS256", expiresIn: SESSION_TTL });
@@ -197,10 +199,18 @@ export function readSession(req: Request): SessionPayload | null {
     if (!decoded || typeof decoded !== "object") return null;
     // Tokens from the old 42 login flow with kind "pending" are not valid here.
     if (decoded.kind === "pending") return null;
-    if (typeof decoded.id !== "string" || typeof decoded.leetcodeUsername !== "string") return null;
+    if (typeof decoded.id !== "string") return null;
+    // Sessions issued before login names existed stay valid: they only carried
+    // the LeetCode username, which was the login name (lowercased) back then.
+    const name =
+      typeof decoded.loginUsername === "string"
+        ? decoded.loginUsername
+        : typeof decoded.leetcodeUsername === "string"
+          ? decoded.leetcodeUsername.toLowerCase()
+          : "";
     return {
       id: decoded.id,
-      leetcodeUsername: decoded.leetcodeUsername,
+      loginUsername: name,
       ps: typeof decoded.ps === "string" ? decoded.ps : undefined
     };
   } catch {
@@ -230,14 +240,14 @@ export async function resolveSession(req: Request): Promise<{ user: User; isAdmi
 }
 
 // Express middleware: rejects the request unless a valid session is present,
-// and attaches { id, leetcodeUsername } to req.user for handlers to use.
+// and attaches { id, loginUsername, isAdmin } to req.user for handlers to use.
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const resolved = await resolveSession(req);
     if (!resolved) return res.status(401).json({ error: "You must be logged in to do that." });
     (req as any).user = {
       id: resolved.user.id,
-      leetcodeUsername: resolved.user.leetcodeUsername,
+      loginUsername: resolved.user.loginUsername,
       isAdmin: resolved.isAdmin
     };
     next();
@@ -253,7 +263,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     const resolved = await resolveSession(req);
     if (!resolved) return res.status(401).json({ error: "You must be logged in to do that." });
     if (!resolved.isAdmin) return res.status(403).json({ error: "Admin access required." });
-    (req as any).user = { id: resolved.user.id, leetcodeUsername: resolved.user.leetcodeUsername };
+    (req as any).user = { id: resolved.user.id, loginUsername: resolved.user.loginUsername };
     next();
   } catch (err) {
     next(err);
