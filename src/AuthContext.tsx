@@ -3,17 +3,6 @@ import { User, PlatformId } from "./types.js";
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
 
-// Returned when a sign-up is started: the code the person must paste into
-// their LeetCode profile summary to prove the account is theirs.
-export interface RegistrationChallenge {
-  code: string;
-  // "create": new account · "claim": existing board entry that has no
-  // password yet · "reset": existing account, setting a new password.
-  purpose: "create" | "claim" | "reset";
-  leetcodeUsername: string;
-  expiresInMinutes: number;
-}
-
 // Returned when linking an extra platform account is started: the code the
 // member must paste into a profile field of that account to prove it is theirs.
 export interface PlatformLinkChallenge {
@@ -35,9 +24,12 @@ export interface ProfileDetails {
 interface AuthContextValue {
   status: SessionStatus;
   user: User | null;
-  login: (leetcodeUsername: string, password: string) => Promise<User>;
-  startRegistration: (leetcodeUsername: string, password: string, displayName?: string) => Promise<RegistrationChallenge>;
-  verifyRegistration: () => Promise<User>;
+  // Sign in with the login name. Members who signed up with LeetCode before
+  // login names existed use their LeetCode username (the same name, lowercase).
+  login: (username: string, password: string) => Promise<User>;
+  // Create an account with a username and password (no LeetCode needed) and
+  // sign in with it. The server answers 409 when the name is taken.
+  register: (username: string, password: string, displayName?: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
@@ -115,21 +107,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshSession();
   }, [refreshSession]);
 
-  const login = useCallback(async (leetcodeUsername: string, password: string) => {
-    const data = await postJson<User>("/api/auth/login", { leetcodeUsername, password });
+  const login = useCallback(async (username: string, password: string) => {
+    const data = await postJson<User>("/api/auth/login", { username, password });
     setUser(data);
     setStatus("authenticated");
     return data;
   }, []);
 
-  const startRegistration = useCallback(
-    (leetcodeUsername: string, password: string, displayName?: string) =>
-      postJson<RegistrationChallenge>("/api/auth/register/leetcode", { leetcodeUsername, password, displayName }),
-    []
-  );
-
-  const verifyRegistration = useCallback(async () => {
-    const data = await postJson<User>("/api/auth/register/verify");
+  const register = useCallback(async (username: string, password: string, displayName?: string) => {
+    const data = await postJson<User>("/api/auth/register", { username, password, displayName });
     setUser(data);
     setStatus("authenticated");
     return data;
@@ -221,8 +207,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         status,
         user,
         login,
-        startRegistration,
-        verifyRegistration,
+        register,
         logout,
         refreshSession,
         updateDisplayName,
