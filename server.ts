@@ -10,6 +10,7 @@ import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount,
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
+import { assertMailConfigAtBoot } from "./mailer.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -155,6 +156,10 @@ app.use("/api", apiLimiter);
 // reused for every invocation handled by that instance, so this still only
 // runs once per instance rather than once per request. Registered before
 // any routes below so it actually applies to all of them.
+// Say loudly, once, if e-mail isn't usable (sign-up then answers 503), and stop
+// if the development-only outbox provider is configured in production.
+assertMailConfigAtBoot();
+
 const dbReady = initDb();
 app.use((req, res, next) => {
   dbReady.then(() => next()).catch(next);

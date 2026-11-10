@@ -25,3 +25,7 @@ local.db*
 backups/
 *.dump.sql
 backup*.sql
+
+# Development mail outbox (EMAIL_PROVIDER=outbox): every file holds a live code.
+outbox/
+.outbox/
