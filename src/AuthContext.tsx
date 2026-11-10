@@ -8,7 +8,7 @@ export type SessionStatus = "loading" | "guest" | "authenticated";
 // member must paste into a profile field of that account to prove it is theirs.
 export interface PlatformLinkChallenge {
   code: string;
-  platform: PlatformId;
+  platform: PlatformId | "leetcode";
   handle: string; // the platform's own spelling of the handle
   instructions: string; // where to put the code, written by the server per platform
   expiresInMinutes: number;
@@ -47,6 +47,12 @@ interface AuthContextValue {
   unlinkPlatform: (platform: PlatformId) => Promise<User>;
   setPlatformHidden: (platform: PlatformId, hidden: boolean) => Promise<User>;
   setHideLeetcodeStats: (hidden: boolean) => Promise<User>;
+  // LeetCode is linked through its own routes (its stats live on the member's
+  // row, not in platform_accounts) but follows the same start -> code -> verify
+  // flow. Optional, like the other platforms.
+  startLeetcodeLink: (leetcodeUsername: string) => Promise<PlatformLinkChallenge>;
+  verifyLeetcodeLink: () => Promise<User>;
+  unlinkLeetcode: () => Promise<User>;
 }
 
 // Thrown for any non-2xx response; `expired` is set when the server says the
@@ -229,6 +235,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
+  const startLeetcodeLink = useCallback(
+    (leetcodeUsername: string) =>
+      postJson<PlatformLinkChallenge>("/api/account/leetcode/start", { leetcodeUsername }),
+    []
+  );
+
+  const verifyLeetcodeLink = useCallback(async () => {
+    const data = await postJson<User>("/api/account/leetcode/verify");
+    setUser(data);
+    return data;
+  }, []);
+
+  const unlinkLeetcode = useCallback(async () => {
+    const data = await requestJson<User>("DELETE", "/api/account/leetcode");
+    setUser(data);
+    return data;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await fetch("/api/logout", { method: "POST" });
@@ -257,7 +281,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         verifyPlatformLink,
         unlinkPlatform,
         setPlatformHidden,
-        setHideLeetcodeStats
+        setHideLeetcodeStats,
+        startLeetcodeLink,
+        verifyLeetcodeLink,
+        unlinkLeetcode
       }}
     >
       {children}

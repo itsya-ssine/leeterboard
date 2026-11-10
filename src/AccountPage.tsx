@@ -18,7 +18,7 @@ import {
   UserRound
 } from "lucide-react";
 import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
-import type { PlatformAccount, PlatformId } from "./types.js";
+import type { PlatformId, User } from "./types.js";
 import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
 import PageHeader from "./PageHeader.js";
 import TierAvatar from "./TierAvatar.js";
@@ -117,8 +117,11 @@ function Card({
 // What the UI needs to know about each extra platform. `available: false`
 // shows the row but keeps Add disabled (the server rejects linking until the
 // platform has a provider); flip it when the provider lands.
+// LeetCode joins the other two here: all three are optional and linked the same way.
+type LinkId = PlatformId | "leetcode";
+
 const PLATFORM_UI: Record<
-  PlatformId,
+  LinkId,
   {
     label: string;
     available: boolean;
@@ -129,6 +132,14 @@ const PLATFORM_UI: Record<
     settingsLabel: string;
   }
 > = {
+  leetcode: {
+    label: "LeetCode",
+    available: true,
+    placeholder: "your LeetCode username",
+    profileUrl: (h) => `https://leetcode.com/u/${encodeURIComponent(h)}/`,
+    settingsUrl: () => "https://leetcode.com/profile/",
+    settingsLabel: "your LeetCode profile"
+  },
   codeforces: {
     label: "Codeforces",
     available: true,
@@ -147,9 +158,35 @@ const PLATFORM_UI: Record<
   }
 };
 
-const PLATFORM_ORDER: PlatformId[] = ["codeforces", "codingame"];
+const PLATFORM_ORDER: LinkId[] = ["leetcode", "codeforces", "codingame"];
 
-// "Hide on my profile" switch, shared by every platform row (LeetCode included).
+// What a row shows about a linked account, whichever platform it is.
+type RowAccount = {
+  handle: string;
+  solved: number;
+  rating: number | null;
+  rankTitle: string | null;
+  lastUpdated: string | null;
+  hidden: boolean;
+};
+
+// LeetCode's data lives on the member itself, the others in `platforms`.
+function rowAccountFor(user: User, platform: LinkId): RowAccount | undefined {
+  if (platform === "leetcode") {
+    if (!user.leetcodeLinked) return undefined;
+    return {
+      handle: user.leetcodeUsername,
+      solved: user.allTimeSolved,
+      rating: user.contestRating,
+      rankTitle: null,
+      lastUpdated: user.lastUpdated,
+      hidden: !!user.hideLeetcodeStats
+    };
+  }
+  return user.platforms?.[platform];
+}
+
+// "Hide on my profile" switch, shared by every platform row.
 // Hidden stats still count on the leaderboards and in the global stats.
 function HideSwitch({
   id,
@@ -209,11 +246,20 @@ function PlatformRow({
   account,
   onChanged
 }: {
-  platform: PlatformId;
-  account: PlatformAccount | undefined;
+  platform: LinkId;
+  account: RowAccount | undefined;
   onChanged?: () => void;
 }) {
-  const { startPlatformLink, verifyPlatformLink, unlinkPlatform, setPlatformHidden } = useAuth();
+  const {
+    startPlatformLink,
+    verifyPlatformLink,
+    unlinkPlatform,
+    setPlatformHidden,
+    startLeetcodeLink,
+    verifyLeetcodeLink,
+    unlinkLeetcode,
+    setHideLeetcodeStats
+  } = useAuth();
   const ui = PLATFORM_UI[platform];
 
   const [step, setStep] = useState<"idle" | "handle" | "verify">("idle");
@@ -242,7 +288,9 @@ function PlatformRow({
     }
     setBusy(true);
     try {
-      setChallenge(await startPlatformLink(platform, trimmed));
+      setChallenge(
+        platform === "leetcode" ? await startLeetcodeLink(trimmed) : await startPlatformLink(platform, trimmed)
+      );
       setStep("verify");
     } catch (err: any) {
       setNotice({ kind: "error", message: err.message || `Couldn't start linking ${ui.label}.` });
@@ -255,12 +303,12 @@ function PlatformRow({
     setNotice(null);
     setBusy(true);
     try {
-      const updated = await verifyPlatformLink(platform);
-      const linked = updated.platforms?.[platform];
+      const updated = platform === "leetcode" ? await verifyLeetcodeLink() : await verifyPlatformLink(platform);
+      const synced = platform === "leetcode" ? updated.lastUpdated : updated.platforms?.[platform]?.lastUpdated;
       reset();
       setNotice({
         kind: "success",
-        message: linked?.lastUpdated
+        message: synced
           ? `${ui.label} linked.`
           : `${ui.label} linked. Your stats will show up after the next sync.`
       });
@@ -284,7 +332,8 @@ function PlatformRow({
     setNotice(null);
     setBusy(true);
     try {
-      await setPlatformHidden(platform, !account.hidden);
+      if (platform === "leetcode") await setHideLeetcodeStats(!account.hidden);
+      else await setPlatformHidden(platform, !account.hidden);
       onChanged?.();
     } catch (err: any) {
       setNotice({ kind: "error", message: err.message || "Couldn't change who can see this." });
@@ -297,7 +346,8 @@ function PlatformRow({
     setNotice(null);
     setBusy(true);
     try {
-      await unlinkPlatform(platform);
+      if (platform === "leetcode") await unlinkLeetcode();
+      else await unlinkPlatform(platform);
       setConfirmingRemove(false);
       setNotice({ kind: "success", message: `${ui.label} removed.` });
       onChanged?.();
@@ -342,6 +392,11 @@ function PlatformRow({
                     <>
                       · {account.solved.toLocaleString()} XP
                       {account.rating != null && <> · Level {account.rating}</>}
+                    </>
+                  ) : platform === "leetcode" ? (
+                    <>
+                      · {account.solved.toLocaleString()} solved
+                      {account.rating != null && <> · {account.rating} contest rating</>}
                     </>
                   ) : (
                     <>
@@ -545,59 +600,34 @@ function PlatformRow({
 }
 
 function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
-  const { user, setHideLeetcodeStats } = useAuth();
-  const [lcBusy, setLcBusy] = useState(false);
-  const [lcError, setLcError] = useState<string | null>(null);
+  const { user } = useAuth();
   if (!user) return null;
 
-  const toggleLeetcodeHidden = async () => {
-    setLcError(null);
-    setLcBusy(true);
-    try {
-      await setHideLeetcodeStats(!user.hideLeetcodeStats);
-      onChanged?.();
-    } catch (err: any) {
-      setLcError(err.message || "Couldn't change who can see this.");
-    } finally {
-      setLcBusy(false);
-    }
-  };
+  const nothingLinked = PLATFORM_ORDER.every((platform) => !rowAccountFor(user, platform));
 
   return (
     <Card
       icon={<Link2 className="size-4 text-teal-300" />}
       title="Linked accounts"
-      description="Add other platforms to appear on their boards. You prove each account is yours with a short code."
+      description="Link LeetCode, Codeforces and CodinGame to appear on their boards. All optional: you prove each account is yours with a short code."
       id="account-platforms-card"
     >
       <div className="flex flex-col gap-3">
-        {/* LeetCode is the main account: always linked, never removable here. */}
-        <div id="account-platform-leetcode" className="rounded-xl bg-ink-950/80 p-3 ring-1 ring-line">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-strong">LeetCode</p>
-              <p className="truncate text-xs text-mist-500">@{user.leetcodeUsername} · main account</p>
-            </div>
-            <span
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-ink-800 px-3 text-xs font-medium text-mist-400 ring-1 ring-line"
-              title="LeetCode is your main account and can't be removed."
-            >
-              <Lock className="size-3.5" aria-hidden="true" />
-              Locked
-            </span>
-          </div>
-          <HideSwitch
-            id="account-platform-leetcode-hidden"
-            hidden={!!user.hideLeetcodeStats}
-            busy={lcBusy}
-            label="Hide LeetCode stats on my profile"
-            onToggle={toggleLeetcodeHidden}
-          />
-          {lcError && <p className="mt-2 text-xs text-rose-300">{lcError}</p>}
-        </div>
-
+        {nothingLinked && (
+          <p
+            id="account-nothing-linked"
+            className="rounded-lg bg-ink-950/80 p-3 text-sm text-mist-400 ring-1 ring-line"
+          >
+            You don't appear on any leaderboard yet. Link an account below to join one.
+          </p>
+        )}
         {PLATFORM_ORDER.map((platform) => (
-          <PlatformRow key={platform} platform={platform} account={user.platforms?.[platform]} onChanged={onChanged} />
+          <PlatformRow
+            key={platform}
+            platform={platform}
+            account={rowAccountFor(user, platform)}
+            onChanged={onChanged}
+          />
         ))}
       </div>
     </Card>
