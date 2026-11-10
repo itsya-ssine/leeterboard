@@ -18,7 +18,8 @@ import {
   UserRound
 } from "lucide-react";
 import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
-import type { PlatformId, User } from "./types.js";
+import type { PlatformId } from "./types.js";
+import { hasNothingLinked, rowAccountFor, type LinkId, type RowAccount } from "./linkedAccounts.js";
 import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
 import PageHeader from "./PageHeader.js";
 import TierAvatar from "./TierAvatar.js";
@@ -117,9 +118,6 @@ function Card({
 // What the UI needs to know about each extra platform. `available: false`
 // shows the row but keeps Add disabled (the server rejects linking until the
 // platform has a provider); flip it when the provider lands.
-// LeetCode joins the other two here: all three are optional and linked the same way.
-type LinkId = PlatformId | "leetcode";
-
 const PLATFORM_UI: Record<
   LinkId,
   {
@@ -159,32 +157,6 @@ const PLATFORM_UI: Record<
 };
 
 const PLATFORM_ORDER: LinkId[] = ["leetcode", "codeforces", "codingame"];
-
-// What a row shows about a linked account, whichever platform it is.
-type RowAccount = {
-  handle: string;
-  solved: number;
-  rating: number | null;
-  rankTitle: string | null;
-  lastUpdated: string | null;
-  hidden: boolean;
-};
-
-// LeetCode's data lives on the member itself, the others in `platforms`.
-function rowAccountFor(user: User, platform: LinkId): RowAccount | undefined {
-  if (platform === "leetcode") {
-    if (!user.leetcodeLinked) return undefined;
-    return {
-      handle: user.leetcodeUsername,
-      solved: user.allTimeSolved,
-      rating: user.contestRating,
-      rankTitle: null,
-      lastUpdated: user.lastUpdated,
-      hidden: !!user.hideLeetcodeStats
-    };
-  }
-  return user.platforms?.[platform];
-}
 
 // "Hide on my profile" switch, shared by every platform row.
 // Hidden stats still count on the leaderboards and in the global stats.
@@ -603,7 +575,7 @@ function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
   const { user } = useAuth();
   if (!user) return null;
 
-  const nothingLinked = PLATFORM_ORDER.every((platform) => !rowAccountFor(user, platform));
+  const nothingLinked = hasNothingLinked(user);
 
   return (
     <Card

@@ -45,6 +45,7 @@ import ActivityHeatmap from "./ActivityHeatmap.js";
 import ProfilePage from "./ProfilePage.js";
 import CodinGamePage, { LevelBadge, codingameMembers, compareCodingame } from "./CodinGamePage.js";
 import EmptyState from "./EmptyState.js";
+import { leetcodeMembers } from "./linkedAccounts.js";
 import TierAvatar from "./TierAvatar.js";
 import { ratingTier } from "./tiers.js";
 import AnimatedNumber from "./AnimatedNumber.js";
@@ -542,7 +543,7 @@ export default function App() {
   // board, its stats and the compare page use `users`, which is just the
   // members who linked LeetCode.
   const [members, setMembers] = useState<User[]>([]);
-  const users = useMemo(() => members.filter((u) => u.leetcodeLinked), [members]);
+  const users = useMemo(() => leetcodeMembers(members), [members]);
   const [lastSyncAll, setLastSyncAll] = useState<string>("");
   const [winners, setWinners] = useState<WeeklyWinner[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>(() => readUrlState().q);

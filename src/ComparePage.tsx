@@ -1,3 +1,4 @@
+import { leetcodeMembers } from "./linkedAccounts.js";
 import React, { useState } from "react";
 import { ArrowLeft, ArrowLeftRight, Crown, ImageIcon, Swords } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -205,7 +206,7 @@ function MemberSelect({
 // `members` is everyone; the comparison is about LeetCode stats, so only the
 // members who linked LeetCode can be picked.
 export default function ComparePage({ users: members }: { users: User[] }) {
-  const users = members.filter((u) => u.leetcodeLinked);
+  const users = leetcodeMembers(members);
   const [selA, setSelA] = useState<string | null>(() => readSelection()[0]);
   const [selB, setSelB] = useState<string | null>(() => readSelection()[1]);
   const [mode, setMode] = useState<HistoryMode>("gained");

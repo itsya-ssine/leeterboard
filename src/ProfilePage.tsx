@@ -14,6 +14,7 @@ import {
   YAxis
 } from "recharts";
 import type { PlatformAccount, User } from "./types.js";
+import { hasNothingLinked, leetcodeMembers } from "./linkedAccounts.js";
 import type { WeeklyWinner } from "./winners.js";
 import { chartColors, useTheme } from "./theme.js";
 import { computeBadges, computeGroupAwards } from "./achievements.js";
@@ -1738,7 +1739,7 @@ export default function ProfilePage({
   // The LeetCode board: ranks, badges and "of N members" only count members
   // who linked LeetCode. `users` is everyone (Codeforces and CodinGame boards
   // are built from it).
-  const leetcodeUsers = useMemo(() => users.filter((u) => u.leetcodeLinked), [users]);
+  const leetcodeUsers = useMemo(() => leetcodeMembers(users), [users]);
 
   const stats = useMemo(
     () => (user ? computeProfile(user, leetcodeUsers, winners, Date.now()) : null),
@@ -1768,8 +1769,7 @@ export default function ProfilePage({
   const leetcodeVisible = user.leetcodeLinked && (!user.hideLeetcodeStats || canSeeHidden);
   // A member can have nothing linked at all (just signed up). That is different
   // from hiding everything: nothing is being kept private.
-  const nothingLinked =
-    !user.leetcodeLinked && !user.platforms?.codeforces && !user.platforms?.codingame;
+  const nothingLinked = hasNothingLinked(user);
   const cfAccount =
     user.platforms?.codeforces && (!user.platforms.codeforces.hidden || canSeeHidden)
       ? user.platforms.codeforces
