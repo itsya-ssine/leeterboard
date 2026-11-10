@@ -57,6 +57,7 @@ async function columnExists(table: string, column: string): Promise<boolean> {
  *
  *   users ──< history          one daily snapshot per member per UTC day
  *   users ──  sync_status      latest sync attempt per member (admin dashboard)
+ *   users ──< pending_email_codes  open e-mail verification codes (sign-up, add e-mail, reset)
  *   pending_registrations      unused since the username sign-up; kept (empty) for rollback
  *   meta                       small key/value store (e.g. weekly winners archive)
  *   schema_migrations          which migrations have been applied
@@ -201,6 +202,33 @@ const FEEDBACK_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC)`
 ];
 
+/* ---------- E-mail verification codes ----------
+ * Shared by initDb (fresh databases) and migration 17 (existing ones). One open
+ * row per purpose + e-mail address: a new request replaces the old one. The
+ * browser only ever holds the random `id`; `code_hash` is an HMAC, never the
+ * code itself. `email`, and for a sign-up the chosen username and the already
+ * hashed password, live only as long as the row. `user_id` is NULL for a
+ * sign-up (the member does not exist until the code is verified).
+ */
+const EMAIL_CODES_DDL = [
+  `CREATE TABLE IF NOT EXISTS pending_email_codes (
+    id TEXT PRIMARY KEY,
+    purpose TEXT NOT NULL CHECK (purpose IN ('signup', 'add_email', 'reset')),
+    email TEXT NOT NULL,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    username TEXT,
+    display_name TEXT,
+    password_hash TEXT,
+    code_hash TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    last_sent_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_email_codes_open ON pending_email_codes(purpose, email)`,
+  `CREATE INDEX IF NOT EXISTS idx_pending_email_codes_expires ON pending_email_codes(expires_at)`
+];
+
 export async function initDb(): Promise<void> {
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
@@ -238,7 +266,9 @@ export async function initDb(): Promise<void> {
         longest_streak INTEGER,
         password_hash TEXT NOT NULL DEFAULT '',
         failed_logins INTEGER NOT NULL DEFAULT 0,
-        locked_until TEXT
+        locked_until TEXT,
+        email TEXT,
+        email_verified_at TEXT
       )`,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_leetcode ON users(leetcode_username)`,
       // One row per member per UTC day: the cumulative totals as of that day's
@@ -304,7 +334,8 @@ export async function initDb(): Promise<void> {
       ...NOTIFICATION_DDL,
       ...PLATFORM_DDL,
       ...RATE_LIMIT_DDL,
-      ...FEEDBACK_DDL
+      ...FEEDBACK_DDL,
+      ...EMAIL_CODES_DDL
     ],
     "write"
   );
@@ -340,7 +371,8 @@ const MIGRATIONS: Migration[] = [
   { version: 13, name: "user_login_username", up: migrateLoginUsername },
   { version: 14, name: "optional_leetcode_columns", up: migrateOptionalLeetcode },
   { version: 15, name: "clear_pending_registrations", up: migrateClearPendingRegistrations },
-  { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze }
+  { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze },
+  { version: 17, name: "email_verification", up: migrateEmailVerification }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -546,6 +578,32 @@ async function migrateOptionalLeetcode(): Promise<void> {
 // write. Safe to run twice.
 async function migrateClearPendingRegistrations(): Promise<void> {
   await client.execute("DELETE FROM pending_registrations");
+}
+
+// v17 — e-mail verification. Members get an optional, private e-mail address
+// (users.email, stored lowercase, unique ignoring case) and the time it was
+// verified, and pending_email_codes holds the codes waiting to be entered.
+// Additive only (no table rebuild), so the previous release keeps working
+// while this runs. Existing members keep email = NULL. Safe to run twice, or
+// from two serverless instances at once.
+async function migrateEmailVerification(): Promise<void> {
+  for (const column of ["email", "email_verified_at"]) {
+    if (await columnExists("users", column)) continue;
+    try {
+      await client.execute(`ALTER TABLE users ADD COLUMN ${column} TEXT`);
+    } catch (err: any) {
+      // A second instance may have added it a moment ago.
+      if (!(await columnExists("users", column))) {
+        throw new Error(`Couldn't add users.${column}: ${err.message}`);
+      }
+    }
+  }
+  // Partial, so members without an e-mail never block each other (NULLs would
+  // not anyway, but this keeps the index small and the intent clear).
+  await client.execute(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(lower(email)) WHERE email IS NOT NULL"
+  );
+  await client.batch(EMAIL_CODES_DDL, "write");
 }
 
 // v16 — the same sticky "this handle stopped resolving" marker LeetCode has
@@ -1164,6 +1222,7 @@ export async function deleteUserById(id: string): Promise<boolean> {
       { sql: "DELETE FROM platform_sync_status WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM platform_history WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM pending_links WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM pending_email_codes WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM notifications WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM user_awards WHERE user_id = ?", args: [id] },
       // Feedback is kept for the admins but no longer tied to the person.

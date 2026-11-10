@@ -294,6 +294,7 @@ users ──< platform_accounts     linked Codeforces / CodinGame accounts, with
 users ──< platform_history      one snapshot per member per platform per UTC day
 users ──< platform_sync_status  latest sync attempt per member per platform
 users ──< pending_links         open "prove you own this account" requests
+users ──< pending_email_codes   open e-mail verification codes (hashed; sign-up, add e-mail, reset)
 pending_registrations           unused since the username sign-up (kept empty for rollback)
 pending_resets                   "forgot password" requests waiting for the proof code
 rate_limits                     counters for the sensitive rate limiters (shared across instances)

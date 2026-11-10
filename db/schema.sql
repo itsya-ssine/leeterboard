@@ -13,7 +13,8 @@
 --          ├─< platform_sync_status (1 member : 1 latest sync result per linked platform)
 --          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
 --          ├─< pending_links     (1 member : open "prove you own this account" requests)
---          └─< pending_resets    (1 member : open "forgot password" requests)
+--          ├─< pending_resets    (1 member : open "forgot password" requests)
+--          └─< pending_email_codes (0..1 member : open e-mail codes; NULL user for a sign-up)
 --   pending_registrations        (standalone; UNUSED, kept empty for rollback; see below)
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
@@ -57,11 +58,18 @@ CREATE TABLE users (
   -- Credentials and brute-force protection. Never exposed through the API.
   password_hash      TEXT NOT NULL DEFAULT '',
   failed_logins      INTEGER NOT NULL DEFAULT 0,
-  locked_until       TEXT
+  locked_until       TEXT,
+
+  -- Private e-mail address (migration 17). Never part of the public member
+  -- payload: read it only through a dedicated query. NULL for members who have
+  -- not added one; stored lowercase and unique ignoring case when set.
+  email              TEXT,
+  email_verified_at  TEXT                          -- ISO timestamp of the verified code; NULL = unverified / none
 );
 CREATE UNIQUE INDEX idx_users_leetcode       ON users(leetcode_username);
 CREATE UNIQUE INDEX idx_users_leetcode_lower ON users(lower(leetcode_username));
 CREATE UNIQUE INDEX idx_users_login_username ON users(login_username);
+CREATE UNIQUE INDEX idx_users_email          ON users(lower(email)) WHERE email IS NOT NULL;
 
 -- One cumulative snapshot per member per UTC day: the totals as of that day's
 -- last sync. The app keeps the newest 60 days per member.
@@ -251,3 +259,27 @@ CREATE TABLE feedback (
   read_at     TEXT                                 -- NULL = unread
 );
 CREATE INDEX idx_feedback_created ON feedback(created_at DESC);
+
+-- An e-mail verification code waiting to be entered (migration 17). One open
+-- row per purpose + address: a new request replaces the old one. The browser
+-- only ever holds `id`. `code_hash` is an HMAC of the 6-digit code, never the
+-- code. A sign-up keeps its chosen username, display name and the already
+-- hashed password here until the code is verified (user_id is NULL); a reset
+-- keeps the NEW password hash. Rows are single use, expire after 10 minutes and
+-- are deleted after 5 wrong attempts.
+CREATE TABLE pending_email_codes (
+  id             TEXT PRIMARY KEY,                 -- random, 128 bits
+  purpose        TEXT NOT NULL CHECK (purpose IN ('signup', 'add_email', 'reset')),
+  email          TEXT NOT NULL,                    -- lowercase; goes away with the row
+  user_id        TEXT REFERENCES users(id) ON DELETE CASCADE,  -- NULL for sign-up
+  username       TEXT,                             -- sign-up only
+  display_name   TEXT,                             -- sign-up only
+  password_hash  TEXT,                             -- sign-up and reset: the NEW password, already hashed
+  code_hash      TEXT NOT NULL,
+  attempts       INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL,
+  last_sent_at   TEXT NOT NULL,
+  expires_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_pending_email_codes_open    ON pending_email_codes(purpose, email);
+CREATE INDEX idx_pending_email_codes_expires ON pending_email_codes(expires_at);
