@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
 import LoginModal from "./LoginModal.js";
 import { gateView } from "./sessionGate.js";
+import { SESSION_ENDED_MESSAGE } from "./api.js";
 
 // Renders the app only while a member is signed in. Because the app is what
 // fetches data and runs the polling and sync timers, those start when a session
@@ -31,10 +32,11 @@ export default function SessionGate({ children }: { children: ReactNode }) {
 // The only thing a visitor without a session sees: the sign-in dialog, which
 // can't be dismissed because there is nothing behind it to go back to.
 function AuthScreen() {
+  const { sessionEnded } = useAuth();
   return (
     <main className="min-h-dvh">
       <header className="px-6 py-6 font-logo text-lg font-semibold tracking-tight text-strong sm:px-10">Leeterboard</header>
-      <LoginModal open dismissible={false} onClose={() => {}} />
+      <LoginModal open dismissible={false} onClose={() => {}} notice={sessionEnded ? SESSION_ENDED_MESSAGE : undefined} />
     </main>
   );
 }

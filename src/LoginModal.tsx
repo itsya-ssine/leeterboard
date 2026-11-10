@@ -33,12 +33,15 @@ export default function LoginModal({
   open,
   onClose,
   onAuthenticated,
-  dismissible = true
+  dismissible = true,
+  notice
 }: {
   open: boolean;
   onClose: () => void;
   onAuthenticated?: () => void;
   dismissible?: boolean;
+  // A message shown above the form, e.g. that the session ended.
+  notice?: string;
 }) {
   const { login, register } = useAuth();
   const { toast } = useToast();
@@ -152,6 +155,12 @@ export default function LoginModal({
               </button>
             ))}
           </div>
+
+          {notice && (
+            <p role="status" className="mt-4 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 ring-1 ring-amber-400/20">
+              {notice}
+            </p>
+          )}
 
           {/* ---------- Log in ---------- */}
           {tab === "login" && (

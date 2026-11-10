@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { User, PlatformId } from "./types.js";
+import { installSessionExpiryHandler } from "./api.js";
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
 
@@ -24,6 +25,10 @@ export interface ProfileDetails {
 interface AuthContextValue {
   status: SessionStatus;
   user: User | null;
+  // True from the moment the server says the session is gone (expired, logged
+  // out elsewhere, password changed on another device) until the member signs
+  // in again; the sign-in screen explains it. A normal log out doesn't set it.
+  sessionEnded: boolean;
   // Sign in with the login name. Members who signed up with LeetCode before
   // login names existed use their LeetCode username (the same name, lowercase).
   login: (username: string, password: string) => Promise<User>;
@@ -85,6 +90,35 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
+
+  // Bumped on every sign-in and sign-out. A 401 that belongs to an older
+  // session (a poll that was still in flight when the member logged out and
+  // back in) must not end the new one.
+  const epoch = useRef(0);
+  const statusRef = useRef<SessionStatus>(status);
+  useEffect(() => {
+    epoch.current += 1;
+    statusRef.current = status;
+  }, [status]);
+
+  // Any request that comes back "session required" ends the session here, so
+  // every component (the board poll, the account page, admin tools...) is
+  // covered without handling 401 itself.
+  useEffect(
+    () =>
+      installSessionExpiryHandler(
+        () => epoch.current,
+        (startedIn) => {
+          if (startedIn !== epoch.current || statusRef.current !== "authenticated") return;
+          statusRef.current = "guest"; // several requests can fail at once; end it once
+          setSessionEnded(true);
+          setUser(null);
+          setStatus("guest");
+        }
+      ),
+    []
+  );
 
   const refreshSession = useCallback(async () => {
     try {
@@ -92,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (data.status === "authenticated") {
         setUser(data.user);
+        setSessionEnded(false);
         setStatus("authenticated");
       } else {
         setUser(null);
@@ -110,6 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     const data = await postJson<User>("/api/auth/login", { username, password });
     setUser(data);
+    setSessionEnded(false);
     setStatus("authenticated");
     return data;
   }, []);
@@ -117,6 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = useCallback(async (username: string, password: string, displayName?: string) => {
     const data = await postJson<User>("/api/auth/register", { username, password, displayName });
     setUser(data);
+    setSessionEnded(false);
     setStatus("authenticated");
     return data;
   }, []);
@@ -206,6 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         status,
         user,
+        sessionEnded,
         login,
         register,
         logout,

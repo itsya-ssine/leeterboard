@@ -64,6 +64,8 @@ import {
   type ResetFreezeReason
 } from "./db.js";
 import {
+  SESSION_REQUIRED_BODY,
+  SESSION_REQUIRED_CODE,
   setSessionCookie,
   clearSessionCookie,
   readSession,
@@ -1387,12 +1389,12 @@ async function checkCurrentPassword(
   password: unknown,
   action: "password_change" | "account_delete",
   ip: string | undefined
-): Promise<{ record: UserWithAuth | null; status: number; error: string }> {
-  const fail = (status: number, error: string) => ({ record: null, status, error });
+): Promise<{ record: UserWithAuth | null; status: number; error: string; code?: string }> {
+  const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
 
   if (typeof password !== "string" || !password) return fail(400, "Enter your current password.");
   const record = await getUserAuthById(userId);
-  if (!record) return fail(401, "You must be logged in to do that.");
+  if (!record) return fail(401, SESSION_REQUIRED_BODY.error, SESSION_REQUIRED_CODE);
 
   if (!isPasswordHash(record.auth.passwordHash)) {
     return fail(
@@ -1488,7 +1490,7 @@ app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) 
     if (hasHideLeetcode) await setHideLeetcodeStats(id, body.hideLeetcodeStats);
 
     const updated = await getUserById(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.json({ ...updated, isAdmin: isAdminUser(updated) });
   } catch (error: any) {
     console.error(`[Account] profile update failed: ${error.message}`);
@@ -1647,7 +1649,7 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
     await syncPlatformAccount({ userId: id, platform: platform.id, handle: profile.handle });
 
     const updated = await userJson(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.status(201).json(updated);
   } catch (error: any) {
     console.error(`[Account] link verify failed: ${error.message}`);
@@ -1668,7 +1670,7 @@ app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, asyn
     }
     logSecurityEvent("platform_unlinked", { ip: req.ip, userId: id, platform: platform.id }, "info");
     const updated = await userJson(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] unlink failed: ${error.message}`);
@@ -1690,7 +1692,7 @@ app.post("/api/account/leetcode/start", accountLimiter, requireAuth, async (req,
       return res.status(400).json({ error: "Enter a valid LeetCode username (letters, numbers, _ . - only)." });
     }
     const me = await getUserById(id);
-    if (!me) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!me) return res.status(401).json(SESSION_REQUIRED_BODY);
     if (me.leetcodeLinked) {
       return res.status(409).json({ error: "You already have a LeetCode account linked. Remove it first to link a different one." });
     }
@@ -1746,7 +1748,7 @@ app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req,
       return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
     }
     const me = await getUserById(id);
-    if (!me) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!me) return res.status(401).json(SESSION_REQUIRED_BODY);
     if (me.leetcodeLinked) {
       await deletePendingLink(id, "leetcode");
       return res.status(409).json({ error: "You already have a LeetCode account linked." });
@@ -1846,7 +1848,7 @@ app.delete("/api/account/leetcode", accountLimiter, requireAuth, async (req, res
     }
     logSecurityEvent("platform_unlinked", { ip: req.ip, userId: id, platform: "leetcode" }, "info");
     const updated = await userJson(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] LeetCode unlink failed: ${error.message}`);
@@ -1868,7 +1870,7 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
       return res.status(404).json({ error: `You don't have a ${platform.label} account linked.` });
     }
     const updated = await userJson(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] platform visibility failed: ${error.message}`);
@@ -1884,7 +1886,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
     const { currentPassword, newPassword } = req.body ?? {};
 
     const check = await checkCurrentPassword(id, currentPassword, "password_change", req.ip);
-    if (!check.record) return res.status(check.status).json({ error: check.error });
+    if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
     const passwordError = validatePassword(newPassword, loginUsername);
     if (passwordError) return res.status(400).json({ error: passwordError });
@@ -1910,7 +1912,7 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
   try {
     const { id } = (req as any).user as { id: string };
     const check = await checkCurrentPassword(id, req.body?.password, "account_delete", req.ip);
-    if (!check.record) return res.status(check.status).json({ error: check.error });
+    if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
     await deleteUserById(id);
     logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.loginUsername }, "info");

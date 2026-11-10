@@ -91,6 +91,7 @@ describe("visitors", () => {
       const res = await api(method, url);
       assert.equal(res.status, 401);
       assert.equal(res.json.error, "You must be logged in to do that.");
+      assert.equal(res.json.code, "session_required", "the frontend keys on this to end the session");
       for (const needle of ["gate_leetcoder", "Gate Plain", "gate_plain", "history", "allTimeSolved"]) {
         assert.equal(res.text.includes(needle), false, `the 401 mentions "${needle}"`);
       }
@@ -194,5 +195,43 @@ describe("route inventory", () => {
     for (const key of ["GET /api/users", "GET /api/trends", "POST /api/sync-if-stale"]) {
       assert.match(byKey.get(key)?.middleware ?? "", /\brequireAuth\b/, key);
     }
+  });
+});
+
+// The frontend drops its signed-in state on a 401 that carries code
+// "session_required" (src/api.ts). A 401 for any other reason must not carry
+// it, or mistyping a password would sign the member out. Kept last: it changes
+// a password, which signs out that member's other sessions.
+describe("which 401s end the session", () => {
+  it("a wrong current password is a 401 without the session code", async () => {
+    const res = await api("POST", "/api/account/password", {
+      cookie: leetcodeMemberCookie,
+      body: { currentPassword: "not-the-password-1", newPassword: "a-brand-new-passphrase-7" }
+    });
+    assert.equal(res.status, 401);
+    assert.equal(res.json.code, undefined);
+    assert.equal(
+      (await api("GET", "/api/users", { cookie: leetcodeMemberCookie })).status,
+      200,
+      "the member is still signed in"
+    );
+  });
+
+  it("a wrong login password is a 401 without the session code", async () => {
+    const res = await api("POST", "/api/auth/login", { body: { username: "gate_plain", password: "nope-nope-nope-1" } });
+    assert.equal(res.status, 401);
+    assert.equal(res.json.code, undefined);
+  });
+
+  it("a session that was signed out by a password change gets the session code", async () => {
+    const change = await api("POST", "/api/account/password", {
+      cookie: leetcodeMemberCookie,
+      body: { currentPassword: PW, newPassword: "a-brand-new-passphrase-7" }
+    });
+    assert.equal(change.status, 200, change.text);
+
+    const stale = await api("GET", "/api/users", { cookie: leetcodeMemberCookie });
+    assert.equal(stale.status, 401);
+    assert.equal(stale.json.code, "session_required");
   });
 });

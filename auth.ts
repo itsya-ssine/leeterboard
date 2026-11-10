@@ -91,6 +91,17 @@ export async function burnPasswordCheck(password: string): Promise<void> {
 
 /* ---------- Sessions ---------- */
 
+// The body of every 401 that means "there is no valid session" (never signed
+// in, expired, logged out elsewhere, password changed on another device). The
+// `code` is what the frontend keys on to drop its signed-in state: a 401 with
+// no code is something else, such as a wrong password, and must NOT sign the
+// member out. src/api.ts holds the same string.
+export const SESSION_REQUIRED_CODE = "session_required";
+export const SESSION_REQUIRED_BODY = {
+  error: "You must be logged in to do that.",
+  code: SESSION_REQUIRED_CODE
+} as const;
+
 const COOKIE_NAME = "session";
 const SESSION_TTL = "7d";
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -244,7 +255,7 @@ export async function resolveSession(req: Request): Promise<{ user: User; isAdmi
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
   try {
     const resolved = await resolveSession(req);
-    if (!resolved) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!resolved) return res.status(401).json(SESSION_REQUIRED_BODY);
     (req as any).user = {
       id: resolved.user.id,
       loginUsername: resolved.user.loginUsername,
@@ -261,7 +272,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   try {
     const resolved = await resolveSession(req);
-    if (!resolved) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!resolved) return res.status(401).json(SESSION_REQUIRED_BODY);
     if (!resolved.isAdmin) return res.status(403).json({ error: "Admin access required." });
     (req as any).user = { id: resolved.user.id, loginUsername: resolved.user.loginUsername };
     next();
