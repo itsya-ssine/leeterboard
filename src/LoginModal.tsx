@@ -37,11 +37,13 @@ const PURPOSE_COPY: Record<RegistrationChallenge["purpose"], { title: string; do
 export default function LoginModal({
   open,
   onClose,
-  onAuthenticated
+  onAuthenticated,
+  dismissible = true
 }: {
   open: boolean;
   onClose: () => void;
   onAuthenticated?: () => void;
+  dismissible?: boolean;
 }) {
   const { login, startRegistration, verifyRegistration } = useAuth();
 
@@ -148,7 +150,13 @@ export default function LoginModal({
   return (
     <AnimatePresence>
       {open && (
-        <Modal onClose={onClose} label={tab === "login" ? "Log in" : "Sign up"} maxWidth="max-w-sm" id="auth-modal">
+        <Modal
+          onClose={onClose}
+          dismissible={dismissible}
+          label={tab === "login" ? "Log in" : "Sign up"}
+          maxWidth="max-w-sm"
+          id="auth-modal"
+        >
           {/* ---------- Tabs ---------- */}
           <div
             role="tablist"

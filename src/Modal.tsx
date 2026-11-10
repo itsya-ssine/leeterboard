@@ -12,17 +12,20 @@ interface ModalProps {
   label: string;
   id?: string;
   maxWidth?: string;
+  // false = no close button, and Escape or a click outside do nothing. For a
+  // dialog that is the whole screen, like the sign-in screen.
+  dismissible?: boolean;
   children: React.ReactNode;
 }
 
-export default function Modal({ onClose, label, id, maxWidth = "max-w-md", children }: ModalProps) {
+export default function Modal({ onClose, label, id, maxWidth = "max-w-md", dismissible = true, children }: ModalProps) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && dismissible) onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, dismissible]);
 
   useEffect(() => {
     openModals += 1;
@@ -42,7 +45,7 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", child
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15 }}
-        onClick={onClose}
+        onClick={dismissible ? onClose : undefined}
         className="absolute inset-0 backdrop-blur-sm"
         style={{
           background:
@@ -66,14 +69,16 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", child
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-teal-400/10 via-sky-400/[0.04] to-transparent"
           />
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute right-3 top-3 z-10 grid size-8 cursor-pointer place-items-center rounded-lg bg-tint text-mist-400 ring-1 ring-line transition-colors hover:text-strong hover:ring-line-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
-            aria-label="Close dialog"
-          >
-            <X className="size-4" />
-          </button>
+          {dismissible && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute right-3 top-3 z-10 grid size-8 cursor-pointer place-items-center rounded-lg bg-tint text-mist-400 ring-1 ring-line transition-colors hover:text-strong hover:ring-line-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
+              aria-label="Close dialog"
+            >
+              <X className="size-4" />
+            </button>
+          )}
           <div className="relative min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
         </div>
       </motion.div>
