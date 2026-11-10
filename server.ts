@@ -16,7 +16,21 @@ import {
   initDb,
   listUsers,
   getUserById,
-  getUserAuthByUsername,
+  getUserAuthByLoginUsername,
+  getLinkedHandle,
+  findLeetcodeOwner,
+  leetcodeLinkedUsers,
+  linkLeetcodeAccount,
+  unlinkLeetcodeAccount,
+  getResetFreeze,
+  createSecurityNotice,
+  createPendingReset,
+  getPendingReset,
+  bumpPendingResetAttempts,
+  deletePendingReset,
+  consumePendingReset,
+  deletePendingResetsFor,
+  purgeExpiredPendingResets,
   insertUser,
   updateUser,
   deleteUserById,
@@ -28,13 +42,7 @@ import {
   setPasswordHash,
   recordFailedLogin,
   clearFailedLogins,
-  createPendingRegistration,
-  getPendingRegistration,
-  bumpPendingAttempts,
-  deletePendingRegistration,
-  consumePendingRegistration,
   consumePendingLink,
-  purgeExpiredRegistrations,
   getMeta,
   setMeta,
   recordSyncResult,
@@ -51,11 +59,13 @@ import {
   removePlatformAccount,
   setPlatformHidden,
   setHideLeetcodeStats,
-  getResetFreeze,
-  createSecurityNotice,
-  type UserWithAuth
+  type UserWithAuth,
+  type RecoveryPlatform,
+  type ResetFreezeReason
 } from "./db.js";
 import {
+  SESSION_REQUIRED_BODY,
+  SESSION_REQUIRED_CODE,
   setSessionCookie,
   clearSessionCookie,
   readSession,
@@ -75,10 +85,11 @@ import { PLATFORMS, isPlatformId, type PlatformInfo } from "./platforms/registry
 import { PlatformNotFoundError } from "./platforms/common.js";
 import { buildPlatformTrend } from "./platformTrends.js";
 import { csrfProtection } from "./csrf.js";
+import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
-import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
+import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -151,18 +162,23 @@ app.use((req, res, next) => {
 
 // Utility to calculate ranks and progress metrics
 function sortAndRankUsers(users: User[]) {
-  // We sort primarily by Weekly Progress (to encourage active, weekly problem solving momentum!)
-  // In case of a tie, we sort by All-Time solved counts
+  // The ranking is the LeetCode board, so only members with a LeetCode account
+  // take part: they come first, by Weekly Progress (to encourage active, weekly
+  // problem solving momentum!) and, in case of a tie, by All-Time solved counts.
+  // Members without LeetCode follow, unranked (rank 0) and never ahead of
+  // anyone, not even a linked member who has solved nothing yet.
   users.sort((a, b) => {
+    if (a.leetcodeLinked !== b.leetcodeLinked) return a.leetcodeLinked ? -1 : 1;
     if (b.weeklyProgress !== a.weeklyProgress) {
       return b.weeklyProgress - a.weeklyProgress;
     }
     return b.allTimeSolved - a.allTimeSolved;
   });
 
-  users.forEach((u, index) => {
-    u.rank = index + 1;
-  });
+  let rank = 0;
+  for (const u of users) {
+    u.rank = u.leetcodeLinked ? ++rank : 0;
+  }
 }
 
 // Fetches real solved-problem counts for a LeetCode username.
@@ -666,9 +682,10 @@ const WINNERS_META_KEY = "weeklyWinners";
 // (or even slow down the error path of) a sync or a sign-up.
 async function checkNewAwards(users?: User[]): Promise<void> {
   try {
-    // Group badges depend on everyone, so look at the whole board.
+    // Group badges depend on everyone on the LeetCode board, so look at all of
+    // it. A member without LeetCode has no LeetCode badges to earn or compare.
     const board = users ?? (await listUsers());
-    await notifyNewAwards(board, await resolveWinners(board));
+    await notifyNewAwards(leetcodeLinkedUsers(board), await resolveWinners(board));
   } catch (err: any) {
     console.warn(`[Notifications] Award check failed: ${err.message}`);
   }
@@ -680,8 +697,9 @@ async function resolveWinners(users: User[]): Promise<WeeklyWinner[]> {
   if (users.length === 0) return [];
   try {
     const stored = parseWinnerArchive(await getMeta(WINNERS_META_KEY));
-    const merged = mergeWinnerArchive(stored, computeWeeklyWinners(users, Date.now()));
-    // Members who left the board take their wins with them.
+    const merged = mergeWinnerArchive(stored, computeWeeklyWinners(leetcodeLinkedUsers(users), Date.now()));
+    // Members who left the site take their wins with them. (Everyone counts
+    // here, not only members with LeetCode: unlinking LeetCode isn't leaving.)
     const ids = new Set(users.map((u) => u.id));
     const kept = merged.filter((w) => ids.has(w.userId));
     if (JSON.stringify(kept) !== JSON.stringify(stored)) {
@@ -736,10 +754,12 @@ function withVisiblePlatforms<T extends { id: string; platforms?: Partial<Record
   return { ...user, platforms };
 }
 
-// GET all users (with automatic ranking update)
-app.get("/api/users", async (req, res) => {
+// GET all users (with automatic ranking update). Members only: the board is
+// not public, so there is always a signed-in viewer here.
+app.get("/api/users", requireAuth, async (req, res) => {
   try {
-    const viewer = await viewerOf(req);
+    const { id, isAdmin } = (req as any).user as { id: string; isAdmin: boolean };
+    const viewer: Viewer = { id, isAdmin };
     res.vary("Cookie"); // the answer depends on who is asking
     const users = (await listUsers()).map((u) => withVisiblePlatforms(u, viewer));
     sortAndRankUsers(users);
@@ -753,16 +773,14 @@ app.get("/api/users", async (req, res) => {
 
 /* ---------- Auth: LeetCode username + password ---------- */
 //
-// Accounts are keyed by LeetCode username and protected by a password chosen
-// on this site (never the LeetCode password — we never ask for that).
+// Accounts are keyed by a username the member picks and protected by a password
+// chosen on this site (never a LeetCode password; we never ask for that).
 //
-// Because anyone could type any LeetCode username, creating an account (or
-// setting a new password) first requires proof that the LeetCode profile is
+// A LeetCode account is optional and is linked afterwards. Because anyone could
+// type any LeetCode username, linking one requires proof that the profile is
 // yours: the server hands out a random code, you paste it into your LeetCode
-// profile "Summary", and the server reads the public profile back to check
-// it. Nobody else can edit your profile, so nobody else can pass the check.
-// The same proof is how accounts that existed before passwords can be claimed,
-// and how a forgotten password is reset.
+// profile "Summary", and the server reads the public profile back to check it.
+// Nobody else can edit your profile, so nobody else can pass the check.
 
 const LEETCODE_USERNAME_RE = /^[A-Za-z0-9_.-]{1,50}$/;
 const MAX_DISPLAY_NAME_LENGTH = 40;
@@ -770,19 +788,10 @@ const MAX_SCHOOL_LENGTH = 60;
 const MAX_BIO_LENGTH = 200;
 const MAX_LINK_LENGTH = 200;
 
-const REGISTRATION_COOKIE = "registration";
-const REGISTRATION_TTL_MS = 30 * 60 * 1000;
-const MAX_VERIFY_ATTEMPTS = 10;
+const MAX_VERIFY_ATTEMPTS = 10; // wrong guesses allowed on one proof code before it is thrown away
 
 const MAX_FAILED_LOGINS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
-
-const registrationCookieOptions = {
-  httpOnly: true,
-  sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
-  path: "/api/auth"
-};
 
 // Strict allow-list: it keeps the username safe to embed in the third-party
 // URLs we call, and rejects anything that isn't a plausible LeetCode handle.
@@ -892,8 +901,8 @@ type AboutLookup =
   | { status: "unavailable" };
 
 // Reads a LeetCode profile's public "Summary" (aboutMe) and its canonical
-// username. This is the ONLY thing that proves account ownership (sign-up,
-// claim, password reset), so it must come from LeetCode itself.
+// username. This is the ONLY thing that proves someone owns a LeetCode account
+// (needed to link it), so it must come from LeetCode itself.
 //
 // SECURITY: never add a third-party fallback here (proxies, mirrors, caches).
 // Whoever controls that source could attest "this summary contains your code"
@@ -956,304 +965,292 @@ async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
 const LEETCODE_UNAVAILABLE_MESSAGE =
   "Couldn't reach LeetCode right now. Please try again in a moment.";
 
-// The same message for every reason, so the response doesn't reveal whether
-// an account is an admin or why it is frozen (the reason goes to the log).
-const RECOVERY_BLOCKED_MESSAGE =
-  "Claiming or resetting this account isn't available online. Please contact a Leeterboard admin.";
-
-// F2 — a LeetCode USERNAME is not a stable identity: if its owner renames or
-// deletes the LeetCode account, a stranger can later register the same name
-// and pass the ownership check for it. That must never be enough to take over
-// an existing leaderboard account when the stakes are high, so claim/reset
-// is refused (403) for:
-//   - admin accounts (recover them out-of-band: `npm run admin -- set-password`)
-//   - accounts whose LeetCode name stopped resolving, or whose syncs have been
-//     failing for days, until an admin approves (`npm run admin -- approve-reset`)
-// Returns true after it has sent the 403. `pendingId` is the sign-up to
-// discard when the block is found at the verify step.
-async function denyOwnershipRecovery(
-  req: express.Request,
-  res: express.Response,
-  existing: UserWithAuth | null,
-  stage: "register" | "verify" | "verify_after_proof",
-  pendingId?: string
-): Promise<boolean> {
-  if (!existing) return false;
-  const reason = isAdminUser(existing.user) ? "admin" : await getResetFreeze(existing.user.id);
-  if (!reason) return false;
-
-  logSecurityEvent("ownership_blocked", {
-    ip: req.ip,
-    userId: existing.user.id,
-    username: existing.user.leetcodeUsername,
-    purpose: isPasswordHash(existing.auth.passwordHash) ? "reset" : "claim",
-    reason,
-    stage
-  });
-  if (pendingId) {
-    await deletePendingRegistration(pendingId);
-    res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-  }
-  res.status(403).json({ error: RECOVERY_BLOCKED_MESSAGE });
-  return true;
-}
-
-// POST — step 1 of sign-up / claim / password reset. Validates the input,
-// hashes the password, stores it as a pending registration and returns the
-// code to put in the LeetCode profile summary. Nothing about the account
-// changes until step 2 succeeds.
+// POST — sign up. One step: pick a username and a password and you are in.
+// Nothing here needs a LeetCode account; a member links LeetCode (and the other
+// platforms) afterwards from their account settings.
 app.post("/api/auth/register", registerLimiter, async (req, res) => {
   try {
-    const { leetcodeUsername, password, displayName } = req.body ?? {};
+    const body = (req.body ?? {}) as Record<string, unknown>;
 
-    const username = parseLeetCodeUsername(leetcodeUsername);
-    if (!username) {
-      return res.status(400).json({
-        error: "Enter a valid LeetCode username (letters, numbers, dots, dashes and underscores)."
-      });
+    const check = checkUsername(body.username);
+    if (!check.ok) {
+      return res.status(400).json({ error: check.error });
     }
-    const passwordError = validatePassword(password, username);
+    const username = check.username;
+
+    const passwordError = validatePassword(body.password, username);
     if (passwordError) {
       return res.status(400).json({ error: passwordError });
     }
 
-    // Refuse before doing any outbound call or password hashing. LeetCode
-    // usernames are case-insensitive, so this finds the same account the
-    // canonical name below would.
-    if (await denyOwnershipRecovery(req, res, await getUserAuthByUsername(username), "register")) return;
-
-    // Fail fast with a clear message if the LeetCode account doesn't exist.
-    const lookup = await fetchLeetCodeAbout(username);
-    if (lookup.status === "not_found") {
-      return res.status(404).json({ error: `LeetCode user "${username}" doesn't exist.` });
-    }
-    if (lookup.status === "unavailable") {
-      logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, username, route: "register" });
-      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+    // Look before hashing, so a taken name costs nothing. The unique index on
+    // login_username is what actually decides; see the catch below.
+    if (await getUserAuthByLoginUsername(username)) {
+      return res.status(409).json({ error: "That username is taken." });
     }
 
-    const existing = await getUserAuthByUsername(lookup.username);
-    const purpose: "create" | "claim" | "reset" = !existing
-      ? "create"
-      : isPasswordHash(existing.auth.passwordHash)
-        ? "reset"
-        : "claim";
-    // Keep the casing already on the board for existing members.
-    const storedUsername = existing ? existing.user.leetcodeUsername : lookup.username;
+    const passwordHash = await hashPassword(body.password as string);
+    // A new member has no LeetCode data: no solved counts, no history, no
+    // baseline. All of that starts when they link LeetCode.
+    const user: User = {
+      id: `user-${crypto.randomUUID()}`,
+      displayName: cleanDisplayName(body.displayName, username),
+      loginUsername: username,
+      leetcodeLinked: false,
+      leetcodeUsername: "",
+      avatarUrl: defaultAvatar(username),
+      school: "",
+      bio: "",
+      githubUrl: "",
+      linkedinUrl: "",
+      websiteUrl: "",
+      allTimeSolved: 0,
+      easySolved: 0,
+      mediumSolved: 0,
+      hardSolved: 0,
+      contestRating: null,
+      contestsAttended: 0,
+      currentStreak: null,
+      longestStreak: null,
+      weeklyProgress: 0,
+      monthlyProgress: 0,
+      rank: 0,
+      lastUpdated: null,
+      trackingStart: "",
+      baselineSolved: 0,
+      history: []
+    };
+    await insertUser(user, passwordHash, { loginUsername: username });
 
-    const registrationId = crypto.randomBytes(32).toString("hex");
-    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
-    const now = Date.now();
-
-    await purgeExpiredRegistrations(new Date(now).toISOString());
-    await createPendingRegistration({
-      id: registrationId,
-      leetcodeUsername: storedUsername,
-      displayName: cleanDisplayName(displayName, storedUsername),
-      passwordHash: await hashPassword(password as string),
-      code,
-      expiresAt: new Date(now + REGISTRATION_TTL_MS).toISOString()
-    });
-
-    logSecurityEvent("ownership_started", { ip: req.ip, username: storedUsername, purpose }, "info");
-    res.cookie(REGISTRATION_COOKIE, registrationId, { ...registrationCookieOptions, maxAge: REGISTRATION_TTL_MS });
-    res.json({
-      code,
-      purpose,
-      leetcodeUsername: storedUsername,
-      expiresInMinutes: REGISTRATION_TTL_MS / 60_000
-    });
+    logSecurityEvent("account_created", { ip: req.ip, userId: user.id, username }, "info");
+    setSessionCookie(res, user, passwordHash);
+    res.status(201).json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
-    console.error(`[Auth] register failed: ${error.message}`);
+    if (String(error?.message).includes("UNIQUE")) {
+      // Two sign-ups for the same name raced each other and the other one won.
+      return res.status(409).json({ error: "That username is taken." });
+    }
+    console.error(`[Auth] sign-up failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
-// POST — step 2. Reads the person's public LeetCode summary and, if it
-// contains the code from step 1, creates the account (or sets the new
-// password on an existing one) and signs them in.
-app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
+// POST — forgot password, step 1. Someone who can't sign in can still prove they
+// own an account the member linked (LeetCode, Codeforces or CodinGame) by putting
+// a one-time code in that account's public profile. They choose the new password
+// now; it is hashed and held server-side, so nothing secret is sent again. A
+// member with nothing linked can't do this: they change their password from
+// their account settings (which asks for the old one), or an admin removes the
+// account and they sign up again.
+//
+// Never allowed through here, for any reason the response won't reveal:
+//   - admin accounts (recovered with `npm run admin`),
+//   - an account whose linked name stopped resolving (it may now belong to
+//     someone else; an admin lifts that with `npm run admin -- approve-reset`),
+//   - an unknown username, or a platform the member hasn't linked.
+const RESET_COOKIE = "pwreset";
+const RESET_TTL_MS = 30 * 60 * 1000;
+const resetCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/api/auth"
+};
+const RESET_PLATFORMS: readonly RecoveryPlatform[] = ["leetcode", "codeforces", "codingame"];
+const RESET_PLATFORM_LABELS: Record<RecoveryPlatform, string> = {
+  leetcode: "LeetCode",
+  codeforces: "Codeforces",
+  codingame: "CodinGame"
+};
+const LEETCODE_PROOF_HELP =
+  "On LeetCode open your profile, click Edit Profile, paste the code into the Summary field and save. Then press Verify. You can remove the code afterward.";
+
+// The same answer for every reason a reset can't go ahead, so it doesn't reveal
+// which usernames exist, which are admins, or which are frozen.
+const RESET_BLOCKED_MESSAGE =
+  "This password can't be reset online. If you remember your current password, sign in and change it in your account settings. " +
+  "Otherwise create a new account with a different username, or ask an admin to remove the old one.";
+
+type ResetEligibility = { ok: true; handle: string } | { ok: false; reason: "admin" | "not_linked" | ResetFreezeReason };
+
+async function resetEligibility(user: { id: string; leetcodeUsername: string }, platform: RecoveryPlatform): Promise<ResetEligibility> {
+  if (isAdminUser(user)) return { ok: false, reason: "admin" };
+  const handle = await getLinkedHandle(user.id, platform);
+  if (!handle) return { ok: false, reason: "not_linked" };
+  const freeze = await getResetFreeze(user.id, platform);
+  return freeze ? { ok: false, reason: freeze } : { ok: true, handle };
+}
+
+app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
   try {
-    const registrationId = req.cookies?.[REGISTRATION_COOKIE];
-    if (typeof registrationId !== "string" || !/^[a-f0-9]{64}$/.test(registrationId)) {
-      return res.status(400).json({ error: "No sign-up in progress. Please start again.", expired: true });
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const username = typeof body.username === "string" ? body.username.trim().toLowerCase() : "";
+    if (!username || username.length > 100) {
+      return res.status(400).json({ error: "Enter your username." });
+    }
+    const platform = RESET_PLATFORMS.find((p) => p === body.platform);
+    if (!platform) {
+      return res.status(400).json({ error: "Choose the account you linked: LeetCode, Codeforces or CodinGame." });
+    }
+    const passwordError = validatePassword(body.password, username);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
     }
 
-    const pending = await getPendingRegistration(registrationId);
+    // Hash before looking anyone up, so a refusal takes as long as an
+    // acceptance and response time doesn't say which usernames can be reset.
+    const passwordHash = await hashPassword(body.password as string);
+
+    const record = await getUserAuthByLoginUsername(username);
+    const eligibility = record ? await resetEligibility(record.user, platform) : null;
+    if (!record || !eligibility || !eligibility.ok) {
+      logSecurityEvent("ownership_blocked", {
+        ip: req.ip,
+        userId: record?.user.id,
+        username,
+        platform,
+        reason: eligibility && !eligibility.ok ? eligibility.reason : "unknown_user",
+        stage: "start"
+      });
+      return res.status(403).json({ error: RESET_BLOCKED_MESSAGE });
+    }
+
+    await purgeExpiredPendingResets(new Date().toISOString());
+    const id = crypto.randomBytes(32).toString("hex");
+    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
+    await createPendingReset({
+      id,
+      userId: record.user.id,
+      platform,
+      handle: eligibility.handle,
+      passwordHash,
+      code,
+      expiresAt: new Date(Date.now() + RESET_TTL_MS).toISOString()
+    });
+
+    logSecurityEvent("ownership_started", { ip: req.ip, userId: record.user.id, platform, purpose: "reset" }, "info");
+    res.cookie(RESET_COOKIE, id, { ...resetCookieOptions, maxAge: RESET_TTL_MS });
+    res.json({
+      code,
+      platform,
+      instructions: platform === "leetcode" ? LEETCODE_PROOF_HELP : PLATFORMS[platform].proofHelp,
+      expiresInMinutes: RESET_TTL_MS / 60_000
+    });
+  } catch (error: any) {
+    console.error(`[Auth] reset start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — forgot password, step 2. Reads the linked account's public profile and,
+// if the code is there, sets the new password, signs the person in, signs out
+// everyone else and leaves the owner a notice.
+app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
+  try {
+    const cookieValue = req.cookies?.[RESET_COOKIE];
+    const pending =
+      typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingReset(cookieValue) : null;
     if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
-      if (pending) await deletePendingRegistration(pending.id);
-      res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-      return res.status(400).json({ error: "This sign-up has expired. Please start again.", expired: true });
+      if (pending) await deletePendingReset(pending.id);
+      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      return res.status(400).json({ error: "This reset request has expired. Please start again.", expired: true });
     }
     if (pending.attempts >= MAX_VERIFY_ATTEMPTS) {
-      logSecurityEvent("ownership_failed", { ip: req.ip, username: pending.leetcodeUsername, reason: "too_many_attempts" });
-      await deletePendingRegistration(pending.id);
-      res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
+      await deletePendingReset(pending.id);
+      res.clearCookie(RESET_COOKIE, resetCookieOptions);
       return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
     }
 
-    // The account may have become an admin or been frozen since the sign-up
-    // started, so check again now, before any outbound call.
-    if (await denyOwnershipRecovery(req, res, await getUserAuthByUsername(pending.leetcodeUsername), "verify", pending.id)) {
-      return;
-    }
-
-    const lookup = await fetchLeetCodeAbout(pending.leetcodeUsername);
-    if (lookup.status === "not_found") {
-      return res.status(404).json({ error: `LeetCode user "${pending.leetcodeUsername}" doesn't exist.` });
-    }
-    if (lookup.status === "unavailable") {
-      logSecurityEvent("ownership_lookup_unavailable", {
+    // Things can change between the two steps: check again.
+    const user = await getUserById(pending.userId);
+    const eligibility = user ? await resetEligibility(user, pending.platform) : null;
+    if (!user || !eligibility || !eligibility.ok || eligibility.handle.toLowerCase() !== pending.handle.toLowerCase()) {
+      await deletePendingReset(pending.id);
+      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      logSecurityEvent("ownership_blocked", {
         ip: req.ip,
-        username: pending.leetcodeUsername,
-        route: "register_verify"
+        userId: pending.userId,
+        platform: pending.platform,
+        reason: eligibility && !eligibility.ok ? eligibility.reason : "changed",
+        stage: "verify"
       });
-      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+      return res.status(403).json({ error: RESET_BLOCKED_MESSAGE });
     }
 
-    if (!lookup.aboutMe.toLowerCase().includes(pending.code.toLowerCase())) {
-      await bumpPendingAttempts(pending.id);
+    // Read the public profile of the account the MEMBER linked, never one the
+    // requester names.
+    const label = RESET_PLATFORM_LABELS[pending.platform];
+    let texts: string[];
+    if (pending.platform === "leetcode") {
+      const lookup = await fetchLeetCodeAbout(pending.handle);
+      if (lookup.status === "unavailable") {
+        logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: user.id, platform: "leetcode", purpose: "reset" });
+        return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+      }
+      if (lookup.status === "not_found") {
+        await deletePendingReset(pending.id);
+        logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: "leetcode", reason: "name_not_found", stage: "verify" });
+        return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
+      }
+      texts = [lookup.aboutMe];
+    } else {
+      try {
+        texts = (await PLATFORMS[pending.platform].fetchProfile!(pending.handle)).texts;
+      } catch (err: any) {
+        if (err instanceof PlatformNotFoundError) {
+          await deletePendingReset(pending.id);
+          logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: pending.platform, reason: "name_not_found", stage: "verify" });
+          return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
+        }
+        logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset" });
+        return res.status(503).json({ error: err.message });
+      }
+    }
+
+    const needle = pending.code.toLowerCase();
+    if (!texts.some((t) => t.toLowerCase().includes(needle))) {
+      await bumpPendingResetAttempts(pending.id);
       logSecurityEvent("ownership_failed", {
         ip: req.ip,
-        username: pending.leetcodeUsername,
-        reason: "code_not_found",
+        userId: user.id,
+        platform: pending.platform,
+        purpose: "reset",
         attempts: pending.attempts + 1
       });
       return res.status(400).json({
-        error:
-          "We couldn't find the code in your LeetCode summary yet. Save your profile on LeetCode, wait a few seconds, then try again."
+        error: `We couldn't find the code on your ${label} profile yet. Save it there, wait a few seconds, then try again.`
       });
     }
 
-    // Ownership proven. Re-check the account state now rather than trusting
-    // what it was when the sign-up started.
-    const existing = await getUserAuthByUsername(pending.leetcodeUsername);
-    if (await denyOwnershipRecovery(req, res, existing, "verify_after_proof", pending.id)) return;
-    let user: User;
-
-    // The challenge is single-use. Consuming it is one atomic DELETE, so of
-    // several concurrent verifications only one can proceed; the rest (and any
-    // replay) are rejected before anything is written.
-    const rejectReplay = () => {
-      logSecurityEvent("ownership_failed", { ip: req.ip, username: pending.leetcodeUsername, reason: "replay" });
-      res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
-      return res
-        .status(400)
-        .json({ error: "This sign-up was already completed or has expired. Please start again.", expired: true });
-    };
-
-    if (existing) {
-      // Claiming a pre-password account, or resetting a forgotten password.
-      // Stats and history are untouched; changing the hash also signs out
-      // every older session.
-      if (!(await consumePendingRegistration(pending.id))) return rejectReplay();
-      await setPasswordHash(existing.user.id, pending.passwordHash);
-      user = existing.user;
-
-      // Replacing a password that already existed is the most sensitive thing
-      // this flow does (it is what a takeover looks like), so make it loud:
-      // a warn-level event to alert on, and a notice for the real owner.
-      if (isPasswordHash(existing.auth.passwordHash)) {
-        logSecurityEvent("password_reset_via_ownership", {
-          ip: req.ip,
-          userId: existing.user.id,
-          username: existing.user.leetcodeUsername
-        });
-        try {
-          await createSecurityNotice(
-            existing.user.id,
-            "Your password was reset",
-            "Your password was reset by proving ownership of your LeetCode account. " +
-              "If that wasn't you, contact a Leeterboard admin right away."
-          );
-        } catch (err: any) {
-          console.warn(`[Auth] Couldn't create the reset notice: ${err.message}`);
-        }
-      }
-    } else {
-      // Fetch real initial stats — throws if the username can't currently be
-      // verified. The rating/streak lookups never throw.
-      const [scraped, contest, streaks] = await Promise.all([
-        scrapeLeetCodeProfile(pending.leetcodeUsername),
-        fetchContestRating(pending.leetcodeUsername),
-        fetchStreaks(pending.leetcodeUsername, null)
-      ]);
-      const todayStr = new Date().toISOString().split("T")[0];
-
-      user = {
-        id: `user-${crypto.randomUUID()}`,
-        displayName: pending.displayName,
-        leetcodeUsername: pending.leetcodeUsername,
-        avatarUrl: scraped.avatarUrl || defaultAvatar(pending.leetcodeUsername),
-        school: "",
-        bio: "",
-        githubUrl: "",
-        linkedinUrl: "",
-        websiteUrl: "",
-        allTimeSolved: scraped.allTimeSolved,
-        easySolved: scraped.easySolved,
-        mediumSolved: scraped.mediumSolved,
-        hardSolved: scraped.hardSolved,
-        contestRating: contest?.rating ?? null,
-        contestsAttended: contest?.attended ?? 0,
-        currentStreak: streaks?.current ?? null,
-        longestStreak: streaks?.longest ?? null,
-        // Nothing solved *since joining* yet, so progress starts at 0. The
-        // total they have right now is their baseline: everything solved
-        // before today never counts, everything solved from now on does,
-        // starting with this first (partial) week.
-        weeklyProgress: 0,
-        monthlyProgress: 0,
-        rank: 0,
-        lastUpdated: new Date().toISOString(),
-        trackingStart: todayStr,
-        baselineSolved: scraped.allTimeSolved,
-        history: [
-          {
-            date: todayStr,
-            solvedCount: scraped.allTimeSolved,
-            easy: scraped.easySolved,
-            medium: scraped.mediumSolved,
-            hard: scraped.hardSolved,
-            weeklyProgress: 0
-          }
-        ]
-      };
-      if (!(await consumePendingRegistration(pending.id))) return rejectReplay();
-      await insertUser(user, pending.passwordHash);
-      // What they already hold when they join isn't news; only later awards notify.
-      try {
-        await baselineNewMember(user, await listUsers());
-      } catch (err: any) {
-        console.warn(`[Notifications] Baseline failed: ${err.message}`);
-      }
+    // Ownership proven. Take the challenge atomically so it can't be replayed
+    // or used by two concurrent requests.
+    if (!(await consumePendingReset(pending.id))) {
+      logSecurityEvent("ownership_failed", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset", reason: "replay" });
+      return res.status(400).json({ error: "This reset request was already used or has expired. Please start again.", expired: true });
     }
 
-    logSecurityEvent(
-      "ownership_verified",
-      {
-        ip: req.ip,
-        userId: user.id,
-        username: user.leetcodeUsername,
-        purpose: !existing ? "create" : isPasswordHash(existing.auth.passwordHash) ? "reset" : "claim"
-      },
-      "info"
+    const hadPassword = isPasswordHash((await getUserAuthById(user.id))?.auth.passwordHash);
+    // New hash = every older session is signed out, and any lockout is cleared.
+    await setPasswordHash(user.id, pending.passwordHash);
+    await deletePendingResetsFor(user.id);
+    await createSecurityNotice(
+      user.id,
+      "Your password was reset",
+      `Someone proved they own your ${label} account "${pending.handle}" and used it to set a new password. ` +
+        "If that was you, nothing more to do. If it wasn't, change your password in your account settings and ask an admin for help."
     );
-    res.clearCookie(REGISTRATION_COOKIE, registrationCookieOptions);
+    logSecurityEvent("ownership_verified", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset" }, "info");
+    logSecurityEvent(
+      "password_reset_via_ownership",
+      { ip: req.ip, userId: user.id, platform: pending.platform, handle: pending.handle, hadPassword },
+      hadPassword ? "warn" : "info"
+    );
+
+    res.clearCookie(RESET_COOKIE, resetCookieOptions);
     setSessionCookie(res, user, pending.passwordHash);
-    res.status(existing ? 200 : 201).json({ ...user, isAdmin: isAdminUser(user) });
+    res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
-    if (error instanceof LeetCodeUserNotFoundError) {
-      return res.status(404).json({ error: error.message });
-    }
-    if (error instanceof LeetCodeUnavailableError) {
-      return res.status(503).json({ error: error.message });
-    }
-    if (String(error?.message).includes("UNIQUE")) {
-      // Two sign-ups for the same username raced each other.
-      return res.status(409).json({ error: "That LeetCode username was just registered. Try logging in." });
-    }
-    console.error(`[Auth] verify failed: ${error.message}`);
+    console.error(`[Auth] reset verify failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
@@ -1261,11 +1258,21 @@ app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
 // Pulls the username and password out of a login body. Returns null unless
 // both are non-empty strings. This is input validation only, not an
 // authorization check.
-function readLoginCredentials(body: unknown): { leetcodeUsername: string; password: string } | null {
-  const { leetcodeUsername, password } = (body ?? {}) as Record<string, unknown>;
-  if (typeof leetcodeUsername !== "string" || typeof password !== "string") return null;
-  if (leetcodeUsername.trim().length === 0 || password.length === 0) return null;
-  return { leetcodeUsername, password };
+//
+// The name is NOT checked against the sign-up rules (checkUsername): members
+// who signed up with LeetCode were given their LeetCode name as login name, and
+// LeetCode allows "-" and ".". Login only normalises (trim, lowercase) and looks
+// the name up; an unknown name is just a failed login.
+//
+// `leetcodeUsername` is the old field name. It is still accepted so the current
+// login form keeps working; `username` wins if both are sent.
+function readLoginCredentials(body: unknown): { username: string; password: string } | null {
+  const { username, leetcodeUsername, password } = (body ?? {}) as Record<string, unknown>;
+  const name = typeof username === "string" ? username : leetcodeUsername;
+  if (typeof name !== "string" || typeof password !== "string") return null;
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || password.length === 0) return null;
+  return { username: trimmed.toLowerCase(), password };
 }
 
 // POST — password login.
@@ -1276,9 +1283,9 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     // the stored hash, never by anything the client sent.
     const credentials = readLoginCredentials(req.body);
     if (credentials === null) {
-      return res.status(400).json({ error: "Enter your LeetCode username and password." });
+      return res.status(400).json({ error: "Enter your username and password." });
     }
-    const { leetcodeUsername, password } = credentials;
+    const { username: loginName, password } = credentials;
 
     // One message for "no such user" and "wrong password", so the form can't
     // be used to probe which accounts have passwords.
@@ -1288,10 +1295,11 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       return res.status(401).json(INVALID);
     }
 
-    const record = await getUserAuthByUsername(leetcodeUsername.trim());
+    // Members are found by the name they sign in with, never by a LeetCode name.
+    const record = await getUserAuthByLoginUsername(loginName);
     if (!record) {
       await burnPasswordCheck(password); // same cost as a real check
-      logSecurityEvent("login_failed", { ip: req.ip, username: leetcodeUsername.trim(), reason: "unknown_user" });
+      logSecurityEvent("login_failed", { ip: req.ip, username: loginName, reason: "unknown_user" });
       return res.status(401).json(INVALID);
     }
 
@@ -1301,10 +1309,10 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     if (auth.lockedUntil) {
       const until = Date.parse(auth.lockedUntil);
       if (until > Date.now()) {
-        logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: user.leetcodeUsername });
+        logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: loginName });
         const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
         return res.status(429).json({
-          error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or reset your password from the Sign up tab.`
+          error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
         });
       }
       await clearFailedLogins(user.id); // lock has expired
@@ -1315,7 +1323,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       // Account from before passwords existed: no password to check yet.
       await burnPasswordCheck(password);
       return res.status(401).json({
-        error: "This account has no password yet. Use the Sign up tab to verify your LeetCode profile and set one.",
+        error: "This account has no password yet. Use \"Forgot password\" to set one by verifying a linked account, or contact a Leeterboard admin.",
         needsPassword: true
       });
     }
@@ -1325,14 +1333,14 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       logSecurityEvent("login_failed", {
         ip: req.ip,
         userId: user.id,
-        username: user.leetcodeUsername,
+        username: loginName,
         failures: failuresBefore + 1
       });
       if (failuresBefore + 1 >= MAX_FAILED_LOGINS) {
         logSecurityEvent("account_locked", {
           ip: req.ip,
           userId: user.id,
-          username: user.leetcodeUsername,
+          username: loginName,
           minutes: LOCKOUT_MS / 60_000
         });
       }
@@ -1381,17 +1389,17 @@ async function checkCurrentPassword(
   password: unknown,
   action: "password_change" | "account_delete",
   ip: string | undefined
-): Promise<{ record: UserWithAuth | null; status: number; error: string }> {
-  const fail = (status: number, error: string) => ({ record: null, status, error });
+): Promise<{ record: UserWithAuth | null; status: number; error: string; code?: string }> {
+  const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
 
   if (typeof password !== "string" || !password) return fail(400, "Enter your current password.");
   const record = await getUserAuthById(userId);
-  if (!record) return fail(401, "You must be logged in to do that.");
+  if (!record) return fail(401, SESSION_REQUIRED_BODY.error, SESSION_REQUIRED_CODE);
 
   if (!isPasswordHash(record.auth.passwordHash)) {
     return fail(
       409,
-      "This account has no password yet. Log out, then use Sign up to verify your LeetCode profile and set one."
+      "This account has no password yet. Log out, then use \"Forgot password\" to set one by verifying a linked account."
     );
   }
 
@@ -1411,7 +1419,7 @@ async function checkCurrentPassword(
     logSecurityEvent("reauth_failed", {
       ip,
       userId,
-      username: record.user.leetcodeUsername,
+      username: record.user.loginUsername,
       action,
       failures: failuresBefore + 1
     });
@@ -1419,7 +1427,7 @@ async function checkCurrentPassword(
       logSecurityEvent("account_locked", {
         ip,
         userId,
-        username: record.user.leetcodeUsername,
+        username: record.user.loginUsername,
         minutes: LOCKOUT_MS / 60_000
       });
     }
@@ -1482,7 +1490,7 @@ app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) 
     if (hasHideLeetcode) await setHideLeetcodeStats(id, body.hideLeetcodeStats);
 
     const updated = await getUserById(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.json({ ...updated, isAdmin: isAdminUser(updated) });
   } catch (error: any) {
     console.error(`[Account] profile update failed: ${error.message}`);
@@ -1641,7 +1649,7 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
     await syncPlatformAccount({ userId: id, platform: platform.id, handle: profile.handle });
 
     const updated = await userJson(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.status(201).json(updated);
   } catch (error: any) {
     console.error(`[Account] link verify failed: ${error.message}`);
@@ -1660,11 +1668,190 @@ app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, asyn
     if (!(await removePlatformAccount(id, platform.id))) {
       return res.status(404).json({ error: `You don't have a ${platform.label} account linked.` });
     }
+    logSecurityEvent("platform_unlinked", { ip: req.ip, userId: id, platform: platform.id }, "info");
     const updated = await userJson(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] unlink failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// Linking a LeetCode account. LeetCode is optional: a member signs up with just a
+// username and password and can attach one afterwards. Because anyone could type
+// any LeetCode username, it takes proof that the profile is theirs: a one-time
+// code in the profile Summary, read back from LeetCode itself.
+//
+// POST start: pick the username, get the code.
+app.post("/api/account/leetcode/start", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const handle = parseLeetCodeUsername((req.body as any)?.leetcodeUsername);
+    if (!handle) {
+      return res.status(400).json({ error: "Enter a valid LeetCode username (letters, numbers, _ . - only)." });
+    }
+    const me = await getUserById(id);
+    if (!me) return res.status(401).json(SESSION_REQUIRED_BODY);
+    if (me.leetcodeLinked) {
+      return res.status(409).json({ error: "You already have a LeetCode account linked. Remove it first to link a different one." });
+    }
+    if (await findLeetcodeOwner(handle)) {
+      return res.status(409).json({ error: "That LeetCode account is already linked to another member." });
+    }
+
+    // The proof comes from LeetCode itself, never from a third-party mirror.
+    const lookup = await fetchLeetCodeAbout(handle);
+    if (lookup.status === "unavailable") {
+      logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" });
+      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+    }
+    if (lookup.status === "not_found") {
+      return res.status(404).json({ error: "We couldn't find that LeetCode account. Check the spelling." });
+    }
+
+    await purgeExpiredPendingLinks(new Date().toISOString());
+    const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
+    await createPendingLink({
+      userId: id,
+      platform: "leetcode",
+      handle: lookup.username,
+      code,
+      expiresAt: new Date(Date.now() + LINK_TTL_MS).toISOString()
+    });
+    logSecurityEvent("ownership_started", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" }, "info");
+    res.json({
+      code,
+      platform: "leetcode",
+      handle: lookup.username,
+      instructions: LEETCODE_PROOF_HELP,
+      expiresInMinutes: LINK_TTL_MS / 60_000
+    });
+  } catch (error: any) {
+    console.error(`[Account] LeetCode link start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST verify: reads the profile; if the code is there, links the account and
+// starts tracking from now.
+app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const pending = await getPendingLink(id, "leetcode");
+    if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
+      if (pending) await deletePendingLink(id, "leetcode");
+      return res.status(400).json({ error: "This link request has expired. Please start again.", expired: true });
+    }
+    if (pending.attempts >= MAX_LINK_ATTEMPTS) {
+      await deletePendingLink(id, "leetcode");
+      return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
+    }
+    const me = await getUserById(id);
+    if (!me) return res.status(401).json(SESSION_REQUIRED_BODY);
+    if (me.leetcodeLinked) {
+      await deletePendingLink(id, "leetcode");
+      return res.status(409).json({ error: "You already have a LeetCode account linked." });
+    }
+
+    const lookup = await fetchLeetCodeAbout(pending.handle);
+    if (lookup.status === "unavailable") {
+      logSecurityEvent("ownership_lookup_unavailable", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" });
+      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+    }
+    if (lookup.status === "not_found") {
+      await deletePendingLink(id, "leetcode");
+      return res.status(404).json({ error: "That LeetCode account no longer exists." });
+    }
+    if (!lookup.aboutMe.toLowerCase().includes(pending.code.toLowerCase())) {
+      await bumpPendingLinkAttempts(id, "leetcode");
+      logSecurityEvent("ownership_failed", {
+        ip: req.ip,
+        userId: id,
+        platform: "leetcode",
+        purpose: "link",
+        attempts: pending.attempts + 1
+      });
+      return res.status(400).json({
+        error: "We couldn't find the code on your LeetCode profile yet. Save it in the Summary, wait a few seconds, then try again."
+      });
+    }
+
+    // Ownership proven. Read the real stats BEFORE spending the challenge, so a
+    // flaky moment at LeetCode doesn't make them start over.
+    let stats: Awaited<ReturnType<typeof scrapeLeetCodeProfile>>;
+    try {
+      stats = await scrapeLeetCodeProfile(pending.handle);
+    } catch (err: any) {
+      if (err instanceof LeetCodeUserNotFoundError) {
+        await deletePendingLink(id, "leetcode");
+        return res.status(404).json({ error: "That LeetCode account no longer exists." });
+      }
+      return res.status(503).json({ error: LEETCODE_UNAVAILABLE_MESSAGE });
+    }
+    const [contest, streaks] = await Promise.all([fetchContestRating(pending.handle), fetchStreaks(pending.handle, null)]);
+
+    // Take the challenge atomically, so two requests can't both link.
+    if (!(await consumePendingLink(id, "leetcode"))) {
+      return res.status(400).json({ error: "This link request was already used or has expired. Please start again.", expired: true });
+    }
+    const now = new Date();
+    let linked: boolean;
+    try {
+      linked = await linkLeetcodeAccount(id, {
+        leetcodeUsername: pending.handle,
+        avatarUrl: stats.avatarUrl ?? null,
+        allTimeSolved: stats.allTimeSolved,
+        easySolved: stats.easySolved,
+        mediumSolved: stats.mediumSolved,
+        hardSolved: stats.hardSolved,
+        contestRating: contest?.rating ?? null,
+        contestsAttended: contest?.attended ?? 0,
+        currentStreak: streaks?.current ?? null,
+        longestStreak: streaks?.longest ?? null,
+        today: now.toISOString().split("T")[0],
+        nowIso: now.toISOString()
+      });
+    } catch (err: any) {
+      if (String(err?.message).includes("UNIQUE")) {
+        // Another member linked this username between the start and now.
+        return res.status(409).json({ error: "That LeetCode account was just linked to another member." });
+      }
+      throw err;
+    }
+    if (!linked) return res.status(409).json({ error: "You already have a LeetCode account linked." });
+
+    // What they already hold when they link isn't news; only later awards notify.
+    const updated = await getUserById(id);
+    if (updated) {
+      try {
+        await baselineNewMember(updated, leetcodeLinkedUsers(await listUsers()));
+      } catch (err: any) {
+        console.warn(`[Notifications] Baseline failed: ${err.message}`);
+      }
+    }
+    logSecurityEvent("ownership_verified", { ip: req.ip, userId: id, platform: "leetcode", purpose: "link" }, "info");
+    res.status(201).json(await userJson(id));
+  } catch (error: any) {
+    console.error(`[Account] LeetCode link verify failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// DELETE: unlink. Removes the LeetCode stats, history and sync status; the
+// member, their other linked accounts and their settings stay.
+app.delete("/api/account/leetcode", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    if (!(await unlinkLeetcodeAccount(id))) {
+      return res.status(404).json({ error: "You don't have a LeetCode account linked." });
+    }
+    logSecurityEvent("platform_unlinked", { ip: req.ip, userId: id, platform: "leetcode" }, "info");
+    const updated = await userJson(id);
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
+    res.json(updated);
+  } catch (error: any) {
+    console.error(`[Account] LeetCode unlink failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
@@ -1683,7 +1870,7 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
       return res.status(404).json({ error: `You don't have a ${platform.label} account linked.` });
     }
     const updated = await userJson(id);
-    if (!updated) return res.status(401).json({ error: "You must be logged in to do that." });
+    if (!updated) return res.status(401).json(SESSION_REQUIRED_BODY);
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] platform visibility failed: ${error.message}`);
@@ -1695,13 +1882,13 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
 // session and keeps this one signed in with a fresh cookie.
 app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, leetcodeUsername } = (req as any).user as { id: string; leetcodeUsername: string };
+    const { id, loginUsername } = (req as any).user as { id: string; loginUsername: string };
     const { currentPassword, newPassword } = req.body ?? {};
 
     const check = await checkCurrentPassword(id, currentPassword, "password_change", req.ip);
-    if (!check.record) return res.status(check.status).json({ error: check.error });
+    if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
-    const passwordError = validatePassword(newPassword, leetcodeUsername);
+    const passwordError = validatePassword(newPassword, loginUsername);
     if (passwordError) return res.status(400).json({ error: passwordError });
     if (newPassword === currentPassword) {
       return res.status(400).json({ error: "Your new password must be different from the current one." });
@@ -1709,7 +1896,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 
     const newHash = await hashPassword(newPassword as string);
     await setPasswordHash(id, newHash);
-    logSecurityEvent("password_changed", { ip: req.ip, userId: id, username: leetcodeUsername }, "info");
+    logSecurityEvent("password_changed", { ip: req.ip, userId: id, username: loginUsername }, "info");
     setSessionCookie(res, check.record.user, newHash);
     res.json({ success: true });
   } catch (error: any) {
@@ -1725,10 +1912,10 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
   try {
     const { id } = (req as any).user as { id: string };
     const check = await checkCurrentPassword(id, req.body?.password, "account_delete", req.ip);
-    if (!check.record) return res.status(check.status).json({ error: check.error });
+    if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
     await deleteUserById(id);
-    logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.leetcodeUsername }, "info");
+    logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.loginUsername }, "info");
     clearSessionCookie(res);
     res.json({ success: true });
   } catch (error: any) {
@@ -1743,7 +1930,7 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
 // the account page, which requires their password.
 app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   const id = req.params.id as string;
-  const session = (req as any).user as { id: string; leetcodeUsername: string };
+  const session = (req as any).user as { id: string; loginUsername: string };
 
   try {
     const target = await getUserById(id);
@@ -1762,7 +1949,7 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
     }
     logSecurityEvent(
       "admin_user_removed",
-      { ip: req.ip, adminId: session.id, admin: session.leetcodeUsername, targetId: target.id, target: target.leetcodeUsername },
+      { ip: req.ip, adminId: session.id, admin: session.loginUsername, targetId: target.id, target: target.loginUsername },
       "info"
     );
     res.json({ success: true, message: "Member removed successfully." });
@@ -1777,14 +1964,27 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 // only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
 app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res) => {
   const id = req.params.id as string;
-  const admin = (req as any).user as { id: string; leetcodeUsername: string };
-  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, scope: "member", targetId: id }, "info");
+  const admin = (req as any).user as { id: string; loginUsername: string };
+  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "member", targetId: id }, "info");
 
   try {
     const user = await getUserById(id);
 
     if (!user) {
       return res.status(404).json({ error: "User not found." });
+    }
+
+    // No LeetCode account, nothing to fetch from LeetCode (and no username to
+    // fetch it with): refresh only the other accounts this member has linked.
+    if (!user.leetcodeLinked) {
+      try {
+        await syncPlatformAccountsForUser(user.id);
+      } catch (err: any) {
+        console.warn(`[Refresh] Linked accounts failed for ${user.displayName}: ${err.message}`);
+      }
+      user.platforms = await getPlatformAccounts(user.id);
+      res.vary("Cookie");
+      return res.json(withVisiblePlatforms(user, await viewerOf(req)));
     }
 
     let scraped;
@@ -1869,7 +2069,7 @@ app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res
     try {
       await syncPlatformAccountsForUser(user.id);
     } catch (err: any) {
-      console.warn(`[Refresh] Linked accounts failed for ${user.leetcodeUsername}: ${err.message}`);
+      console.warn(`[Refresh] Linked accounts failed for ${user.loginUsername}: ${err.message}`);
     }
     user.platforms = await getPlatformAccounts(user.id);
 
@@ -1908,14 +2108,20 @@ async function syncAllUsers(
 ): Promise<{ users: User[]; lastSyncAll: string; partial: boolean }> {
   const users = await listUsers();
 
-  let queue = users;
+  // Only members with a LeetCode account have anything to fetch from LeetCode
+  // (and a username to fetch it with). Everyone else's linked accounts are
+  // handled by the platform pass further down.
+  const onBoard = leetcodeLinkedUsers(users);
+  let queue = onBoard;
   if (opts.onlyStaleMs !== undefined) {
     const cutoff = Date.now() - opts.onlyStaleMs;
-    queue = users
-      .filter((u) => !(Date.parse(u.lastUpdated) > cutoff))
-      .sort((a, b) => (Date.parse(a.lastUpdated) || 0) - (Date.parse(b.lastUpdated) || 0));
+    // Never synced (lastUpdated null) counts as stale and goes first.
+    const syncedAt = (u: User) => (u.lastUpdated ? Date.parse(u.lastUpdated) : 0) || 0;
+    queue = onBoard
+      .filter((u) => !(syncedAt(u) > cutoff))
+      .sort((a, b) => syncedAt(a) - syncedAt(b));
   }
-  console.log(`[Sync All] Refreshing ${queue.length} of ${users.length} users.`);
+  console.log(`[Sync All] Refreshing ${queue.length} of ${onBoard.length} LeetCode members (${users.length} members in all).`);
 
   const startedAt = Date.now();
   let partial = false;
@@ -1987,7 +2193,7 @@ async function syncAllUsers(
       // Leave this user's stats untouched for this cycle rather than
       // guessing — the next sync will pick them up again. The failure is
       // recorded so the admin dashboard can show who is stuck and why.
-      console.warn(`[Sync All] Skipping ${user.leetcodeUsername}: ${err.message}`);
+      console.warn(`[Sync All] Skipping ${user.loginUsername}: ${err.message}`);
       await recordSyncResult(user.id, {
         ok: false,
         state: err instanceof LeetCodeUserNotFoundError ? "not_found" : "unavailable",
@@ -2023,13 +2229,14 @@ async function syncAllUsers(
   return { users, lastSyncAll, partial };
 }
 
-// POST sync-if-stale — called by the frontend whenever someone visits. This is
-// what keeps the board fresh on Vercel, where there is no background job. Open
-// to everyone because it only ever does the same real fetches a sync does, and
-// only when the board is actually stale; fresh boards return immediately.
-// A short-lived lock in the database stops simultaneous visitors (possibly on
-// different serverless instances) from all scraping LeetCode at once.
-app.post("/api/sync-if-stale", refreshLimiter, async (req, res) => {
+// POST sync-if-stale — called by the frontend whenever a member opens the
+// board. This is what keeps the board fresh on Vercel, where there is no
+// background job. Any signed-in member may call it because it only ever does the
+// same real fetches a sync does, and only when the board is actually stale;
+// fresh boards return immediately. A short-lived lock in the database stops
+// simultaneous visitors (possibly on different serverless instances) from all
+// scraping LeetCode at once.
+app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (req, res) => {
   try {
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
     const age = Date.now() - Date.parse(lastSyncAll);
@@ -2062,10 +2269,11 @@ app.post("/api/sync-if-stale", refreshLimiter, async (req, res) => {
   }
 });
 
-// GET sync health for every member — admin only. Combines each member's last
-// successful fetch (users.last_updated) with the outcome of the latest attempt
-// (sync_status), so a member whose LeetCode account was removed or renamed
-// shows up as "not_found" instead of just quietly going stale.
+// GET LeetCode sync health — admin only. One row per member WITH a LeetCode
+// account (members without one have nothing to sync). Combines each member's
+// last successful fetch (users.last_updated) with the outcome of the latest
+// attempt (sync_status), so a member whose LeetCode account was removed or
+// renamed shows up as "not_found" instead of just quietly going stale.
 app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
   try {
     const [users, statuses, lastSyncAll] = await Promise.all([
@@ -2074,11 +2282,12 @@ app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
       getMeta("lastSyncAll")
     ]);
 
-    const members: AdminSyncMember[] = users.map((u) => {
+    const members: AdminSyncMember[] = leetcodeLinkedUsers(users).map((u) => {
       const s = statuses.get(u.id);
       return {
         id: u.id,
         displayName: u.displayName,
+        loginUsername: u.loginUsername,
         leetcodeUsername: u.leetcodeUsername,
         avatarUrl: u.avatarUrl,
         lastUpdated: u.lastUpdated,
@@ -2110,8 +2319,8 @@ app.use("/api", feedbackRoutes);
 
 // POST refresh all users — admin only
 app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
-  const admin = (req as any).user as { id: string; leetcodeUsername: string };
-  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, scope: "all" }, "info");
+  const admin = (req as any).user as { id: string; loginUsername: string };
+  logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "all" }, "info");
   try {
     const result = await syncAllUsers();
     res.json({ success: true, ...result });
@@ -2120,8 +2329,8 @@ app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
   }
 });
 
-// GET aggregated monthly trend metrics
-app.get("/api/trends", async (req, res) => {
+// GET aggregated monthly trend metrics (members only, like the board itself)
+app.get("/api/trends", requireAuth, async (req, res) => {
   try {
     const users = await listUsers();
 
@@ -2136,11 +2345,13 @@ app.get("/api/trends", async (req, res) => {
     // BEGAN, not the sum of everyone's lifetime totals. Each member is measured
     // against their own first snapshot, so a newly added member contributes 0
     // on the day they join and only their later solves count.
+    // Members without LeetCode have no LeetCode numbers to add to these.
+    const board = leetcodeLinkedUsers(users);
     const allDates = new Set<string>();
-    users.forEach(u => u.history.forEach(h => allDates.add(h.date)));
+    board.forEach(u => u.history.forEach(h => allDates.add(h.date)));
     const sortedDates = [...allDates].sort();
 
-    const perUser = users
+    const perUser = board
       .map(u => {
         const history = [...u.history].sort((a, b) => a.date.localeCompare(b.date));
         // Measured from the total they joined with when their first snapshot is
@@ -2173,7 +2384,7 @@ app.get("/api/trends", async (req, res) => {
     let easyTotal = 0;
     let mediumTotal = 0;
     let hardTotal = 0;
-    users.forEach(u => {
+    board.forEach(u => {
       easyTotal += u.easySolved;
       mediumTotal += u.mediumSolved;
       hardTotal += u.hardSolved;
@@ -2182,7 +2393,7 @@ app.get("/api/trends", async (req, res) => {
     // Top solver of the week
     let topSolver = "None";
     let topCount = 0;
-    users.forEach(u => {
+    board.forEach(u => {
       if (u.weeklyProgress > topCount) {
         topCount = u.weeklyProgress;
         topSolver = u.displayName;
@@ -2198,7 +2409,7 @@ app.get("/api/trends", async (req, res) => {
       ],
       topSolverThisWeek: topSolver,
       topSolverThisWeekCount: topCount,
-      totalSolved: users.reduce((acc, u) => acc + u.allTimeSolved, 0)
+      totalSolved: board.reduce((acc, u) => acc + u.allTimeSolved, 0)
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

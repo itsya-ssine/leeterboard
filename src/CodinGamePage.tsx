@@ -122,6 +122,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
   const matches = ({ user, account }: CodingameMember) =>
     !q ||
     user.displayName.toLowerCase().includes(q) ||
+    user.loginUsername.toLowerCase().includes(q) ||
     user.leetcodeUsername.toLowerCase().includes(q) ||
     (user.school ?? "").toLowerCase().includes(q) ||
     account.handle.toLowerCase().includes(q);
@@ -136,10 +137,10 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
   const podiumEntries: PodiumEntry[] = leaders.map(({ user, account }) => ({
     id: user.id,
     name: user.displayName,
-    handle: `@${user.leetcodeUsername}`,
+    handle: `@${user.loginUsername}`,
     school: user.school,
     ...podiumMetric(account, sortBy),
-    href: `#/u/${encodeURIComponent(user.leetcodeUsername)}`,
+    href: `#/u/${encodeURIComponent(user.loginUsername)}`,
     avatar: (className) => (
       <FramedAvatar
         src={user.avatarUrl}
@@ -258,7 +259,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
 
                   <div className="flex min-w-0 items-center gap-3 md:col-span-4">
                     <a
-                      href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
+                      href={`#/u/${encodeURIComponent(user.loginUsername)}`}
                       title="View profile"
                       className={`group/member flex min-w-0 items-center gap-3 rounded-lg ${focusRing}`}
                     >
@@ -272,7 +273,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
                         <div className="truncate font-medium text-strong transition-colors group-hover/member:text-teal-300">
                           {user.displayName}
                         </div>
-                        <div className="truncate font-mono text-sm text-mist-500">@{user.leetcodeUsername}</div>
+                        <div className="truncate font-mono text-sm text-mist-500">@{user.loginUsername}</div>
                       </div>
                     </a>
                   </div>

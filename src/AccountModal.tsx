@@ -65,14 +65,14 @@ export default function AccountModal({ open, onClose }: { open: boolean; onClose
               <TierAvatar user={user} className="size-11" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold tracking-tight text-strong">{user.displayName}</p>
-                <p className="truncate font-mono text-xs text-mist-500">@{user.leetcodeUsername}</p>
+                <p className="truncate font-mono text-xs text-mist-500">@{user.loginUsername}</p>
               </div>
             </div>
 
             <nav aria-label="Account" className="flex flex-col gap-0.5 p-2">
               <div className="px-2 pb-1 pt-0.5 font-mono text-[10px] uppercase tracking-widest text-mist-500">{"// account"}</div>
               <a
-                href={`#/u/${encodeURIComponent(user.leetcodeUsername)}`}
+                href={`#/u/${encodeURIComponent(user.loginUsername)}`}
                 onClick={onClose}
                 id="account-profile-link"
                 role="menuitem"

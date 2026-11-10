@@ -57,7 +57,7 @@ async function columnExists(table: string, column: string): Promise<boolean> {
  *
  *   users ──< history          one daily snapshot per member per UTC day
  *   users ──  sync_status      latest sync attempt per member (admin dashboard)
- *   pending_registrations      sign-ups waiting for LeetCode ownership proof
+ *   pending_registrations      unused since the username sign-up; kept (empty) for rollback
  *   meta                       small key/value store (e.g. weekly winners archive)
  *   schema_migrations          which migrations have been applied
  *
@@ -140,6 +140,7 @@ const PLATFORM_DDL = [
     error TEXT,
     failures INTEGER NOT NULL DEFAULT 0,
     failing_since TEXT,
+    reset_frozen_at TEXT,
     PRIMARY KEY (user_id, platform)
   ) WITHOUT ROWID`,
   // One snapshot per member per platform per UTC day (trend charts, and weekly
@@ -213,7 +214,8 @@ export async function initDb(): Promise<void> {
       `CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         display_name TEXT NOT NULL,
-        leetcode_username TEXT NOT NULL,
+        login_username TEXT,
+        leetcode_username TEXT,
         avatar_url TEXT,
         school TEXT NOT NULL DEFAULT '',
         bio TEXT NOT NULL DEFAULT '',
@@ -227,7 +229,7 @@ export async function initDb(): Promise<void> {
         hard_solved INTEGER NOT NULL DEFAULT 0,
         weekly_progress INTEGER NOT NULL DEFAULT 0,
         monthly_progress INTEGER NOT NULL DEFAULT 0,
-        last_updated TEXT NOT NULL,
+        last_updated TEXT,
         tracking_start TEXT NOT NULL DEFAULT '',
         baseline_solved INTEGER NOT NULL DEFAULT 0,
         contest_rating INTEGER,
@@ -256,9 +258,10 @@ export async function initDb(): Promise<void> {
         key TEXT PRIMARY KEY,
         value TEXT
       )`,
-      // A sign-up that has been started but not yet proven: the chosen
-      // password (already hashed) waits here until the person shows they own
-      // the LeetCode account. The browser only ever holds the random `id`.
+      // UNUSED. Sign-up used to wait here until the person proved they own a
+      // LeetCode account; it is now one step (username + password). The table
+      // is kept, and always empty (migration 15), so rolling back to the
+      // previous release still works. Drop it in a later migration.
       `CREATE TABLE IF NOT EXISTS pending_registrations (
         id TEXT PRIMARY KEY,
         leetcode_username TEXT NOT NULL,
@@ -268,6 +271,24 @@ export async function initDb(): Promise<void> {
         attempts INTEGER NOT NULL DEFAULT 0,
         expires_at TEXT NOT NULL
       )`,
+      // A password reset that has been started but not yet proven. The NEW
+      // password (already hashed) waits here until the person shows they own an
+      // account the member linked (LeetCode, Codeforces or CodinGame). The
+      // browser only ever holds the random `id`. `handle` is the linked account
+      // as it was when the reset started, so a handle that changed hands in the
+      // meantime can't be used.
+      `CREATE TABLE IF NOT EXISTS pending_resets (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        platform TEXT NOT NULL CHECK (platform IN ('leetcode', 'codeforces', 'codingame')),
+        handle TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        code TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        expires_at TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_pending_resets_user ON pending_resets(user_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_pending_resets_expires ON pending_resets(expires_at)`,
       // The result of the latest sync attempt per member, for the admin
       // dashboard. Separate from users so none of it can leak into the public
       // API, and so a member's row carries no sync noise.
@@ -315,7 +336,11 @@ const MIGRATIONS: Migration[] = [
   { version: 9, name: "user_hide_leetcode_stats", up: migrateUserHideLeetcodeStats },
   { version: 10, name: "rate_limits", up: migrateRateLimits },
   { version: 11, name: "feedback", up: migrateFeedback },
-  { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen }
+  { version: 12, name: "sync_status_reset_frozen", up: migrateResetFrozen },
+  { version: 13, name: "user_login_username", up: migrateLoginUsername },
+  { version: 14, name: "optional_leetcode_columns", up: migrateOptionalLeetcode },
+  { version: 15, name: "clear_pending_registrations", up: migrateClearPendingRegistrations },
+  { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -337,6 +362,203 @@ async function runMigrations(): Promise<void> {
       args: [m.version, m.name, new Date().toISOString()]
     });
     console.log(`[DB] Applied migration ${m.version}: ${m.name}`);
+  }
+}
+
+// v13 — a login name that is separate from the LeetCode handle, so members can
+// later sign up without LeetCode. Stored lowercase and unique. Existing members
+// are backfilled from their LeetCode username, so their old login keeps working.
+// Idempotent: safe to run twice, or from two serverless instances at once.
+async function migrateLoginUsername(): Promise<void> {
+  if (!(await columnExists("users", "login_username"))) {
+    try {
+      await client.execute("ALTER TABLE users ADD COLUMN login_username TEXT");
+    } catch (err: any) {
+      // Another cold-started instance may have added it a moment ago.
+      if (!(await columnExists("users", "login_username"))) {
+        throw new Error(`Couldn't add users.login_username: ${err.message}`);
+      }
+    }
+  }
+
+  // Only fill rows that have no value yet, so a re-run never overwrites a
+  // login name a member has since chosen.
+  await client.execute(
+    "UPDATE users SET login_username = lower(leetcode_username) WHERE login_username IS NULL"
+  );
+
+  // Two LeetCode names that differ only by case would collide here. The
+  // case-insensitive index from migration 1 normally prevents that, but it is
+  // skipped when old data already clashed, so check and say exactly who.
+  const clash = await client.execute(
+    `SELECT login_username, COUNT(*) AS n FROM users
+     WHERE login_username IS NOT NULL
+     GROUP BY login_username HAVING n > 1`
+  );
+  if (clash.rows.length > 0) {
+    const names = clash.rows.map((r) => r.login_username as string).join(", ");
+    throw new Error(
+      `Can't make login names unique: more than one member maps to ${names}. ` +
+        `Rename or remove the duplicates, then run the migration again.`
+    );
+  }
+
+  // NULLs are allowed to repeat in a unique index, so members without a login
+  // name (there are none after the backfill) would never block each other.
+  await client.execute(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_username ON users(login_username)"
+  );
+}
+
+// v14 — LeetCode becomes optional. users.leetcode_username and
+// users.last_updated were NOT NULL, and SQLite cannot drop a NOT NULL with
+// ALTER, so the table is rebuilt: create users_new, copy every row, drop
+// users, rename users_new to users, recreate the indexes.
+//
+// Why this is delicate: history, notifications, user_awards, platform_* and
+// pending_links all reference users(id) ON DELETE CASCADE. With foreign keys
+// on, DROP TABLE users deletes the member rows first and the cascade wipes all
+// of those tables. Renaming users away instead does not help: SQLite rewrites
+// the other tables' REFERENCES to the new name. So the rebuild runs with
+// foreign keys OFF, in one transaction, as ONE script on one connection, and
+// the script checks its own work before COMMIT: every table must have the same
+// row count as before and PRAGMA foreign_key_check must not report anything new. A failed
+// check is a constraint error, the script stops, and the transaction is rolled
+// back, so nothing is half-changed.
+//
+// The new table is generated from the live table (PRAGMA table_info), not from
+// a hard-coded list, so a member column added by an older migration is carried
+// over. It is left alone when it is already nullable (fresh databases, or a
+// second instance that lost the race).
+async function migrateOptionalLeetcode(): Promise<void> {
+  const NOW_NULLABLE = ["leetcode_username", "last_updated"];
+  const q = (name: string) => `"${name.replace(/"/g, '""')}"`;
+
+  const alreadyDone = async (): Promise<boolean> => {
+    const r = await client.execute(
+      `SELECT "notnull" AS nn FROM pragma_table_info('users')
+       WHERE name IN ('leetcode_username', 'last_updated')`
+    );
+    return r.rows.length === NOW_NULLABLE.length && r.rows.every((x) => Number(x.nn) === 0);
+  };
+  if (await alreadyDone()) return;
+
+  const info = await client.execute(
+    `SELECT name, type, "notnull" AS nn, dflt_value, pk FROM pragma_table_info('users') ORDER BY cid`
+  );
+  const cols = info.rows.map((r) => ({
+    name: r.name as string,
+    type: (r.type as string) || "",
+    notNull: Number(r.nn) === 1,
+    dflt: r.dflt_value as string | null,
+    pk: Number(r.pk) > 0
+  }));
+  if (cols.filter((c) => c.pk).length !== 1) {
+    throw new Error("users has an unexpected primary key; refusing to rebuild it.");
+  }
+
+  // The new table is built from table_info, which does not describe CHECK,
+  // REFERENCES, UNIQUE or generated columns. None exist today; if one ever
+  // does, stop rather than silently drop it.
+  const created = await client.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'");
+  if (/\b(CHECK|REFERENCES|UNIQUE|GENERATED|AUTOINCREMENT)\b/i.test(String(created.rows[0]?.sql ?? ""))) {
+    throw new Error("users has constraints this migration doesn't know how to copy; refusing to rebuild it.");
+  }
+  const objects = await client.execute("SELECT name FROM sqlite_master WHERE type IN ('trigger', 'view')");
+  if (objects.rows.length > 0) {
+    throw new Error("The database has triggers or views; refusing to rebuild users without checking them first.");
+  }
+
+  const indexes = await client.execute(
+    "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'users' AND sql IS NOT NULL"
+  );
+  const tables = (
+    await client.execute(
+      `SELECT name FROM sqlite_master
+       WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+         AND name NOT LIKE '\\_%' ESCAPE '\\' AND name NOT LIKE 'libsql\\_%' ESCAPE '\\'`
+    )
+  ).rows.map((r) => r.name as string);
+
+  const columnDefs = cols.map((c) => {
+    const nullable = NOW_NULLABLE.includes(c.name);
+    return [
+      q(c.name),
+      c.type,
+      c.pk ? "PRIMARY KEY" : "",
+      c.notNull && !nullable && !c.pk ? "NOT NULL" : "",
+      c.dflt !== null ? `DEFAULT ${c.dflt}` : ""
+    ].filter(Boolean).join(" ");
+  });
+  const colList = cols.map((c) => q(c.name)).join(", ");
+
+  const script = [
+    "PRAGMA foreign_keys = OFF;",
+    "BEGIN IMMEDIATE;",
+    // _mig_chk only accepts ok = 1, so any failed check raises an error here.
+    "CREATE TEMP TABLE _mig_chk (ok INTEGER NOT NULL CHECK (ok = 1));",
+    // Another instance may have finished the rebuild while we waited for the lock.
+    `INSERT INTO _mig_chk SELECT CASE WHEN EXISTS (
+       SELECT 1 FROM pragma_table_info('users') WHERE name = 'leetcode_username' AND "notnull" = 1
+     ) THEN 1 ELSE 0 END;`,
+    // Row counts per table, plus how many foreign-key problems already exist
+    // (orphans from before this migration are not its fault, and must not
+    // block it; it only has to avoid creating new ones).
+    `CREATE TEMP TABLE _mig_before AS ${tables
+      .map((t) => `SELECT '${t.replace(/'/g, "''")}' AS t, COUNT(*) AS n FROM ${q(t)}`)
+      .concat("SELECT '__fk' AS t, COUNT(*) AS n FROM pragma_foreign_key_check")
+      .join(" UNION ALL ")};`,
+    "DROP TABLE IF EXISTS users_new;",
+    `CREATE TABLE users_new (${columnDefs.join(", ")});`,
+    `INSERT INTO users_new (${colList}) SELECT ${colList} FROM users;`,
+    "DROP TABLE users;",
+    "ALTER TABLE users_new RENAME TO users;",
+    ...indexes.rows.map((r) => `${String(r.sql)};`),
+    ...tables.map(
+      (t) => `INSERT INTO _mig_chk SELECT CASE WHEN (SELECT COUNT(*) FROM ${q(t)}) =
+        (SELECT n FROM _mig_before WHERE t = '${t.replace(/'/g, "''")}') THEN 1 ELSE 0 END;`
+    ),
+    `INSERT INTO _mig_chk SELECT CASE WHEN (SELECT COUNT(*) FROM pragma_foreign_key_check) <=
+       (SELECT n FROM _mig_before WHERE t = '__fk') THEN 1 ELSE 0 END;`,
+    "DROP TABLE _mig_chk;",
+    "DROP TABLE _mig_before;",
+    "COMMIT;",
+    "PRAGMA foreign_keys = ON;"
+  ].join("\n");
+
+  try {
+    await client.executeMultiple(script);
+  } catch (err: any) {
+    // A local connection stays inside the failed transaction; a remote one has
+    // already dropped it. Either way, make sure nothing is left half-done.
+    try { await client.execute("ROLLBACK"); } catch { /* no open transaction */ }
+    if (await alreadyDone()) return; // someone else finished it first
+    throw new Error(`Couldn't make the LeetCode columns optional (nothing was changed): ${err.message}`);
+  } finally {
+    try { await client.execute("PRAGMA foreign_keys = ON"); } catch { /* best effort */ }
+  }
+}
+
+// v15 — the LeetCode-proof sign-up is gone, so a sign-up that was waiting for
+// its proof can never be finished. Each of those rows holds a hashed password
+// and a code, and nothing purges them any more: empty the table. The table
+// itself stays so a rollback to the previous release still has somewhere to
+// write. Safe to run twice.
+async function migrateClearPendingRegistrations(): Promise<void> {
+  await client.execute("DELETE FROM pending_registrations");
+}
+
+// v16 — the same sticky "this handle stopped resolving" marker LeetCode has
+// (sync_status.reset_frozen_at), for the other linked platforms. Password reset
+// can now be proven through any linked account, so a Codeforces or CodinGame
+// handle that changed hands must not be enough either. Safe to run twice.
+async function migratePlatformResetFreeze(): Promise<void> {
+  if (await columnExists("platform_sync_status", "reset_frozen_at")) return;
+  try {
+    await client.execute("ALTER TABLE platform_sync_status ADD COLUMN reset_frozen_at TEXT");
+  } catch (err: any) {
+    // A second instance may have added it a moment ago.
+    if (!(await columnExists("platform_sync_status", "reset_frozen_at"))) throw err;
   }
 }
 
@@ -590,7 +812,13 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
   return {
     id: row.id as string,
     displayName: row.display_name as string,
-    leetcodeUsername: row.leetcode_username as string,
+    // Backfilled for every member by migration 13 and required on sign-up, so
+    // it is never NULL in practice; "" only guards a hand-edited row.
+    loginUsername: (row.login_username as string | null) ?? "",
+    // NULL in the database = no LeetCode linked. The API says so with an
+    // explicit flag, and uses "" for the name like every other optional text.
+    leetcodeLinked: row.leetcode_username != null,
+    leetcodeUsername: (row.leetcode_username as string | null) ?? "",
     avatarUrl: (row.avatar_url as string) || "",
     school: (row.school as string) || "",
     bio: (row.bio as string) || "",
@@ -611,8 +839,9 @@ function rowToUser(row: Record<string, unknown>, history: HistoryRecord[]): User
     contestsAttended: Number(row.contests_attended ?? 0),
     currentStreak: row.current_streak == null ? null : Number(row.current_streak),
     longestStreak: row.longest_streak == null ? null : Number(row.longest_streak),
-    lastUpdated: row.last_updated as string,
-    trackingStart: (row.tracking_start as string) || String(row.last_updated).slice(0, 10),
+    lastUpdated: (row.last_updated as string | null) ?? null,
+    trackingStart:
+      (row.tracking_start as string) || (row.last_updated ? String(row.last_updated).slice(0, 10) : ""),
     baselineSolved: Number(row.baseline_solved ?? 0),
     history
   };
@@ -709,6 +938,49 @@ export async function getUserAuthByUsername(leetcodeUsername: string): Promise<U
   return res.rows.length ? rowToUserWithAuth(res.rows[0] as unknown as Record<string, unknown>) : null;
 }
 
+// The name a member signs in with (users.login_username). Always stored in
+// lowercase, so the lookup lowercases whatever it is given.
+export async function getUserAuthByLoginUsername(loginUsername: string): Promise<UserWithAuth | null> {
+  const res = await client.execute({
+    sql: "SELECT * FROM users WHERE login_username = ?",
+    args: [loginUsername.trim().toLowerCase()]
+  });
+  return res.rows.length ? rowToUserWithAuth(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+export interface AdminLookup {
+  record: UserWithAuth;
+  /** The name they sign in with. */
+  loginUsername: string | null;
+  /** Which name the lookup matched, so the person at the keyboard can check it was the one they meant. */
+  matchedBy: "login" | "leetcode";
+}
+
+// For the admin command line. Finds a member by the name they sign in with and,
+// failing that, by their LeetCode username (how members were known before
+// sign-in names existed). A login name always wins: if one member's login name
+// is another member's LeetCode name, the login name is the member meant.
+export async function findUserForAdmin(name: string): Promise<AdminLookup | null> {
+  const wanted = name.trim().toLowerCase();
+  if (!wanted) return null;
+  const attempts = [
+    { matchedBy: "login", sql: "SELECT * FROM users WHERE login_username = ?" },
+    { matchedBy: "leetcode", sql: "SELECT * FROM users WHERE lower(leetcode_username) = ?" }
+  ] as const;
+  for (const { matchedBy, sql } of attempts) {
+    const res = await client.execute({ sql, args: [wanted] });
+    if (res.rows.length) {
+      const row = res.rows[0] as unknown as Record<string, unknown>;
+      return {
+        record: await rowToUserWithAuth(row),
+        loginUsername: (row.login_username as string | null) ?? null,
+        matchedBy
+      };
+    }
+  }
+  return null;
+}
+
 function upsertSnapshot(userId: string, h: HistoryRecord): InStatement {
   return {
     sql: `INSERT INTO history (${HISTORY_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -722,20 +994,54 @@ function upsertSnapshot(userId: string, h: HistoryRecord): InStatement {
   };
 }
 
-export async function insertUser(user: User, passwordHash: string): Promise<void> {
+/**
+ * A member "has LeetCode" when users.leetcode_username is set. This is the one
+ * place that says so, so the rule can't drift between the leaderboard, the
+ * sync job and the profile page.
+ */
+export function isLeetcodeLinked(user: Pick<User, "leetcodeLinked">): boolean {
+  return user.leetcodeLinked;
+}
+
+/** Only the members on the LeetCode board, in the order given. */
+export function leetcodeLinkedUsers<T extends Pick<User, "leetcodeLinked">>(users: T[]): T[] {
+  return users.filter(isLeetcodeLinked);
+}
+
+export interface InsertUserOptions {
+  /**
+   * The name the member signs in with. Defaults to their LeetCode username in
+   * lowercase, which is how every existing member's login was backfilled
+   * (migration 13). A member without LeetCode has no such default and must
+   * pass one.
+   */
+  loginUsername?: string;
+}
+
+export async function insertUser(user: User, passwordHash: string, options: InsertUserOptions = {}): Promise<void> {
+  // No LeetCode linked is stored as NULL, never as "": NULLs may repeat in the
+  // unique index, empty strings may not.
+  // Records built by hand may lack the flag, so only an explicit false counts.
+  const leetcodeUsername =
+    user.leetcodeLinked !== false && (user.leetcodeUsername ?? "").trim() ? user.leetcodeUsername : null;
+  const loginUsername = (options.loginUsername ?? leetcodeUsername)?.toLowerCase() ?? null;
+  if (loginUsername === null) {
+    throw new Error("insertUser needs a loginUsername for a member without a LeetCode account.");
+  }
   await client.batch(
     [
       {
         sql: `INSERT INTO users
-          (id, display_name, leetcode_username, avatar_url, all_time_solved,
+          (id, display_name, login_username, leetcode_username, avatar_url, all_time_solved,
            easy_solved, medium_solved, hard_solved, weekly_progress, monthly_progress,
            last_updated, tracking_start, baseline_solved, contest_rating, contests_attended,
            current_streak, longest_streak, password_hash)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           user.id,
           user.displayName,
-          user.leetcodeUsername,
+          loginUsername,
+          leetcodeUsername,
           user.avatarUrl,
           user.allTimeSolved,
           user.easySolved,
@@ -1021,13 +1327,17 @@ export async function recordPlatformSyncResult(userId: string, platform: Platfor
       });
     } else {
       await client.execute({
-        sql: `INSERT INTO platform_sync_status (user_id, platform, last_attempt, state, error, failures, failing_since)
-              VALUES (?, ?, ?, ?, ?, 1, ?)
+        // `reset_frozen_at` is STICKY, exactly as for LeetCode (see
+        // recordSyncResult): set when the platform positively says the handle
+        // doesn't exist, never cleared by a later success.
+        sql: `INSERT INTO platform_sync_status (user_id, platform, last_attempt, state, error, failures, failing_since, reset_frozen_at)
+              VALUES (?, ?, ?, ?, ?, 1, ?, ?)
               ON CONFLICT(user_id, platform) DO UPDATE SET
                 last_attempt = excluded.last_attempt, state = excluded.state,
                 error = excluded.error, failures = platform_sync_status.failures + 1,
-                failing_since = COALESCE(platform_sync_status.failing_since, excluded.failing_since)`,
-        args: [userId, platform, now, result.state, result.error.slice(0, MAX_ERROR_LENGTH), now]
+                failing_since = COALESCE(platform_sync_status.failing_since, excluded.failing_since),
+                reset_frozen_at = COALESCE(platform_sync_status.reset_frozen_at, excluded.reset_frozen_at)`,
+        args: [userId, platform, now, result.state, result.error.slice(0, MAX_ERROR_LENGTH), now, result.state === "not_found" ? now : null]
       });
     }
   } catch (err: any) {
@@ -1039,7 +1349,7 @@ export async function recordPlatformSyncResult(userId: string, platform: Platfor
 
 export interface PendingLink {
   userId: string;
-  platform: PlatformId;
+  platform: RecoveryPlatform; // 'leetcode' or an extra platform
   handle: string;
   code: string;
   attempts: number;
@@ -1056,7 +1366,7 @@ export async function createPendingLink(p: Omit<PendingLink, "attempts">): Promi
   });
 }
 
-export async function getPendingLink(userId: string, platform: PlatformId): Promise<PendingLink | null> {
+export async function getPendingLink(userId: string, platform: RecoveryPlatform): Promise<PendingLink | null> {
   const res = await client.execute({
     sql: "SELECT * FROM pending_links WHERE user_id = ? AND platform = ?",
     args: [userId, platform]
@@ -1065,7 +1375,7 @@ export async function getPendingLink(userId: string, platform: PlatformId): Prom
   const r = res.rows[0] as unknown as Record<string, unknown>;
   return {
     userId: r.user_id as string,
-    platform: r.platform as PlatformId,
+    platform: r.platform as RecoveryPlatform,
     handle: r.handle as string,
     code: r.code as string,
     attempts: Number(r.attempts ?? 0),
@@ -1073,19 +1383,19 @@ export async function getPendingLink(userId: string, platform: PlatformId): Prom
   };
 }
 
-export async function bumpPendingLinkAttempts(userId: string, platform: PlatformId): Promise<void> {
+export async function bumpPendingLinkAttempts(userId: string, platform: RecoveryPlatform): Promise<void> {
   await client.execute({
     sql: "UPDATE pending_links SET attempts = attempts + 1 WHERE user_id = ? AND platform = ?",
     args: [userId, platform]
   });
 }
 
-export async function deletePendingLink(userId: string, platform: PlatformId): Promise<void> {
+export async function deletePendingLink(userId: string, platform: RecoveryPlatform): Promise<void> {
   await client.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?", args: [userId, platform] });
 }
 
-// Atomic single-use take, like consumePendingRegistration.
-export async function consumePendingLink(userId: string, platform: PlatformId): Promise<boolean> {
+// Atomic single-use take: true for exactly one caller.
+export async function consumePendingLink(userId: string, platform: RecoveryPlatform): Promise<boolean> {
   const res = await client.execute({
     sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = ?",
     args: [userId, platform]
@@ -1505,11 +1815,25 @@ export type ResetFreezeReason = "name_not_found" | "sync_failing";
 // succeed again.
 export const SYNC_FAILING_FREEZE_MS = 7 * 24 * 60 * 60 * 1000;
 
-export async function getResetFreeze(userId: string, nowMs = Date.now()): Promise<ResetFreezeReason | null> {
-  const res = await client.execute({
-    sql: "SELECT state, failing_since, reset_frozen_at FROM sync_status WHERE user_id = ?",
-    args: [userId]
-  });
+// Which linked account a reset is being proven through. LeetCode lives on the
+// users row; the others are platform_accounts rows.
+export type RecoveryPlatform = "leetcode" | PlatformId;
+
+export async function getResetFreeze(
+  userId: string,
+  platform: RecoveryPlatform = "leetcode",
+  nowMs = Date.now()
+): Promise<ResetFreezeReason | null> {
+  const res =
+    platform === "leetcode"
+      ? await client.execute({
+          sql: "SELECT state, failing_since, reset_frozen_at FROM sync_status WHERE user_id = ?",
+          args: [userId]
+        })
+      : await client.execute({
+          sql: "SELECT state, failing_since, reset_frozen_at FROM platform_sync_status WHERE user_id = ? AND platform = ?",
+          args: [userId, platform]
+        });
   const row = res.rows[0] as unknown as Record<string, unknown> | undefined;
   if (!row) return null;
   if (row.reset_frozen_at) return "name_not_found";
@@ -1518,15 +1842,218 @@ export async function getResetFreeze(userId: string, nowMs = Date.now()): Promis
   return null;
 }
 
-// Admin decision: lets this member claim/reset again. If their name is still
-// missing the next failed sync freezes it again. Returns false if the member
-// had no freeze recorded.
+// Admin decision: lets this member reset through their linked accounts again,
+// for every platform. If a name is still missing the next failed sync freezes
+// it again. Returns false if the member had no freeze recorded.
 export async function approveReset(userId: string): Promise<boolean> {
-  const res = await client.execute({
+  const leetcode = await client.execute({
     sql: "UPDATE sync_status SET reset_frozen_at = NULL WHERE user_id = ? AND reset_frozen_at IS NOT NULL",
     args: [userId]
   });
+  const others = await client.execute({
+    sql: "UPDATE platform_sync_status SET reset_frozen_at = NULL WHERE user_id = ? AND reset_frozen_at IS NOT NULL",
+    args: [userId]
+  });
+  return (leetcode.rowsAffected ?? 0) + (others.rowsAffected ?? 0) > 0;
+}
+
+/* ---------- Linking and unlinking LeetCode ---------- */
+
+// The member who has this LeetCode username, if any. Case-insensitive, like
+// the unique index on it.
+export async function findLeetcodeOwner(leetcodeUsername: string): Promise<string | null> {
+  const res = await client.execute({
+    sql: "SELECT id FROM users WHERE lower(leetcode_username) = lower(?)",
+    args: [leetcodeUsername]
+  });
+  return res.rows.length ? (res.rows[0].id as string) : null;
+}
+
+export interface LeetcodeLinkData {
+  leetcodeUsername: string;
+  avatarUrl: string | null; // LeetCode's picture; null keeps the member's current one
+  allTimeSolved: number;
+  easySolved: number;
+  mediumSolved: number;
+  hardSolved: number;
+  contestRating: number | null;
+  contestsAttended: number;
+  currentStreak: number | null;
+  longestStreak: number | null;
+  today: string; // UTC day, YYYY-MM-DD
+  nowIso: string;
+}
+
+// Attaches a LeetCode account to a member who has none, and starts tracking from
+// now: what they have already solved is their baseline and never counts towards
+// progress, everything solved from this moment on does. Writes the first history
+// snapshot in the same transaction. Returns false (changing nothing) when the
+// member already has a LeetCode account; throws on a UNIQUE violation when
+// someone else got that username first.
+export async function linkLeetcodeAccount(userId: string, d: LeetcodeLinkData): Promise<boolean> {
+  const tx = await client.transaction("write");
+  try {
+    const res = await tx.execute({
+      sql: `UPDATE users SET
+              leetcode_username = ?, avatar_url = COALESCE(?, avatar_url),
+              all_time_solved = ?, easy_solved = ?, medium_solved = ?, hard_solved = ?,
+              weekly_progress = 0, monthly_progress = 0,
+              last_updated = ?, tracking_start = ?, baseline_solved = ?,
+              contest_rating = ?, contests_attended = ?, current_streak = ?, longest_streak = ?
+            WHERE id = ? AND leetcode_username IS NULL`,
+      args: [
+        d.leetcodeUsername,
+        d.avatarUrl,
+        d.allTimeSolved,
+        d.easySolved,
+        d.mediumSolved,
+        d.hardSolved,
+        d.nowIso,
+        d.today,
+        d.allTimeSolved,
+        d.contestRating,
+        d.contestsAttended,
+        d.currentStreak,
+        d.longestStreak,
+        userId
+      ]
+    });
+    if ((res.rowsAffected ?? 0) === 0) {
+      await tx.rollback();
+      return false;
+    }
+    await tx.execute(
+      upsertSnapshot(userId, {
+        date: d.today,
+        solvedCount: d.allTimeSolved,
+        easy: d.easySolved,
+        medium: d.mediumSolved,
+        hard: d.hardSolved,
+        weeklyProgress: 0
+      })
+    );
+    await tx.execute({ sql: "DELETE FROM sync_status WHERE user_id = ?", args: [userId] });
+    await tx.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = 'leetcode'", args: [userId] });
+    await tx.commit();
+    return true;
+  } catch (err) {
+    try {
+      await tx.rollback();
+    } catch {
+      /* already rolled back */
+    }
+    throw err;
+  }
+}
+
+// Detaches the member's LeetCode account and everything stored for it: the
+// stats, history and sync status. The member and everything else (their other
+// linked accounts, awards, notifications, settings) stay. Returns false when
+// they had none.
+export async function unlinkLeetcodeAccount(userId: string): Promise<boolean> {
+  const tx = await client.transaction("write");
+  try {
+    const res = await tx.execute({
+      sql: `UPDATE users SET
+              leetcode_username = NULL,
+              all_time_solved = 0, easy_solved = 0, medium_solved = 0, hard_solved = 0,
+              weekly_progress = 0, monthly_progress = 0,
+              last_updated = NULL, tracking_start = '', baseline_solved = 0,
+              contest_rating = NULL, contests_attended = 0, current_streak = NULL, longest_streak = NULL
+            WHERE id = ? AND leetcode_username IS NOT NULL`,
+      args: [userId]
+    });
+    if ((res.rowsAffected ?? 0) === 0) {
+      await tx.rollback();
+      return false;
+    }
+    await tx.execute({ sql: "DELETE FROM history WHERE user_id = ?", args: [userId] });
+    await tx.execute({ sql: "DELETE FROM sync_status WHERE user_id = ?", args: [userId] });
+    await tx.execute({ sql: "DELETE FROM pending_links WHERE user_id = ? AND platform = 'leetcode'", args: [userId] });
+    await tx.commit();
+    return true;
+  } catch (err) {
+    try {
+      await tx.rollback();
+    } catch {
+      /* already rolled back */
+    }
+    throw err;
+  }
+}
+
+/* ---------- Password reset challenges ---------- */
+
+export interface PendingReset {
+  id: string;
+  userId: string;
+  platform: RecoveryPlatform;
+  handle: string;
+  passwordHash: string;
+  code: string;
+  attempts: number;
+  expiresAt: string;
+}
+
+// The account the member linked on this platform, or null. Always read from the
+// member's own record, never from what the person asking typed.
+export async function getLinkedHandle(userId: string, platform: RecoveryPlatform): Promise<string | null> {
+  const res =
+    platform === "leetcode"
+      ? await client.execute({ sql: "SELECT leetcode_username AS handle FROM users WHERE id = ?", args: [userId] })
+      : await client.execute({
+          sql: "SELECT handle FROM platform_accounts WHERE user_id = ? AND platform = ?",
+          args: [userId, platform]
+        });
+  const handle = res.rows[0]?.handle;
+  return typeof handle === "string" && handle ? handle : null;
+}
+
+export async function createPendingReset(p: Omit<PendingReset, "attempts">): Promise<void> {
+  await client.execute({
+    sql: `INSERT INTO pending_resets (id, user_id, platform, handle, password_hash, code, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    args: [p.id, p.userId, p.platform, p.handle, p.passwordHash, p.code, p.expiresAt]
+  });
+}
+
+export async function getPendingReset(id: string): Promise<PendingReset | null> {
+  const res = await client.execute({ sql: "SELECT * FROM pending_resets WHERE id = ?", args: [id] });
+  const r = res.rows[0] as unknown as Record<string, unknown> | undefined;
+  if (!r) return null;
+  return {
+    id: r.id as string,
+    userId: r.user_id as string,
+    platform: r.platform as RecoveryPlatform,
+    handle: r.handle as string,
+    passwordHash: r.password_hash as string,
+    code: r.code as string,
+    attempts: Number(r.attempts ?? 0),
+    expiresAt: r.expires_at as string
+  };
+}
+
+export async function bumpPendingResetAttempts(id: string): Promise<void> {
+  await client.execute({ sql: "UPDATE pending_resets SET attempts = attempts + 1 WHERE id = ?", args: [id] });
+}
+
+export async function deletePendingReset(id: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_resets WHERE id = ?", args: [id] });
+}
+
+// Atomic single-use take: true for exactly one caller.
+export async function consumePendingReset(id: string): Promise<boolean> {
+  const res = await client.execute({ sql: "DELETE FROM pending_resets WHERE id = ?", args: [id] });
   return (res.rowsAffected ?? 0) > 0;
+}
+
+// After a successful reset every other open challenge for the member is moot.
+export async function deletePendingResetsFor(userId: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_resets WHERE user_id = ?", args: [userId] });
+}
+
+export async function purgeExpiredPendingResets(nowIso: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_resets WHERE expires_at < ?", args: [nowIso] });
 }
 
 // A notice written by the system (no sender) that shows up in the member's
@@ -1570,64 +2097,6 @@ export async function clearFailedLogins(id: string): Promise<void> {
     sql: "UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?",
     args: [id]
   });
-}
-
-/* ---------- Pending registrations ---------- */
-
-export interface PendingRegistration {
-  id: string;
-  leetcodeUsername: string;
-  displayName: string;
-  passwordHash: string;
-  code: string;
-  attempts: number;
-  expiresAt: string;
-}
-
-export async function createPendingRegistration(p: Omit<PendingRegistration, "attempts">): Promise<void> {
-  await client.execute({
-    sql: `INSERT INTO pending_registrations
-      (id, leetcode_username, display_name, password_hash, code, attempts, expires_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?)`,
-    args: [p.id, p.leetcodeUsername, p.displayName, p.passwordHash, p.code, p.expiresAt]
-  });
-}
-
-export async function getPendingRegistration(id: string): Promise<PendingRegistration | null> {
-  const res = await client.execute({ sql: "SELECT * FROM pending_registrations WHERE id = ?", args: [id] });
-  if (!res.rows.length) return null;
-  const r = res.rows[0] as unknown as Record<string, unknown>;
-  return {
-    id: r.id as string,
-    leetcodeUsername: r.leetcode_username as string,
-    displayName: r.display_name as string,
-    passwordHash: r.password_hash as string,
-    code: r.code as string,
-    attempts: Number(r.attempts),
-    expiresAt: r.expires_at as string
-  };
-}
-
-export async function bumpPendingAttempts(id: string): Promise<void> {
-  await client.execute({
-    sql: "UPDATE pending_registrations SET attempts = attempts + 1 WHERE id = ?",
-    args: [id]
-  });
-}
-
-export async function deletePendingRegistration(id: string): Promise<void> {
-  await client.execute({ sql: "DELETE FROM pending_registrations WHERE id = ?", args: [id] });
-}
-
-// Atomically takes the challenge: true for exactly one caller, false for any
-// concurrent or later one. Use this (not delete) to make a challenge single-use.
-export async function consumePendingRegistration(id: string): Promise<boolean> {
-  const res = await client.execute({ sql: "DELETE FROM pending_registrations WHERE id = ?", args: [id] });
-  return (res.rowsAffected ?? 0) > 0;
-}
-
-export async function purgeExpiredRegistrations(nowIso: string): Promise<void> {
-  await client.execute({ sql: "DELETE FROM pending_registrations WHERE expires_at < ?", args: [nowIso] });
 }
 
 export async function getMeta(key: string): Promise<string | null> {

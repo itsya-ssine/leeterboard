@@ -8,11 +8,11 @@
 //
 // Events (see docs/security-operations.md for what to alert on):
 //   login_failed, account_locked, login_blocked_locked, reauth_failed,
-//   password_changed, account_deleted,
+//   password_changed, account_created, account_deleted,
 //   ownership_started, ownership_verified, ownership_failed,
 //   ownership_lookup_unavailable,
 //   ownership_blocked, password_reset_via_ownership,
-//   platform_link_verified, platform_link_failed, admin_user_removed,
+//   platform_link_verified, platform_link_failed, platform_unlinked, admin_user_removed,
 //   admin_refresh, admin_message_sent, feedback_received,
 //   admin_feedback_deleted, csrf_blocked, rate_limited, session_rejected
 
@@ -22,6 +22,7 @@ export type SecurityEvent =
   | "login_blocked_locked"
   | "password_changed"
   | "reauth_failed"
+  | "account_created"
   | "account_deleted"
   | "ownership_started"
   | "ownership_verified"
@@ -31,6 +32,7 @@ export type SecurityEvent =
   | "password_reset_via_ownership"
   | "platform_link_verified"
   | "platform_link_failed"
+  | "platform_unlinked"
   | "admin_user_removed"
   | "admin_refresh"
   | "admin_message_sent"

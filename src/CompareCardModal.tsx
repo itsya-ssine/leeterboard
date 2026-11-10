@@ -42,8 +42,8 @@ export default function CompareCardModal({ a, b, onClose }: { a: User; b: User; 
     const rows = compareStats(a, b);
     const leads = tallyLeads(rows);
     return {
-      a: { displayName: a.displayName, leetcodeUsername: a.leetcodeUsername, avatarUrl: a.avatarUrl },
-      b: { displayName: b.displayName, leetcodeUsername: b.leetcodeUsername, avatarUrl: b.avatarUrl },
+      a: { displayName: a.displayName, loginUsername: a.loginUsername, avatarUrl: a.avatarUrl },
+      b: { displayName: b.displayName, loginUsername: b.loginUsername, avatarUrl: b.avatarUrl },
       rows,
       leadsA: leads.a,
       leadsB: leads.b,
@@ -84,7 +84,7 @@ export default function CompareCardModal({ a, b, onClose }: { a: User; b: User; 
     []
   );
 
-  const filename = `leeterboard-${a.leetcodeUsername}-vs-${b.leetcodeUsername}-${format}.png`;
+  const filename = `leeterboard-${a.loginUsername}-vs-${b.loginUsername}-${format}.png`;
   const canShareFile = useMemo(() => {
     if (!blob || typeof navigator.canShare !== "function" || typeof navigator.share !== "function") return false;
     try {

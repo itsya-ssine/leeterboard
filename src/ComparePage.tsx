@@ -1,3 +1,4 @@
+import { leetcodeMembers } from "./linkedAccounts.js";
 import React, { useState } from "react";
 import { ArrowLeft, ArrowLeftRight, Crown, ImageIcon, Swords } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -12,7 +13,6 @@ import {
 } from "./compare.js";
 import CompareCardModal from "./CompareCardModal.js";
 import EmptyState from "./EmptyState.js";
-import { CompareSkeleton } from "./Skeleton.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -50,7 +50,7 @@ const ROW_BALLOON: Record<string, string> = {
 const shortDate = (iso: string) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
 
-const enc = (u: User) => encodeURIComponent(u.leetcodeUsername);
+const enc = (u: User) => encodeURIComponent(u.loginUsername);
 
 // #/compare/<a>/<b>, with each part optional.
 function readSelection(): [string | null, string | null] {
@@ -149,7 +149,7 @@ function Fighter({ user, side, leads, winner }: { user: User; side: "a" | "b"; l
       </span>
       <div className="mt-1 min-w-0 max-w-full">
         <div className="truncate text-base font-bold tracking-tight text-strong md:text-xl">{user.displayName}</div>
-        <div className="truncate font-mono text-sm text-mist-500">@{user.leetcodeUsername}</div>
+        <div className="truncate font-mono text-sm text-mist-500">@{user.loginUsername}</div>
       </div>
       <div
         className={`rounded-full px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-widest ring-1 ${s.pill}`}
@@ -192,8 +192,8 @@ function MemberSelect({
         className={`h-11 w-full cursor-pointer rounded-xl bg-ink-900 px-3 text-sm text-mist-100 ring-1 ring-line transition-colors hover:ring-line-strong ${focusRing}`}
       >
         {users.map((u) => (
-          <option key={u.id} value={u.leetcodeUsername} disabled={u.id === otherId}>
-            {u.displayName} (@{u.leetcodeUsername})
+          <option key={u.id} value={u.loginUsername} disabled={u.id === otherId}>
+            {u.displayName} (@{u.loginUsername})
           </option>
         ))}
       </select>
@@ -203,7 +203,10 @@ function MemberSelect({
 
 // Two members, head to head: every stat side by side with who is ahead, and
 // their solved counts over time on one chart.
-export default function ComparePage({ users }: { users: User[] }) {
+// `members` is everyone; the comparison is about LeetCode stats, so only the
+// members who linked LeetCode can be picked.
+export default function ComparePage({ users: members }: { users: User[] }) {
+  const users = leetcodeMembers(members);
   const [selA, setSelA] = useState<string | null>(() => readSelection()[0]);
   const [selB, setSelB] = useState<string | null>(() => readSelection()[1]);
   const [mode, setMode] = useState<HistoryMode>("gained");
@@ -211,21 +214,20 @@ export default function ComparePage({ users }: { users: User[] }) {
   const { theme } = useTheme();
   const c = chartColors(theme);
 
-  if (users.length === 0) return <CompareSkeleton />;
-
   if (users.length < 2) {
     return (
       <EmptyState
+        id="compare-not-enough"
         icon={<Swords className="size-5" aria-hidden="true" />}
         title="Nobody to compare with yet"
-        description="You need at least two members on the board to compare."
+        description="Comparing uses LeetCode stats, so you need at least two members who linked a LeetCode account."
         action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
       />
     );
   }
 
   const find = (name: string | null) =>
-    name ? users.find((u) => u.leetcodeUsername.toLowerCase() === name.toLowerCase()) : undefined;
+    name ? users.find((u) => u.loginUsername.toLowerCase() === name.toLowerCase()) : undefined;
 
   // Missing or unknown picks (a deep link to someone who has since left, or
   // only one name given) fall back to the top of the board.
@@ -243,18 +245,18 @@ export default function ComparePage({ users }: { users: User[] }) {
     const chosen = find(username);
     if (!chosen) return;
     if (side === "a") {
-      setSelA(chosen.leetcodeUsername);
-      setSelB(b.leetcodeUsername);
+      setSelA(chosen.loginUsername);
+      setSelB(b.loginUsername);
       sync(chosen, b);
     } else {
-      setSelA(a.leetcodeUsername);
-      setSelB(chosen.leetcodeUsername);
+      setSelA(a.loginUsername);
+      setSelB(chosen.loginUsername);
       sync(a, chosen);
     }
   };
   const swap = () => {
-    setSelA(b.leetcodeUsername);
-    setSelB(a.leetcodeUsername);
+    setSelA(b.loginUsername);
+    setSelB(a.loginUsername);
     sync(b, a);
   };
 
@@ -278,7 +280,7 @@ export default function ComparePage({ users }: { users: User[] }) {
         aria-label="Choose members to compare"
         className="mb-6 grid grid-cols-[1fr_auto_1fr] items-end gap-x-2 gap-y-3 md:gap-x-4"
       >
-        <MemberSelect side="a" label="Player A" value={a.leetcodeUsername} users={users} otherId={b.id} onChange={(v) => pick("a", v)} />
+        <MemberSelect side="a" label="Player A" value={a.loginUsername} users={users} otherId={b.id} onChange={(v) => pick("a", v)} />
         <button
           type="button"
           onClick={swap}
@@ -291,7 +293,7 @@ export default function ComparePage({ users }: { users: User[] }) {
             aria-hidden="true"
           />
         </button>
-        <MemberSelect side="b" label="Player B" value={b.leetcodeUsername} users={users} otherId={a.id} onChange={(v) => pick("b", v)} />
+        <MemberSelect side="b" label="Player B" value={b.loginUsername} users={users} otherId={a.id} onChange={(v) => pick("b", v)} />
       </section>
 
       {/* ---------- Head to head ---------- */}

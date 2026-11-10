@@ -12,16 +12,20 @@
 --          ├─< platform_history  (1 member : many daily snapshots per linked platform)
 --          ├─< platform_sync_status (1 member : 1 latest sync result per linked platform)
 --          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
---          └─< pending_links     (1 member : open "prove you own this account" requests)
---   pending_registrations        (standalone; becomes a users row once verified)
+--          ├─< pending_links     (1 member : open "prove you own this account" requests)
+--          └─< pending_resets    (1 member : open "forgot password" requests)
+--   pending_registrations        (standalone; UNUSED, kept empty for rollback; see below)
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
 
--- One row per board member.
+-- One row per member. A member signs up with a username and a password; every
+-- LeetCode column below stays empty until they link a LeetCode account (see
+-- leetcode_username), and only members who linked it are on the LeetCode board.
 CREATE TABLE users (
   id                 TEXT PRIMARY KEY,
   display_name       TEXT NOT NULL,
-  leetcode_username  TEXT NOT NULL,
+  login_username     TEXT,                         -- site login name, lowercase, unique (migration 13; backfilled from leetcode_username)
+  leetcode_username  TEXT,                         -- NULL = no LeetCode linked (optional since migration 14); unique when set
   avatar_url         TEXT,
   school             TEXT NOT NULL DEFAULT '',     -- optional, member-edited; shown as a tag on the board
   bio                TEXT NOT NULL DEFAULT '',     -- optional short bio (profile page)
@@ -41,12 +45,14 @@ CREATE TABLE users (
   contests_attended  INTEGER NOT NULL DEFAULT 0,
   current_streak     INTEGER,                      -- NULL = not fetched yet (distinct from 0)
   longest_streak     INTEGER,
-  last_updated       TEXT NOT NULL,                -- last successful sync (ISO timestamp)
+  last_updated       TEXT,                         -- last successful LeetCode sync (ISO timestamp; NULL = never / not linked)
 
   -- Where tracking started. Progress is only counted on top of baseline_solved,
-  -- from the UTC day tracking_start onwards.
+  -- from the UTC day tracking_start onwards. Both are set when LeetCode is
+  -- linked (at sign-up for members who joined with LeetCode before it was
+  -- optional); '' / 0 until then.
   tracking_start     TEXT NOT NULL DEFAULT '',     -- YYYY-MM-DD (UTC)
-  baseline_solved    INTEGER NOT NULL DEFAULT 0,   -- all-time total at sign-up
+  baseline_solved    INTEGER NOT NULL DEFAULT 0,   -- all-time total when LeetCode was linked
 
   -- Credentials and brute-force protection. Never exposed through the API.
   password_hash      TEXT NOT NULL DEFAULT '',
@@ -55,6 +61,7 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX idx_users_leetcode       ON users(leetcode_username);
 CREATE UNIQUE INDEX idx_users_leetcode_lower ON users(lower(leetcode_username));
+CREATE UNIQUE INDEX idx_users_login_username ON users(login_username);
 
 -- One cumulative snapshot per member per UTC day: the totals as of that day's
 -- last sync. The app keeps the newest 60 days per member.
@@ -83,7 +90,10 @@ CREATE TABLE sync_status (
                                                    -- an admin: `npm run admin -- approve-reset <user>`
 );
 
--- A sign-up waiting for the person to prove they own the LeetCode account.
+-- UNUSED. Sign-up used to wait here until the person proved they own a LeetCode
+-- account; it is now one step (username + password), and migration 15 emptied
+-- this table. Kept so rolling back to the previous release still works. Drop it
+-- in a later migration.
 CREATE TABLE pending_registrations (
   id                 TEXT PRIMARY KEY,
   leetcode_username  TEXT NOT NULL,
@@ -135,8 +145,8 @@ CREATE TABLE user_awards (
   PRIMARY KEY (user_id, award_key)
 ) WITHOUT ROWID;
 
--- Codeforces / CodinGame accounts a member links on top of their (required)
--- LeetCode account. Current stats live on the row; `extra` is platform-specific
+-- Codeforces / CodinGame accounts a member links (all optional, like LeetCode,
+-- which lives on the users row). Current stats live on the row; `extra` is platform-specific
 -- JSON (e.g. Codeforces difficulty buckets).
 CREATE TABLE platform_accounts (
   user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -168,6 +178,7 @@ CREATE TABLE platform_sync_status (
   error          TEXT,
   failures       INTEGER NOT NULL DEFAULT 0,
   failing_since  TEXT,
+  reset_frozen_at TEXT,                            -- set when the platform said the handle doesn't exist; sticky (migration 16)
   PRIMARY KEY (user_id, platform)
 ) WITHOUT ROWID;
 
@@ -183,7 +194,8 @@ CREATE TABLE platform_history (
 CREATE INDEX idx_platform_history_date ON platform_history(date);
 
 -- A request to link an account, waiting for the member to put `code` in the
--- profile of that account. One open request per member per platform.
+-- profile of that account. One open request per member per platform. `platform`
+-- is 'leetcode' (the account on the member's own row) or an extra platform.
 CREATE TABLE pending_links (
   user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   platform    TEXT NOT NULL,
@@ -193,6 +205,24 @@ CREATE TABLE pending_links (
   expires_at  TEXT NOT NULL,
   PRIMARY KEY (user_id, platform)
 ) WITHOUT ROWID;
+
+-- A "forgot password" request, waiting for the person to put `code` in the
+-- public profile of an account the member linked. The NEW password is chosen at
+-- the start and held here, already hashed. `handle` is the linked account as it
+-- was then; the reset is refused if it has changed since. The browser only ever
+-- holds `id`.
+CREATE TABLE pending_resets (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform       TEXT NOT NULL CHECK (platform IN ('leetcode', 'codeforces', 'codingame')),
+  handle         TEXT NOT NULL,
+  password_hash  TEXT NOT NULL,
+  code           TEXT NOT NULL,
+  attempts       INTEGER NOT NULL DEFAULT 0,
+  expires_at     TEXT NOT NULL
+);
+CREATE INDEX idx_pending_resets_user ON pending_resets(user_id);
+CREATE INDEX idx_pending_resets_expires ON pending_resets(expires_at);
 
 -- Counters for the sensitive rate limiters (login, sign-up, verification,
 -- account and refresh routes), kept in the database so the limits hold across

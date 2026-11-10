@@ -121,6 +121,8 @@ function buildUser(seed: Seed, nowMs: number): User {
   return {
     id: `user-${crypto.randomUUID()}`,
     displayName: seed.displayName,
+    loginUsername: seed.leetcodeUsername.toLowerCase(),
+    leetcodeLinked: true,
     leetcodeUsername: seed.leetcodeUsername,
     avatarUrl: avatarFor(seed.displayName, seed.color),
     school: "",
@@ -203,8 +205,9 @@ Notes
   - These aren't real LeetCode accounts. Syncing can't find them, so the Sync
     health page will list them as "Account not found" — their seeded stats are
     left untouched.
-  - To try the admin page, add lb_dev_alice_x7q to ADMIN_LEETCODE_USERNAMES in
-    your .env and restart the dev server.`);
+  - To try the admin page, run  npm run admin -- show-id lb_dev_alice_x7q
+    and put the id it prints in ADMIN_USER_IDS in your .env, then restart the
+    dev server.`);
 }
 
 main().catch((err) => {

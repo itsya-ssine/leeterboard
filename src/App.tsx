@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Search,
   RefreshCw,
@@ -7,7 +7,6 @@ import {
   Gamepad2,
   ArrowUpRight,
   Pin,
-  LogIn,
   Clock,
   Activity,
   ListOrdered,
@@ -26,7 +25,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { User } from "./types.js";
 import { useAuth } from "./AuthContext.js";
-import LoginModal from "./LoginModal.js";
 import AccountModal from "./AccountModal.js";
 import AccountPage from "./AccountPage.js";
 import Podium from "./Podium.js";
@@ -47,10 +45,11 @@ import ActivityHeatmap from "./ActivityHeatmap.js";
 import ProfilePage from "./ProfilePage.js";
 import CodinGamePage, { LevelBadge, codingameMembers, compareCodingame } from "./CodinGamePage.js";
 import EmptyState from "./EmptyState.js";
+import { leetcodeMembers } from "./linkedAccounts.js";
 import TierAvatar from "./TierAvatar.js";
 import { ratingTier } from "./tiers.js";
 import AnimatedNumber from "./AnimatedNumber.js";
-import { CompareSkeleton, ListSkeleton, ProfileSkeleton } from "./Skeleton.js";
+import { CompareSkeleton, ProfileSkeleton } from "./Skeleton.js";
 import CodeforcesPage, { codeforcesBuckets, codeforcesMembers, compareCodeforces } from "./CodeforcesPage.js";
 
 /* ---------- Shared style tokens ---------- */
@@ -537,10 +536,14 @@ function GroupGrowthChart({
 /* ---------- App ---------- */
 
 export default function App() {
-  const { status: authStatus, user: currentUser } = useAuth();
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const { user: currentUser } = useAuth();
   const [isAccountOpen, setIsAccountOpen] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
+  // Every member, whatever they have linked. Only the pages that work across
+  // platforms (profiles, Codeforces, CodinGame) get this list; the LeetCode
+  // board, its stats and the compare page use `users`, which is just the
+  // members who linked LeetCode.
+  const [members, setMembers] = useState<User[]>([]);
+  const users = useMemo(() => leetcodeMembers(members), [members]);
   const [lastSyncAll, setLastSyncAll] = useState<string>("");
   const [winners, setWinners] = useState<WeeklyWinner[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>(() => readUrlState().q);
@@ -578,7 +581,7 @@ export default function App() {
     try {
       const usersRes = await fetch("/api/users");
       const usersData = await usersRes.json();
-      setUsers(usersData.users || []);
+      setMembers(usersData.users || []);
       setLastSyncAll(usersData.lastSyncAll || "");
       setWinners(usersData.winners || []);
 
@@ -591,18 +594,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
-  // What the board shows depends on who is looking (members can hide a linked
-  // platform from others; they and admins still see it), so load it again when
-  // someone signs in or out, not only on the next poll.
-  const viewerId = authStatus === "authenticated" ? (currentUser?.id ?? null) : authStatus === "loading" ? undefined : null;
-  const lastViewerId = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    if (viewerId === undefined) return; // still checking the session
-    const previous = lastViewerId.current;
-    lastViewerId.current = viewerId;
-    if (previous !== undefined && previous !== viewerId) loadData();
-  }, [viewerId]);
 
   // Ask the server to refresh the board if it's stale. On Vercel there is no
   // background job, so visiting is what triggers the sync. The server decides
@@ -681,7 +672,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [page, statsPlatform, users]);
+  }, [page, statsPlatform, members]);
 
   // Mirror the view into the address bar (?sort=weekly&q=ali) so it can be
   // shared. replaceState, not pushState, so typing doesn't flood the back
@@ -753,6 +744,7 @@ export default function App() {
     const q = searchQuery.toLowerCase();
     return (
       u.displayName.toLowerCase().includes(q) ||
+      u.loginUsername.toLowerCase().includes(q) ||
       u.leetcodeUsername.toLowerCase().includes(q) ||
       (u.school ?? "").toLowerCase().includes(q)
     );
@@ -795,14 +787,14 @@ export default function App() {
 
   // Stats page, Codeforces and CodinGame views: only members who linked an
   // account count.
-  const cfMembers = codeforcesMembers(users);
+  const cfMembers = codeforcesMembers(members);
   const cfSolvedTotal = cfMembers.reduce((acc, m) => acc + m.account.solved, 0);
   const cfWeeklyTotal = cfMembers.reduce((acc, m) => acc + m.account.weeklySolved, 0);
   const cfTopWeekly = [...cfMembers].sort(compareCodeforces("weekly"))[0];
 
   // CodinGame has no solved count: `solved` holds total XP, `rating` the level
   // and `weeklySolved` the XP earned this week (see platforms/codingame.ts).
-  const cgMembers = codingameMembers(users);
+  const cgMembers = codingameMembers(members);
   const cgXpTotal = cgMembers.reduce((acc, m) => acc + m.account.solved, 0);
   const cgWeeklyTotal = cgMembers.reduce((acc, m) => acc + m.account.weeklySolved, 0);
   const cgTopWeekly = [...cgMembers].sort(compareCodingame("weekly"))[0];
@@ -822,7 +814,7 @@ export default function App() {
         .slice(0, 3)
         .map(({ user, account }) => ({
           user,
-          handle: user.leetcodeUsername,
+          handle: user.loginUsername,
           easy: 0,
           medium: 0,
           hard: 0,
@@ -849,7 +841,7 @@ export default function App() {
         })
     : topWeekly.map((user) => ({
         user,
-        handle: user.leetcodeUsername,
+        handle: user.loginUsername,
         easy: user.easySolved,
         medium: user.mediumSolved,
         hard: user.hardSolved,
@@ -1016,10 +1008,10 @@ export default function App() {
 
             {/* Notifications — signed-in members only. Keyed by member so
                 switching accounts never shows the previous person's list. */}
-            {authStatus === "authenticated" && currentUser && <NotificationBell key={currentUser.id} />}
+            {currentUser && <NotificationBell key={currentUser.id} />}
 
             {/* Auth control */}
-            {authStatus === "authenticated" && currentUser ? (
+            {currentUser && (
               <div className="relative">
                 <AccountButton
                   user={currentUser}
@@ -1028,11 +1020,6 @@ export default function App() {
                 />
                 <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
               </div>
-            ) : (
-              <button onClick={() => setIsLoginOpen(true)} className={btnPrimary} id="open-login-btn">
-                <LogIn className="size-4" />
-                Log in
-              </button>
             )}
           </div>
         </div>
@@ -1118,39 +1105,34 @@ export default function App() {
           (loading ? (
             <ProfileSkeleton />
           ) : (
-            <ProfilePage users={users} winners={winners} username={profileName} lastSyncAll={lastSyncAll} />
+            <ProfilePage users={members} winners={winners} username={profileName} lastSyncAll={lastSyncAll} />
           ))}
 
         {/* ======== Account settings page ======== */}
         {page === "account" && <AccountPage onChanged={loadData} />}
 
         {/* ======== Compare page ======== */}
-        {page === "compare" && (loading ? <CompareSkeleton /> : <ComparePage users={users} />)}
+        {page === "compare" && (loading ? <CompareSkeleton /> : <ComparePage users={members} />)}
 
         {/* ======== Admin page ======== */}
         {page === "admin" &&
           (currentUser?.isAdmin ? (
             <AdminDashboard onChanged={loadData} />
-          ) : authStatus === "loading" ? (
-            <ListSkeleton label="Checking your access" />
           ) : (
             <EmptyState
+              id="admin-forbidden"
               icon={<Lock className="size-5" aria-hidden="true" />}
               title="This page is for admins"
-              description="Sign in with an admin account to see it."
-              action={
-                authStatus === "authenticated"
-                  ? { label: "Back to the leaderboard", href: "#/" }
-                  : { label: "Log in", onClick: () => setIsLoginOpen(true), icon: <LogIn className="size-4" aria-hidden="true" /> }
-              }
+              description="Your account doesn't have admin access."
+              action={{ label: "Back to the leaderboard", href: "#/" }}
             />
           ))}
 
         {/* ======== Codeforces page ======== */}
-        {page === "codeforces" && <CodeforcesPage users={users} loading={loading} />}
+        {page === "codeforces" && <CodeforcesPage users={members} loading={loading} />}
 
         {/* ======== CodinGame page ======== */}
-        {page === "codingame" && <CodinGamePage users={users} loading={loading} />}
+        {page === "codingame" && <CodinGamePage users={members} loading={loading} />}
 
         {/* ======== Stats page ======== */}
         {page === "stats" && (
@@ -1426,14 +1408,12 @@ export default function App() {
                       description={
                         searchQuery
                           ? "Try a different name or LeetCode username."
-                          : "Sign up to add yourself."
+                          : "Link your LeetCode account in Account settings to join this board."
                       }
                       action={
                         searchQuery
                           ? { label: "Clear search", onClick: () => setSearchQuery("") }
-                          : authStatus === "authenticated"
-                            ? undefined
-                            : { label: "Log in", onClick: () => setIsLoginOpen(true), icon: <LogIn className="size-4" aria-hidden="true" /> }
+                          : { label: "Link LeetCode", href: "#/account" }
                       }
                     />
                   </motion.div>
@@ -1490,9 +1470,9 @@ export default function App() {
                               {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
                               <RankMovement movement={movements[user.id]} />
                             </div>
-                            <div className="truncate text-sm text-mist-500">@{user.leetcodeUsername}</div>
+                            <div className="truncate text-sm text-mist-500">@{user.loginUsername}</div>
                             <SchoolTag school={user.school} className="mt-1" />
-                            {!boardStale && isStale(user.lastUpdated, now) && (
+                            {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
                               <div
                                 className="mt-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1.5 py-0.5 text-xs text-amber-300 ring-1 ring-amber-300/20"
                                 title={`Last successful LeetCode fetch: ${new Date(user.lastUpdated).toLocaleString()}. The board synced more recently, so LeetCode's API may be failing for this account.`}
@@ -1614,7 +1594,6 @@ export default function App() {
 
         )}
 
-        <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} onAuthenticated={loadData} />
 
         {/* ---------- Member card ---------- */}
         {/* A short summary that opens when a member is clicked; the full
@@ -1636,7 +1615,7 @@ export default function App() {
                     </h3>
                     {selectedUser.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak className="size-4" />}
                   </div>
-                  <div className="truncate text-sm text-mist-500">@{selectedUser.leetcodeUsername}</div>
+                  <div className="truncate text-sm text-mist-500">@{selectedUser.loginUsername}</div>
                   <div className="mt-0.5 text-sm text-mist-400">
                     {sortBy === "rating" ? "Contest rank" : "Rank"}{" "}
                     <span className={`font-semibold tabular-nums ${rankColor(displayRank(selectedUser) ?? 0)}`}>
@@ -1699,7 +1678,7 @@ export default function App() {
               {/* Actions */}
               <div className="mt-5 flex flex-col gap-2 border-t border-line pt-4">
                 <a
-                  href={`#/u/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                  href={`#/u/${encodeURIComponent(selectedUser.loginUsername)}`}
                   onClick={() => setSelectedUser(null)}
                   className={`${btnPrimary} w-full`}
                   id="view-full-profile-btn"
@@ -1708,17 +1687,19 @@ export default function App() {
                   View full profile
                 </a>
                 <div className="flex gap-2">
+                  {selectedUser.leetcodeLinked && (
+                    <a
+                      href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`${btnSecondary} min-w-0 flex-1`}
+                    >
+                      <span className="truncate">LeetCode</span>
+                      <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
+                    </a>
+                  )}
                   <a
-                    href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`${btnSecondary} min-w-0 flex-1`}
-                  >
-                    <span className="truncate">LeetCode</span>
-                    <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
-                  </a>
-                  <a
-                    href={`#/compare/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
+                    href={`#/compare/${encodeURIComponent(selectedUser.loginUsername)}`}
                     onClick={() => setSelectedUser(null)}
                     className={`${btnSecondary} min-w-0 flex-1`}
                   >

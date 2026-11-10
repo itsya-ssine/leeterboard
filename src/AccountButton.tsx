@@ -11,7 +11,7 @@ export default function AccountButton({
   onClick,
   open = false
 }: {
-  user: { avatarUrl: string; displayName: string; leetcodeUsername: string };
+  user: { avatarUrl: string; displayName: string; loginUsername: string };
   onClick: () => void;
   open?: boolean;
 }) {
@@ -21,14 +21,14 @@ export default function AccountButton({
   useEffect(() => setBroken(false), [user.avatarUrl]);
 
   const showImage = !!user.avatarUrl && !broken;
-  const initial = (user.displayName || user.leetcodeUsername).trim().charAt(0).toUpperCase() || "?";
+  const initial = (user.displayName || user.loginUsername).trim().charAt(0).toUpperCase() || "?";
 
   return (
     <button
       type="button"
       onClick={onClick}
       id="open-account-btn"
-      aria-label={`Account menu (@${user.leetcodeUsername})`}
+      aria-label={`Account menu (@${user.loginUsername})`}
       aria-haspopup="menu"
       aria-expanded={open}
       title="Account"
@@ -50,7 +50,7 @@ export default function AccountButton({
           {initial}
         </span>
       )}
-      <span className="hidden max-w-[10rem] truncate lg:inline">@{user.leetcodeUsername}</span>
+      <span className="hidden max-w-[10rem] truncate lg:inline">@{user.loginUsername}</span>
     </button>
   );
 }

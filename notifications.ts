@@ -87,7 +87,7 @@ export async function notifyNewAwards(users: User[], winners: WeeklyWinner[], no
       if (fresh.length > 0) await grantAwards(user.id, fresh);
     } catch (err: any) {
       // One member's failure (e.g. removed mid-sync) must not stop the rest.
-      console.warn(`[Notifications] Skipped ${user.leetcodeUsername}: ${err.message}`);
+      console.warn(`[Notifications] Skipped ${user.loginUsername}: ${err.message}`);
     }
   }
 

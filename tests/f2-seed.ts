@@ -39,15 +39,34 @@ export function makeUser(username: string, over: Record<string, unknown> = {}) {
 // A throwaway directory standing in for "LeetCode profiles" (see fake-leetcode.mjs).
 export function makeFakeLeetCode() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "leeterboard-fake-lc-"));
+  const platformDir = path.join(dir, "platforms");
   return {
     dir,
     // Makes `username` exist on "LeetCode" with this summary text.
     setAbout(username: string, about: string) {
       fs.writeFileSync(path.join(dir, `${username.toLowerCase()}.txt`), about);
     },
+    // The solved counts LeetCode reports for `username` (default 42 / 20 / 15 / 7).
+    setStats(username: string, stats: { all: number; easy: number; medium: number; hard: number }) {
+      fs.writeFileSync(path.join(dir, `${username.toLowerCase()}.stats.json`), JSON.stringify(stats));
+    },
+    // Makes `username` stop existing on "LeetCode" (renamed or deleted).
+    removeAbout(username: string) {
+      fs.rmSync(path.join(dir, `${username.toLowerCase()}.txt`), { force: true });
+    },
+    // The same for Codeforces / CodinGame: `text` is the profile field the
+    // proof code is searched in (Codeforces "organization", CodinGame "tagline").
+    setPlatformProfile(platform: "codeforces" | "codingame", handle: string, text: string) {
+      fs.mkdirSync(path.join(platformDir, platform), { recursive: true });
+      fs.writeFileSync(path.join(platformDir, platform, `${handle.toLowerCase()}.txt`), text);
+    },
+    removePlatformProfile(platform: "codeforces" | "codingame", handle: string) {
+      fs.rmSync(path.join(platformDir, platform, `${handle.toLowerCase()}.txt`), { force: true });
+    },
     // Env for startServer(): preloads the fake into the server process.
     env: {
       FAKE_LEETCODE_DIR: dir,
+      FAKE_PLATFORM_DIR: platformDir,
       NODE_OPTIONS: `--import ${pathToFileURL(path.resolve(import.meta.dirname, "fake-leetcode.mjs")).href}`
     },
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true })

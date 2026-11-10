@@ -7,7 +7,7 @@ export interface HistoryRecord {
   weeklyProgress: number; // weekly counter as of that day
 }
 
-// Extra platforms a member can link on top of their (required) LeetCode account.
+// Extra platforms a member can link on top of their (optional) LeetCode account.
 export type PlatformId = "codeforces" | "codingame";
 
 // One linked account and its current stats. rating null = unrated.
@@ -26,8 +26,10 @@ export interface PlatformAccount {
   extra: Record<string, unknown>;
   linkedAt: string;
   lastUpdated: string | null; // last successful sync; null = linked but not synced yet
-  // The member chose to hide this platform from other members. Only the member
-  // and admins ever receive a hidden account, so for everyone else it is absent.
+  // The member chose to hide this platform's details on their profile. Other
+  // members still receive the account, because the leaderboard and trends count
+  // it, but without the day-by-day series; the profile page doesn't show it to
+  // them. The member and admins get everything.
   hidden: boolean;
 }
 
@@ -37,6 +39,19 @@ export interface User {
   // the leaderboard and in the global stats). Admins and the member see them anyway.
   hideLeetcodeStats?: boolean;
   displayName: string;
+  // The name the member signs in with (users.login_username): lowercase,
+  // unique, never empty, and the identity everywhere on the site (profile and
+  // compare URLs, @handles, share cards, admin tables). Members who signed up
+  // with a LeetCode handle before accounts were separate were given that handle
+  // (lowercased) as their login name. It never changes when LeetCode is linked
+  // or unlinked.
+  loginUsername: string;
+  // True when the member has linked a LeetCode account (the users row has a
+  // LeetCode username). A member without one signs in with their own username,
+  // is not on the LeetCode board, and is never synced. The LeetCode fields
+  // below (username, solved counts, streaks, history, ...) mean nothing for them.
+  leetcodeLinked: boolean;
+  // "" = no LeetCode linked, like the other optional text fields on this type.
   leetcodeUsername: string;
   avatarUrl: string;
   // The member's school, shown as a tag on the leaderboard. "" = not set.
@@ -61,7 +76,7 @@ export interface User {
   // least one submission, UTC). null = not fetched yet — distinct from 0.
   currentStreak: number | null;
   longestStreak: number | null;
-  lastUpdated: string;
+  lastUpdated: string | null; // last successful LeetCode sync; null = never synced / not linked
   // The UTC day (YYYY-MM-DD) the member joined the board and their all-time
   // solved count at that moment. Everything solved before joining is
   // "baseline"; progress is only ever counted on top of it, starting from the
@@ -106,9 +121,10 @@ export type SyncState = "ok" | "unavailable" | "not_found";
 export interface AdminSyncMember {
   id: string;
   displayName: string;
+  loginUsername: string;
   leetcodeUsername: string;
   avatarUrl: string;
-  lastUpdated: string; // last *successful* fetch
+  lastUpdated: string | null; // last *successful* fetch; null = never
   lastAttempt: string | null;
   state: SyncState | "unknown";
   error: string | null;

@@ -2,7 +2,7 @@
  * F1 regression: the ownership proof (the one-time code read back from a
  * LeetCode profile) must only ever be read from LeetCode itself.
  *
- * It gates sign-up, account claiming and password reset, so any third-party
+ * It gates linking a LeetCode account to a member, so any third-party
  * "fallback" (an unofficial API wrapper, mirror or cache) would let whoever
  * controls that service attest ownership of any username. If LeetCode doesn't
  * answer, the lookup must fail closed ("unavailable" -> HTTP 503).
@@ -54,10 +54,5 @@ describe("ownership proof source (F1)", () => {
 
   it("fails closed when LeetCode gives no answer", () => {
     assert.match(lookup, /status: "unavailable"/);
-  });
-
-  it("logs a security event when the lookup is unavailable", () => {
-    const hits = serverSource.match(/logSecurityEvent\("ownership_lookup_unavailable"/g) ?? [];
-    assert.equal(hits.length, 2, "both /register and /register/verify should log it");
   });
 });

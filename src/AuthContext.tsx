@@ -1,24 +1,14 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { User, PlatformId } from "./types.js";
+import { installSessionExpiryHandler } from "./api.js";
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
-
-// Returned when a sign-up is started: the code the person must paste into
-// their LeetCode profile summary to prove the account is theirs.
-export interface RegistrationChallenge {
-  code: string;
-  // "create": new account · "claim": existing board entry that has no
-  // password yet · "reset": existing account, setting a new password.
-  purpose: "create" | "claim" | "reset";
-  leetcodeUsername: string;
-  expiresInMinutes: number;
-}
 
 // Returned when linking an extra platform account is started: the code the
 // member must paste into a profile field of that account to prove it is theirs.
 export interface PlatformLinkChallenge {
   code: string;
-  platform: PlatformId;
+  platform: PlatformId | "leetcode";
   handle: string; // the platform's own spelling of the handle
   instructions: string; // where to put the code, written by the server per platform
   expiresInMinutes: number;
@@ -35,9 +25,16 @@ export interface ProfileDetails {
 interface AuthContextValue {
   status: SessionStatus;
   user: User | null;
-  login: (leetcodeUsername: string, password: string) => Promise<User>;
-  startRegistration: (leetcodeUsername: string, password: string, displayName?: string) => Promise<RegistrationChallenge>;
-  verifyRegistration: () => Promise<User>;
+  // True from the moment the server says the session is gone (expired, logged
+  // out elsewhere, password changed on another device) until the member signs
+  // in again; the sign-in screen explains it. A normal log out doesn't set it.
+  sessionEnded: boolean;
+  // Sign in with the login name. Members who signed up with LeetCode before
+  // login names existed use their LeetCode username (the same name, lowercase).
+  login: (username: string, password: string) => Promise<User>;
+  // Create an account with a username and password (no LeetCode needed) and
+  // sign in with it. The server answers 409 when the name is taken.
+  register: (username: string, password: string, displayName?: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
@@ -50,6 +47,12 @@ interface AuthContextValue {
   unlinkPlatform: (platform: PlatformId) => Promise<User>;
   setPlatformHidden: (platform: PlatformId, hidden: boolean) => Promise<User>;
   setHideLeetcodeStats: (hidden: boolean) => Promise<User>;
+  // LeetCode is linked through its own routes (its stats live on the member's
+  // row, not in platform_accounts) but follows the same start -> code -> verify
+  // flow. Optional, like the other platforms.
+  startLeetcodeLink: (leetcodeUsername: string) => Promise<PlatformLinkChallenge>;
+  verifyLeetcodeLink: () => Promise<User>;
+  unlinkLeetcode: () => Promise<User>;
 }
 
 // Thrown for any non-2xx response; `expired` is set when the server says the
@@ -93,6 +96,35 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
+
+  // Bumped on every sign-in and sign-out. A 401 that belongs to an older
+  // session (a poll that was still in flight when the member logged out and
+  // back in) must not end the new one.
+  const epoch = useRef(0);
+  const statusRef = useRef<SessionStatus>(status);
+  useEffect(() => {
+    epoch.current += 1;
+    statusRef.current = status;
+  }, [status]);
+
+  // Any request that comes back "session required" ends the session here, so
+  // every component (the board poll, the account page, admin tools...) is
+  // covered without handling 401 itself.
+  useEffect(
+    () =>
+      installSessionExpiryHandler(
+        () => epoch.current,
+        (startedIn) => {
+          if (startedIn !== epoch.current || statusRef.current !== "authenticated") return;
+          statusRef.current = "guest"; // several requests can fail at once; end it once
+          setSessionEnded(true);
+          setUser(null);
+          setStatus("guest");
+        }
+      ),
+    []
+  );
 
   const refreshSession = useCallback(async () => {
     try {
@@ -100,6 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json();
       if (data.status === "authenticated") {
         setUser(data.user);
+        setSessionEnded(false);
         setStatus("authenticated");
       } else {
         setUser(null);
@@ -115,22 +148,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshSession();
   }, [refreshSession]);
 
-  const login = useCallback(async (leetcodeUsername: string, password: string) => {
-    const data = await postJson<User>("/api/auth/login", { leetcodeUsername, password });
+  const login = useCallback(async (username: string, password: string) => {
+    const data = await postJson<User>("/api/auth/login", { username, password });
     setUser(data);
+    setSessionEnded(false);
     setStatus("authenticated");
     return data;
   }, []);
 
-  const startRegistration = useCallback(
-    (leetcodeUsername: string, password: string, displayName?: string) =>
-      postJson<RegistrationChallenge>("/api/auth/register", { leetcodeUsername, password, displayName }),
-    []
-  );
-
-  const verifyRegistration = useCallback(async () => {
-    const data = await postJson<User>("/api/auth/register/verify");
+  const register = useCallback(async (username: string, password: string, displayName?: string) => {
+    const data = await postJson<User>("/api/auth/register", { username, password, displayName });
     setUser(data);
+    setSessionEnded(false);
     setStatus("authenticated");
     return data;
   }, []);
@@ -206,6 +235,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
+  const startLeetcodeLink = useCallback(
+    (leetcodeUsername: string) =>
+      postJson<PlatformLinkChallenge>("/api/account/leetcode/start", { leetcodeUsername }),
+    []
+  );
+
+  const verifyLeetcodeLink = useCallback(async () => {
+    const data = await postJson<User>("/api/account/leetcode/verify");
+    setUser(data);
+    return data;
+  }, []);
+
+  const unlinkLeetcode = useCallback(async () => {
+    const data = await requestJson<User>("DELETE", "/api/account/leetcode");
+    setUser(data);
+    return data;
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await fetch("/api/logout", { method: "POST" });
@@ -220,9 +267,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         status,
         user,
+        sessionEnded,
         login,
-        startRegistration,
-        verifyRegistration,
+        register,
         logout,
         refreshSession,
         updateDisplayName,
@@ -234,7 +281,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         verifyPlatformLink,
         unlinkPlatform,
         setPlatformHidden,
-        setHideLeetcodeStats
+        setHideLeetcodeStats,
+        startLeetcodeLink,
+        verifyLeetcodeLink,
+        unlinkLeetcode
       }}
     >
       {children}

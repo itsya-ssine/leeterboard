@@ -111,7 +111,7 @@ router.patch("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
 
 router.delete("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
   try {
-    const admin = (req as any).user as { id: string; leetcodeUsername: string };
+    const admin = (req as any).user as { id: string; loginUsername: string };
     const feedbackId = req.params.feedbackId as string;
     if (feedbackId.length === 0 || feedbackId.length > 64) {
       return res.status(404).json({ error: "Feedback not found." });
@@ -120,7 +120,7 @@ router.delete("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
     if (!removed) return res.status(404).json({ error: "Feedback not found." });
     logSecurityEvent(
       "admin_feedback_deleted",
-      { ip: req.ip, adminId: admin.id, admin: admin.leetcodeUsername, feedbackId },
+      { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, feedbackId },
       "info"
     );
     res.json({ ok: true });

@@ -73,6 +73,19 @@ export const registerLimiter = rateLimit({
   message: { error: "Too many sign-up attempts. Please try again later." }
 });
 
+// Starting a password reset hashes a password. Separate from sign-up so that a
+// campus or office sharing one address can't lock people out of one by using
+// the other.
+export const resetLimiter = rateLimit({
+  store: new DbRateLimitStore("reset"),
+  handler: blocked("reset"),
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many password reset attempts. Please try again later." }
+});
+
 // "Verify my profile" re-reads the person's LeetCode summary each time.
 export const verifyLimiter = rateLimit({
   store: new DbRateLimitStore("verify"),
