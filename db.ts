@@ -2,6 +2,7 @@ import { createClient, type Client, type InStatement } from "@libsql/client";
 import { randomUUID } from "crypto";
 import { User, HistoryRecord, SyncState, NotificationType, AppNotification, NotificationFeed, SentMessage, PlatformAccount, PlatformId, FeedbackCategory, FeedbackItem } from "./src/types.js";
 import type { PlatformStats } from "./platforms/common.js";
+import { normalizeEmail } from "./emails.js";
 
 // If TURSO_DATABASE_URL is set, connect to a real Turso cloud database.
 // Otherwise fall back to a local SQLite file (no signup needed) so the
@@ -2169,4 +2170,184 @@ export async function setMeta(key: string, value: string): Promise<void> {
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     args: [key, value]
   });
+}
+
+/* ---------- E-mail addresses and verification codes ----------
+ * A member's e-mail is private. rowToUser deliberately does not map it, so it
+ * can't end up in the board, profile or admin payloads by accident: the only
+ * ways to read an address are getUserEmail (a member's own) and the lookups
+ * below that take an address and answer "who has it". Addresses are always
+ * stored and compared in lowercase; every function here normalises its input,
+ * so a caller that forgets to can't create a second spelling of the same one.
+ */
+
+export type EmailCodePurpose = "signup" | "add_email" | "reset";
+
+export interface PendingEmailCode {
+  id: string;
+  purpose: EmailCodePurpose;
+  email: string; // lowercase
+  userId: string | null; // null for a sign-up: the member doesn't exist yet
+  username: string | null; // sign-up only
+  displayName: string | null; // sign-up only
+  passwordHash: string | null; // sign-up and reset: the NEW password, already hashed
+  codeHash: string; // HMAC of the code (emailCodes.ts); never the code itself
+  attempts: number;
+  createdAt: string;
+  lastSentAt: string;
+  expiresAt: string;
+}
+
+function rowToPendingEmailCode(r: Record<string, unknown>): PendingEmailCode {
+  return {
+    id: r.id as string,
+    purpose: r.purpose as EmailCodePurpose,
+    email: r.email as string,
+    userId: (r.user_id as string | null) ?? null,
+    username: (r.username as string | null) ?? null,
+    displayName: (r.display_name as string | null) ?? null,
+    passwordHash: (r.password_hash as string | null) ?? null,
+    codeHash: r.code_hash as string,
+    attempts: Number(r.attempts ?? 0),
+    createdAt: r.created_at as string,
+    lastSentAt: r.last_sent_at as string,
+    expiresAt: r.expires_at as string
+  };
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return /UNIQUE/i.test(String((err as { message?: unknown })?.message ?? ""));
+}
+
+// Only one open request exists per purpose and address, so starting again
+// REPLACES it: the old row goes, with its id, its code and its attempt counter,
+// and the new row starts at zero attempts. Whoever held the old id can no longer
+// verify. (INSERT OR REPLACE resolves the clash on the unique index.)
+export async function createPendingEmailCode(p: Omit<PendingEmailCode, "attempts">): Promise<void> {
+  await client.execute({
+    sql: `INSERT OR REPLACE INTO pending_email_codes
+            (id, purpose, email, user_id, username, display_name, password_hash,
+             code_hash, attempts, created_at, last_sent_at, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+    args: [
+      p.id,
+      p.purpose,
+      normalizeEmail(p.email),
+      p.userId,
+      p.username,
+      p.displayName,
+      p.passwordHash,
+      p.codeHash,
+      p.createdAt,
+      p.lastSentAt,
+      p.expiresAt
+    ]
+  });
+}
+
+export async function getPendingEmailCode(id: string): Promise<PendingEmailCode | null> {
+  const res = await client.execute({ sql: "SELECT * FROM pending_email_codes WHERE id = ?", args: [id] });
+  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+// The open request for this purpose and address, if any. The start routes use
+// it to apply the resend cooldown (lastSentAt) before replacing the row.
+export async function getOpenPendingEmailCode(
+  purpose: EmailCodePurpose,
+  email: string
+): Promise<PendingEmailCode | null> {
+  const res = await client.execute({
+    sql: "SELECT * FROM pending_email_codes WHERE purpose = ? AND email = ?",
+    args: [purpose, normalizeEmail(email)]
+  });
+  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+// Counts one wrong guess and returns how many there now are, or null when the
+// request no longer exists. The increment and the read are ONE statement, so a
+// burst of parallel guesses each sees a different count and can't all pass a
+// "fewer than 5" check made on a stale read.
+export async function bumpPendingEmailAttempts(id: string): Promise<number | null> {
+  const res = await client.execute({
+    sql: "UPDATE pending_email_codes SET attempts = attempts + 1 WHERE id = ? RETURNING attempts",
+    args: [id]
+  });
+  return res.rows.length ? Number(res.rows[0].attempts) : null;
+}
+
+export async function deletePendingEmailCode(id: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_email_codes WHERE id = ?", args: [id] });
+}
+
+// Atomic single-use take. Deletes the row and hands it back in ONE statement,
+// so of any number of simultaneous verifications exactly one gets the row and
+// the rest get null. An expired row is not handed out (and is left for
+// deleteExpiredPendingEmailCodes), so a late verify can't succeed even if the
+// caller forgot to check the clock.
+export async function consumePendingEmailCode(id: string, nowIso: string): Promise<PendingEmailCode | null> {
+  const res = await client.execute({
+    sql: "DELETE FROM pending_email_codes WHERE id = ? AND expires_at > ? RETURNING *",
+    args: [id, nowIso]
+  });
+  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+export async function deleteExpiredPendingEmailCodes(nowIso: string): Promise<void> {
+  await client.execute({ sql: "DELETE FROM pending_email_codes WHERE expires_at < ?", args: [nowIso] });
+}
+
+export interface UserByEmail {
+  record: UserWithAuth; // never carries the address (rowToUser doesn't map it)
+  emailVerifiedAt: string | null;
+}
+
+// Who has this address, if anyone (case-insensitive, like the unique index).
+// For the password-reset and sign-up checks. Never expose the result as is.
+export async function getUserByEmail(email: string): Promise<UserByEmail | null> {
+  const res = await client.execute({
+    sql: "SELECT * FROM users WHERE email IS NOT NULL AND lower(email) = ?",
+    args: [normalizeEmail(email)]
+  });
+  if (!res.rows.length) return null;
+  const row = res.rows[0] as unknown as Record<string, unknown>;
+  return {
+    record: await rowToUserWithAuth(row),
+    emailVerifiedAt: (row.email_verified_at as string | null) ?? null
+  };
+}
+
+// Whether a member already has this address. `exceptUserId` leaves one member
+// out, so a member re-entering their own address doesn't count as taken.
+export async function emailTaken(email: string, exceptUserId?: string): Promise<boolean> {
+  const res = await client.execute({
+    sql: "SELECT 1 FROM users WHERE email IS NOT NULL AND lower(email) = ? AND id != ? LIMIT 1",
+    args: [normalizeEmail(email), exceptUserId ?? ""]
+  });
+  return res.rows.length > 0;
+}
+
+// Stores a VERIFIED address on a member (the caller has just checked the
+// code). Returns false when no such member exists, or when another member has
+// the address: the unique index decides, so two verifications racing for the
+// same address can't both win.
+export async function setUserEmail(userId: string, email: string): Promise<boolean> {
+  try {
+    const res = await client.execute({
+      sql: "UPDATE users SET email = ?, email_verified_at = ? WHERE id = ?",
+      args: [normalizeEmail(email), new Date().toISOString(), userId]
+    });
+    return (res.rowsAffected ?? 0) > 0;
+  } catch (err) {
+    if (isUniqueViolation(err)) return false;
+    throw err;
+  }
+}
+
+// A member's OWN address, for their account page and for sending them mail.
+// Null when they have none. Don't call this for anyone but the signed-in member.
+export async function getUserEmail(id: string): Promise<{ email: string; verifiedAt: string | null } | null> {
+  const res = await client.execute({ sql: "SELECT email, email_verified_at FROM users WHERE id = ?", args: [id] });
+  const row = res.rows[0] as unknown as Record<string, unknown> | undefined;
+  if (!row || typeof row.email !== "string" || row.email === "") return null;
+  return { email: row.email, verifiedAt: (row.email_verified_at as string | null) ?? null };
 }
