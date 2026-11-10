@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Search,
   RefreshCw,
@@ -540,7 +540,12 @@ export default function App() {
   const { status: authStatus, user: currentUser } = useAuth();
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
+  // Every member, whatever they have linked. Only the pages that work across
+  // platforms (profiles, Codeforces, CodinGame) get this list; the LeetCode
+  // board, its stats and the compare page use `users`, which is just the
+  // members who linked LeetCode.
+  const [members, setMembers] = useState<User[]>([]);
+  const users = useMemo(() => members.filter((u) => u.leetcodeLinked), [members]);
   const [lastSyncAll, setLastSyncAll] = useState<string>("");
   const [winners, setWinners] = useState<WeeklyWinner[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>(() => readUrlState().q);
@@ -578,7 +583,7 @@ export default function App() {
     try {
       const usersRes = await fetch("/api/users");
       const usersData = await usersRes.json();
-      setUsers(usersData.users || []);
+      setMembers(usersData.users || []);
       setLastSyncAll(usersData.lastSyncAll || "");
       setWinners(usersData.winners || []);
 
@@ -681,7 +686,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [page, statsPlatform, users]);
+  }, [page, statsPlatform, members]);
 
   // Mirror the view into the address bar (?sort=weekly&q=ali) so it can be
   // shared. replaceState, not pushState, so typing doesn't flood the back
@@ -796,14 +801,14 @@ export default function App() {
 
   // Stats page, Codeforces and CodinGame views: only members who linked an
   // account count.
-  const cfMembers = codeforcesMembers(users);
+  const cfMembers = codeforcesMembers(members);
   const cfSolvedTotal = cfMembers.reduce((acc, m) => acc + m.account.solved, 0);
   const cfWeeklyTotal = cfMembers.reduce((acc, m) => acc + m.account.weeklySolved, 0);
   const cfTopWeekly = [...cfMembers].sort(compareCodeforces("weekly"))[0];
 
   // CodinGame has no solved count: `solved` holds total XP, `rating` the level
   // and `weeklySolved` the XP earned this week (see platforms/codingame.ts).
-  const cgMembers = codingameMembers(users);
+  const cgMembers = codingameMembers(members);
   const cgXpTotal = cgMembers.reduce((acc, m) => acc + m.account.solved, 0);
   const cgWeeklyTotal = cgMembers.reduce((acc, m) => acc + m.account.weeklySolved, 0);
   const cgTopWeekly = [...cgMembers].sort(compareCodingame("weekly"))[0];
@@ -1119,14 +1124,14 @@ export default function App() {
           (loading ? (
             <ProfileSkeleton />
           ) : (
-            <ProfilePage users={users} winners={winners} username={profileName} lastSyncAll={lastSyncAll} />
+            <ProfilePage users={members} winners={winners} username={profileName} lastSyncAll={lastSyncAll} />
           ))}
 
         {/* ======== Account settings page ======== */}
         {page === "account" && <AccountPage onChanged={loadData} />}
 
         {/* ======== Compare page ======== */}
-        {page === "compare" && (loading ? <CompareSkeleton /> : <ComparePage users={users} />)}
+        {page === "compare" && (loading ? <CompareSkeleton /> : <ComparePage users={members} />)}
 
         {/* ======== Admin page ======== */}
         {page === "admin" &&
@@ -1148,10 +1153,10 @@ export default function App() {
           ))}
 
         {/* ======== Codeforces page ======== */}
-        {page === "codeforces" && <CodeforcesPage users={users} loading={loading} />}
+        {page === "codeforces" && <CodeforcesPage users={members} loading={loading} />}
 
         {/* ======== CodinGame page ======== */}
-        {page === "codingame" && <CodinGamePage users={users} loading={loading} />}
+        {page === "codingame" && <CodinGamePage users={members} loading={loading} />}
 
         {/* ======== Stats page ======== */}
         {page === "stats" && (
@@ -1427,13 +1432,15 @@ export default function App() {
                       description={
                         searchQuery
                           ? "Try a different name or LeetCode username."
-                          : "Sign up to add yourself."
+                          : authStatus === "authenticated"
+                            ? "Link your LeetCode account in Account settings to join this board."
+                            : "Sign up to add yourself."
                       }
                       action={
                         searchQuery
                           ? { label: "Clear search", onClick: () => setSearchQuery("") }
                           : authStatus === "authenticated"
-                            ? undefined
+                            ? { label: "Link LeetCode", href: "#/account" }
                             : { label: "Log in", onClick: () => setIsLoginOpen(true), icon: <LogIn className="size-4" aria-hidden="true" /> }
                       }
                     />

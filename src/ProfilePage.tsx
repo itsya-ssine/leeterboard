@@ -262,7 +262,7 @@ function Hero({
         <div className="-mt-12 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 md:-mt-14">
           <div className="relative shrink-0">
             <TierAvatar user={user} className="size-24 rounded-full ring-4 ring-ink-900 md:size-28" showGem />
-            {overall.rank != null && overall.rank <= 3 && (
+            {user.leetcodeLinked && overall.rank != null && overall.rank <= 3 && (
               <span
                 className={`absolute -bottom-1 -right-1 grid size-8 place-items-center rounded-full bg-ink-900 ring-2 ring-line-strong ${rankColor(overall.rank)}`}
                 title={`Rank ${overall.rank} on the board`}
@@ -277,15 +277,17 @@ function Hero({
               <ArrowLeft className="size-4" aria-hidden="true" />
               <span className="hidden lg:inline">Leaderboard</span>
             </a>
-            <a
-              href={`#/compare/${encodeURIComponent(user.loginUsername)}`}
-              className={btnAction}
-              aria-label="Compare with another member"
-              title="Compare"
-            >
-              <Swords className="size-4" aria-hidden="true" />
-              <span className="hidden lg:inline">Compare</span>
-            </a>
+            {user.leetcodeLinked && (
+              <a
+                href={`#/compare/${encodeURIComponent(user.loginUsername)}`}
+                className={btnAction}
+                aria-label="Compare with another member"
+                title="Compare"
+              >
+                <Swords className="size-4" aria-hidden="true" />
+                <span className="hidden lg:inline">Compare</span>
+              </a>
+            )}
             <button
               type="button"
               onClick={copyLink}
@@ -312,17 +314,19 @@ function Hero({
                 <span className="hidden lg:inline">Settings</span>
               </a>
             )}
-            <button
-              type="button"
-              onClick={() => setSharing(true)}
-              id="share-card-btn"
-              className={btnAction}
-              aria-label="Open share card"
-              title="Share card"
-            >
-              <Share2 className="size-4" aria-hidden="true" />
-              <span className="hidden lg:inline">Share card</span>
-            </button>
+            {user.leetcodeLinked && (
+              <button
+                type="button"
+                onClick={() => setSharing(true)}
+                id="share-card-btn"
+                className={btnAction}
+                aria-label="Open share card"
+                title="Share card"
+              >
+                <Share2 className="size-4" aria-hidden="true" />
+                <span className="hidden lg:inline">Share card</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -362,19 +366,19 @@ function Hero({
           {/* Row 3: standing badges and links, one tidy line each. */}
           <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 md:flex-row md:flex-wrap md:items-center md:gap-x-6">
             <ul className="flex flex-wrap items-center gap-2 text-xs font-medium" aria-label="Standing">
-              {overall.rank != null && (
+              {user.leetcodeLinked && overall.rank != null && (
                 <li className="inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 font-mono ring-1 ring-line">
                   <Trophy className={`size-3 ${rankColor(overall.rank)}`} aria-hidden="true" />
                   <span className={`tabular-nums ${rankColor(overall.rank)}`}>#{overall.rank}</span>
                   <span className="text-mist-400">of {usersCount} all time</span>
                 </li>
               )}
-              {overall.topPercent != null && usersCount > 1 && (
+              {user.leetcodeLinked && overall.topPercent != null && usersCount > 1 && (
                 <li className="rounded-full bg-teal-400/10 px-2.5 py-1 font-mono text-teal-300 ring-1 ring-teal-400/30">
                   Top {overall.topPercent}%
                 </li>
               )}
-              {tierOf(user) && (
+              {user.leetcodeLinked && tierOf(user) && (
                 <li
                   title={tierSummary(user)}
                   className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono"
@@ -1731,9 +1735,14 @@ export default function ProfilePage({
   const [view, setView] = useState<ProfileView>("leetcode");
   const { user: viewer } = useAuth(); // hooks stay above the early return below
 
+  // The LeetCode board: ranks, badges and "of N members" only count members
+  // who linked LeetCode. `users` is everyone (Codeforces and CodinGame boards
+  // are built from it).
+  const leetcodeUsers = useMemo(() => users.filter((u) => u.leetcodeLinked), [users]);
+
   const stats = useMemo(
-    () => (user ? computeProfile(user, users, winners, Date.now()) : null),
-    [user, users, winners]
+    () => (user ? computeProfile(user, leetcodeUsers, winners, Date.now()) : null),
+    [user, leetcodeUsers, winners]
   );
 
   if (!user || !stats) {
@@ -1756,7 +1765,11 @@ export default function ProfilePage({
   // member and admins still see everything; everyone else only gets the
   // platforms that aren't hidden, and when none is left, just the header.
   const canSeeHidden = !!viewer && (viewer.isAdmin || viewer.id === user.id);
-  const leetcodeVisible = !user.hideLeetcodeStats || canSeeHidden;
+  const leetcodeVisible = user.leetcodeLinked && (!user.hideLeetcodeStats || canSeeHidden);
+  // A member can have nothing linked at all (just signed up). That is different
+  // from hiding everything: nothing is being kept private.
+  const nothingLinked =
+    !user.leetcodeLinked && !user.platforms?.codeforces && !user.platforms?.codingame;
   const cfAccount =
     user.platforms?.codeforces && (!user.platforms.codeforces.hidden || canSeeHidden)
       ? user.platforms.codeforces
@@ -1779,7 +1792,7 @@ export default function ProfilePage({
   return (
     <div id="profile-page" className="space-y-4">
       <Reveal>
-        <Hero user={user} users={users} stats={stats} usersCount={users.length} />
+        <Hero user={user} users={leetcodeUsers} stats={stats} usersCount={leetcodeUsers.length} />
       </Reveal>
 
       {available.length > 1 && activeView && (
@@ -1793,7 +1806,29 @@ export default function ProfilePage({
         </div>
       )}
 
-      {activeView === null ? (
+      {nothingLinked ? (
+        <Reveal key="unlinked">
+          <EmptyState
+            id="profile-nothing-linked"
+            icon={<Link2 className="size-5" aria-hidden="true" />}
+            title={
+              viewer?.id === user.id
+                ? "You haven't linked any account yet"
+                : `${user.displayName} hasn't linked any account yet`
+            }
+            description={
+              viewer?.id === user.id
+                ? "Link LeetCode, Codeforces or CodinGame to appear on the leaderboards and get stats here."
+                : "Stats show up here once they link LeetCode, Codeforces or CodinGame."
+            }
+            action={
+              viewer?.id === user.id
+                ? { label: "Link accounts", href: "#/account", icon: <Settings className="size-4" aria-hidden="true" /> }
+                : undefined
+            }
+          />
+        </Reveal>
+      ) : activeView === null ? (
         <Reveal key="private">
           <EmptyState
             id="profile-private"
@@ -1866,7 +1901,7 @@ export default function ProfilePage({
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Reveal delay={0.24} className="lg:col-span-2">
-          <BadgesPanel user={user} users={users} nowMs={nowMs} />
+          <BadgesPanel user={user} users={leetcodeUsers} nowMs={nowMs} />
         </Reveal>
         <Reveal delay={0.26}>
           <WeeklyWins stats={stats} />
@@ -1875,7 +1910,7 @@ export default function ProfilePage({
         </div>
       )}
 
-      {activeView !== null && (
+      {activeView !== null && !nothingLinked && (
         <p className="flex items-center justify-end gap-2 pt-2 font-mono text-xs text-mist-500">
           <Clock className="size-3.5" aria-hidden="true" />
           {synced ? `Stats last synced ${formatAge(synced, nowMs)}` : "Waiting for first sync"}
