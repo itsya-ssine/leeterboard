@@ -7,7 +7,6 @@ import {
   Gamepad2,
   ArrowUpRight,
   Pin,
-  LogIn,
   Clock,
   Activity,
   ListOrdered,
@@ -26,7 +25,6 @@ import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { User } from "./types.js";
 import { useAuth } from "./AuthContext.js";
-import LoginModal from "./LoginModal.js";
 import AccountModal from "./AccountModal.js";
 import AccountPage from "./AccountPage.js";
 import Podium from "./Podium.js";
@@ -50,7 +48,7 @@ import EmptyState from "./EmptyState.js";
 import TierAvatar from "./TierAvatar.js";
 import { ratingTier } from "./tiers.js";
 import AnimatedNumber from "./AnimatedNumber.js";
-import { CompareSkeleton, ListSkeleton, ProfileSkeleton } from "./Skeleton.js";
+import { CompareSkeleton, ProfileSkeleton } from "./Skeleton.js";
 import CodeforcesPage, { codeforcesBuckets, codeforcesMembers, compareCodeforces } from "./CodeforcesPage.js";
 
 /* ---------- Shared style tokens ---------- */
@@ -537,8 +535,7 @@ function GroupGrowthChart({
 /* ---------- App ---------- */
 
 export default function App() {
-  const { status: authStatus, user: currentUser } = useAuth();
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const { user: currentUser } = useAuth();
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   // Every member, whatever they have linked. Only the pages that work across
   // platforms (profiles, Codeforces, CodinGame) get this list; the LeetCode
@@ -596,18 +593,6 @@ export default function App() {
       setLoading(false);
     }
   };
-
-  // What the board shows depends on who is looking (members can hide a linked
-  // platform from others; they and admins still see it), so load it again when
-  // someone signs in or out, not only on the next poll.
-  const viewerId = authStatus === "authenticated" ? (currentUser?.id ?? null) : authStatus === "loading" ? undefined : null;
-  const lastViewerId = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    if (viewerId === undefined) return; // still checking the session
-    const previous = lastViewerId.current;
-    lastViewerId.current = viewerId;
-    if (previous !== undefined && previous !== viewerId) loadData();
-  }, [viewerId]);
 
   // Ask the server to refresh the board if it's stale. On Vercel there is no
   // background job, so visiting is what triggers the sync. The server decides
@@ -1022,10 +1007,10 @@ export default function App() {
 
             {/* Notifications — signed-in members only. Keyed by member so
                 switching accounts never shows the previous person's list. */}
-            {authStatus === "authenticated" && currentUser && <NotificationBell key={currentUser.id} />}
+            {currentUser && <NotificationBell key={currentUser.id} />}
 
             {/* Auth control */}
-            {authStatus === "authenticated" && currentUser ? (
+            {currentUser && (
               <div className="relative">
                 <AccountButton
                   user={currentUser}
@@ -1034,11 +1019,6 @@ export default function App() {
                 />
                 <AccountModal open={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
               </div>
-            ) : (
-              <button onClick={() => setIsLoginOpen(true)} className={btnPrimary} id="open-login-btn">
-                <LogIn className="size-4" />
-                Log in
-              </button>
             )}
           </div>
         </div>
@@ -1137,18 +1117,13 @@ export default function App() {
         {page === "admin" &&
           (currentUser?.isAdmin ? (
             <AdminDashboard onChanged={loadData} />
-          ) : authStatus === "loading" ? (
-            <ListSkeleton label="Checking your access" />
           ) : (
             <EmptyState
+              id="admin-forbidden"
               icon={<Lock className="size-5" aria-hidden="true" />}
               title="This page is for admins"
-              description="Sign in with an admin account to see it."
-              action={
-                authStatus === "authenticated"
-                  ? { label: "Back to the leaderboard", href: "#/" }
-                  : { label: "Log in", onClick: () => setIsLoginOpen(true), icon: <LogIn className="size-4" aria-hidden="true" /> }
-              }
+              description="Your account doesn't have admin access."
+              action={{ label: "Back to the leaderboard", href: "#/" }}
             />
           ))}
 
@@ -1432,16 +1407,12 @@ export default function App() {
                       description={
                         searchQuery
                           ? "Try a different name or LeetCode username."
-                          : authStatus === "authenticated"
-                            ? "Link your LeetCode account in Account settings to join this board."
-                            : "Sign up to add yourself."
+                          : "Link your LeetCode account in Account settings to join this board."
                       }
                       action={
                         searchQuery
                           ? { label: "Clear search", onClick: () => setSearchQuery("") }
-                          : authStatus === "authenticated"
-                            ? { label: "Link LeetCode", href: "#/account" }
-                            : { label: "Log in", onClick: () => setIsLoginOpen(true), icon: <LogIn className="size-4" aria-hidden="true" /> }
+                          : { label: "Link LeetCode", href: "#/account" }
                       }
                     />
                   </motion.div>
@@ -1622,7 +1593,6 @@ export default function App() {
 
         )}
 
-        <LoginModal open={isLoginOpen} onClose={() => setIsLoginOpen(false)} onAuthenticated={loadData} />
 
         {/* ---------- Member card ---------- */}
         {/* A short summary that opens when a member is clicked; the full
