@@ -76,7 +76,7 @@ first: copy the relevant lines somewhere before they expire.
 | --- | --- |
 | `JWT_SECRET` | Generate a new one (`node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`), set it in Vercel for the right environment, redeploy. **Every session is invalidated**, so everyone has to sign in again. |
 | Turso auth token | Invalidate the old token (`turso db tokens invalidate <db>`), create a new one (`turso db tokens create <db>`), update `TURSO_AUTH_TOKEN` in Vercel, redeploy. Then check the data for tampering (see below). |
-| A member's password or session | Have them reset it from the Sign up tab (it proves LeetCode ownership). This is refused for admin accounts and for frozen accounts (see "Recycled LeetCode usernames" below). Setting a new password invalidates all of their existing sessions. |
+| A member's password or session | Have them reset it by proving ownership of an account they linked (`POST /api/auth/reset/start`, then `/verify`; the sign-in screen has no form for this yet), or set one with `npm run admin -- set-password <username>`. The reset is refused for admin accounts and for frozen accounts (see "Recycled LeetCode usernames" below). Setting a new password invalidates all of their existing sessions. |
 | An admin account | Remove its id from `ADMIN_USER_IDS` (or its username from the deprecated `ADMIN_LEETCODE_USERNAMES`) in Vercel and redeploy, rotate `JWT_SECRET`, then review the admin log (below). Set a new password with `npm run admin -- set-password <username>`. |
 
 Never paste a token or secret into an issue, a chat or a log. If one was, treat

@@ -18,7 +18,9 @@
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
 
--- One row per board member.
+-- One row per member. A member signs up with a username and a password; every
+-- LeetCode column below stays empty until they link a LeetCode account (see
+-- leetcode_username), and only members who linked it are on the LeetCode board.
 CREATE TABLE users (
   id                 TEXT PRIMARY KEY,
   display_name       TEXT NOT NULL,
@@ -46,9 +48,11 @@ CREATE TABLE users (
   last_updated       TEXT,                         -- last successful LeetCode sync (ISO timestamp; NULL = never / not linked)
 
   -- Where tracking started. Progress is only counted on top of baseline_solved,
-  -- from the UTC day tracking_start onwards.
+  -- from the UTC day tracking_start onwards. Both are set when LeetCode is
+  -- linked (at sign-up for members who joined with LeetCode before it was
+  -- optional); '' / 0 until then.
   tracking_start     TEXT NOT NULL DEFAULT '',     -- YYYY-MM-DD (UTC)
-  baseline_solved    INTEGER NOT NULL DEFAULT 0,   -- all-time total at sign-up
+  baseline_solved    INTEGER NOT NULL DEFAULT 0,   -- all-time total when LeetCode was linked
 
   -- Credentials and brute-force protection. Never exposed through the API.
   password_hash      TEXT NOT NULL DEFAULT '',
@@ -141,8 +145,8 @@ CREATE TABLE user_awards (
   PRIMARY KEY (user_id, award_key)
 ) WITHOUT ROWID;
 
--- Codeforces / CodinGame accounts a member links on top of their (required)
--- LeetCode account. Current stats live on the row; `extra` is platform-specific
+-- Codeforces / CodinGame accounts a member links (all optional, like LeetCode,
+-- which lives on the users row). Current stats live on the row; `extra` is platform-specific
 -- JSON (e.g. Codeforces difficulty buckets).
 CREATE TABLE platform_accounts (
   user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

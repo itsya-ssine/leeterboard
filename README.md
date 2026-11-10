@@ -1,6 +1,6 @@
 # Leeterboard
 
-A competitive-programming leaderboard for a group of friends, a class or a club. Members sign up with their **LeetCode** username and can link their **Codeforces** and **CodinGame** accounts. The app tracks solved counts, weekly and monthly progress, streaks, contest ratings and badges, and ranks everyone on live boards with a podium, weekly winners, profiles and head-to-head comparisons.
+A competitive-programming leaderboard for a group of friends, a class or a club. Members sign up with a username and a password, then link any of their **LeetCode**, **Codeforces** and **CodinGame** accounts (all optional). Everything is for signed-in members only. The app tracks solved counts, weekly and monthly progress, streaks, contest ratings and badges, and ranks everyone on live boards with a podium, weekly winners, profiles and head-to-head comparisons.
 
 ## Contents
 
@@ -31,7 +31,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 
 **Boards and rankings**
 
-- **LeetCode leaderboard** ranked by weekly progress, all-time solved, or contest rating, with search, pinned members and a shareable URL (`?sort=weekly&q=ali`)
+- **LeetCode leaderboard** ranked by weekly progress, all-time solved, or contest rating, with search, pinned members and a shareable URL (`?sort=weekly&q=ali`). Only members who linked LeetCode are on it
 - **Codeforces and CodinGame boards**, one per platform, for members who linked an account (see [Platforms](#platforms))
 - **Top-3 podium** for whichever ranking is selected, with gold, silver and bronze styling
 - **Rank movement arrows** (▲/▼) showing how many places a member has climbed or dropped since last week, with a NEW tag for members who just joined
@@ -45,9 +45,9 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 
 **Profiles and comparison**
 
-- **Member profile pages** (`#/u/<username>`) with key stats, a progress chart, a difficulty split compared with the board, a per-day activity chart, weekly sprints, weekday rhythm, standing in every category, weekly wins and badges. A toggle switches between a member's LeetCode, Codeforces and CodinGame stats
+- **Member profile pages** (`#/u/<username>`) with key stats, a progress chart, a difficulty split compared with the board, a per-day activity chart, weekly sprints, weekday rhythm, standing in every category, weekly wins and badges. A toggle switches between the platforms the member linked (LeetCode, Codeforces, CodinGame); a member with nothing linked yet gets a short note instead of empty charts
 - **Tier avatar frames**: a member's avatar is framed by their contest-rating tier, from a plain ring up to a glowing, turning frame for Grandmasters
-- **Compare page** (`#/compare`): pick any two members for a head-to-head view with every stat side by side (solved counts by difficulty, weekly and monthly progress, contest rating, streaks), who is ahead in each, and both members' solved counts over time on one chart. The URL is shareable, and every profile has a Compare button
+- **Compare page** (`#/compare`): pick any two members who linked LeetCode for a head-to-head view with every stat side by side (solved counts by difficulty, weekly and monthly progress, contest rating, streaks), who is ahead in each, and both members' solved counts over time on one chart. The URL is shareable, and the profile of every member with LeetCode has a Compare button
 - **Compare card**: export the head-to-head as a PNG
 - **Share card**: from any profile, generate a PNG card (wide for LinkedIn, or square) with rank, solved count, streak, rating and difficulty split. Download it, copy it, share it from your phone, or open a LinkedIn post with a caption ready. Cards can be drawn in the dark or the light palette
 
@@ -62,6 +62,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 
 **Accounts and administration**
 
+- **Sign-up with just a username and a password**, and a **members-only** site: without a session the app shows only the sign-in screen, and the API refuses every data request (see [Security](#security))
 - **Account settings page** (`#/account`) for display name, school, bio, links, linked platforms, password and account deletion
 - **Privacy controls**: hide a linked platform from other members, or hide LeetCode stats on your profile (you still appear on the board)
 - **Admin tools** to sync everyone at once, remove members, watch sync health, and send messages with a record of how many members have read each
@@ -77,24 +78,27 @@ The app is a single page switched with the URL hash, so no server rewrite is nee
 
 | Route | Page | Who |
 | --- | --- | --- |
-| `#/` | LeetCode leaderboard, podium, winner banner and hall of fame | Everyone |
-| `#/codeforces` | Codeforces board | Everyone |
-| `#/codingame` | CodinGame board | Everyone |
-| `#/stats` | Group stats (LeetCode, Codeforces or CodinGame) | Everyone |
-| `#/compare` and `#/compare/<a>/<b>` | Head-to-head comparison | Everyone |
-| `#/u/<username>` | Member profile | Everyone |
+| any address, no session | Sign-in and sign-up screen (nothing else is shown) | Visitors |
+| `#/` | LeetCode leaderboard, podium, winner banner and hall of fame | Members |
+| `#/codeforces` | Codeforces board | Members |
+| `#/codingame` | CodinGame board | Members |
+| `#/stats` | Group stats (LeetCode, Codeforces or CodinGame) | Members |
+| `#/compare` and `#/compare/<a>/<b>` | Head-to-head comparison (members with LeetCode) | Members |
+| `#/u/<username>` | Member profile | Members |
 | `#/account` | Account settings and linked accounts | Members |
-| `#/admin` | Sync health and messages | Admins |
+| `#/admin` | Sync health, messages and feedback | Admins |
+
+"Members" means a signed-in member; a visitor without a session only ever sees the sign-in screen, whichever address they open. A signed-in member who opens `#/admin` without admin rights sees a short "for admins" notice.
 
 The leaderboard also keeps its view in the query string (`?sort=weekly|allTime|rating&q=<search>`) and remembers pinned members in your browser.
 
 ## Platforms
 
-LeetCode is the home platform: every member has a LeetCode account. Codeforces and CodinGame are optional add-ons that a member links after signing up.
+A member signs up with a username and a password, so no platform is required. LeetCode, Codeforces and CodinGame are all optional links, added after signing up, in any combination.
 
 | | LeetCode | Codeforces | CodinGame |
 | --- | --- | --- | --- |
-| Required | Yes | No | No |
+| Required | No | No | No |
 | Source | Public profile data | Official public API | The website's own JSON endpoints (no official API) |
 | "Solved" | Problems solved (easy / medium / hard) | Distinct problems solved, gym contests excluded | Total XP |
 | Rating | Contest rating | Codeforces rating, max rating and rank title | Level |
@@ -134,7 +138,7 @@ npm run dev
 
 The app runs at http://localhost:3000. With no database configured, data is stored in a local `local.db` file.
 
-To try the app without signing up through LeetCode verification, seed two fake members into the local database:
+To try the app with some members already on the boards, seed two fake members into the local database (they have LeetCode data without linking a real account):
 
 ```bash
 npx tsx scripts/seed-dev-users.ts          # add them (skips any that exist)
@@ -165,24 +169,25 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ## Accounts
 
-Members log in with their **LeetCode username** and a **password chosen for this site**. This is never their LeetCode password, and the app never asks for it.
+Nothing on the site is public. A visitor sees only the sign-in screen, and every data endpoint answers `401` without a session.
 
-Signing up proves ownership of the LeetCode account:
+**Signing up** needs a username, a password and, optionally, a display name. No LeetCode (or any other) account is needed, and the new member is signed in straight away and taken to **Account settings** to link their accounts.
 
-1. Enter your LeetCode username and a password.
-2. Copy the one-time code the app shows you (valid for 30 minutes).
-3. Paste it into the **Summary** field of your LeetCode profile and save.
-4. Press **Verify**. The app reads your public profile and checks the code.
+- The **username** is what members sign in with. It is 3 to 30 characters from `A-Z`, `a-z`, `0-9` and `_`, stored in lowercase, and unique in any letter case. Names that could pass for the site or its staff (`admin`, `root`, `support`, ...) are refused.
+- The **password** is chosen for this site (never a LeetCode, Codeforces or CodinGame password, which the app never asks for) and is 8 to 128 characters. It can't be the username.
+- A name that is taken answers `409`, and bad input answers `400` with the reason.
 
-You can remove the code from your profile afterwards. The same steps reset a forgotten password and claim a leaderboard entry that has no password yet. Existing stats and history are kept in both cases.
+**Signing in** uses the username and the password. Members who joined before usernames existed keep working: their old LeetCode username, in lowercase, became their username, and their LeetCode account stays linked.
 
-Sessions last 7 days.
+**A forgotten password** can be reset by proving ownership of an account the member linked (LeetCode, Codeforces or CodinGame): `POST /api/auth/reset/start` hands out a one-time code, the member puts it in that profile, and `POST /api/auth/reset/verify` reads it back, sets the new password and signs everyone else out. The sign-in screen has no form for this yet, so for now it is reachable through the API only. A member with nothing linked can't use it. An admin can set a password with `npm run admin -- set-password <username>`. See [Security and operations](docs/security-operations.md).
+
+Sessions last 7 days. When one ends (it expired, the member logged out elsewhere, or the password was changed on another device) the app returns to the sign-in screen and says so.
 
 ## Account settings
 
 Logged-in members click their name in the header and choose **Account settings** (`#/account`; the same menu also links to their profile) to:
 
-- **Change their display name, school, bio and links.** School is shown as a tag on the leaderboard. Bio and the GitHub, LinkedIn and website links are shown on the profile page. The server validates each link and limits lengths. The avatar is not editable: it always comes from the member's LeetCode profile and refreshes automatically.
+- **Change their display name, school, bio and links.** School is shown as a tag on the leaderboard. Bio and the GitHub, LinkedIn and website links are shown on the profile page. The server validates each link and limits lengths. The avatar is not editable: a member gets a generated letter avatar, replaced by their LeetCode profile picture once they link LeetCode (it then refreshes automatically).
 - **Manage linked accounts** (see below).
 - **Hide LeetCode stats on their profile.** They still count on the board and in the group stats.
 - **Change their password.** This needs the current password, keeps the current device signed in, and signs out every other device.
@@ -198,7 +203,7 @@ Signing up needs only a username and a password. Everything else is optional: fr
 3. Press **Verify**. The app reads the public profile and looks for the code.
 4. Remove the code from the profile afterwards if you like.
 
-A handle can belong to at most one member. Linking LeetCode starts tracking from that moment: what the member already solved is their starting point and doesn't count towards weekly or monthly progress, and badges they already hold don't arrive as notifications. Unlinking LeetCode deletes its stats and history; the member and their other linked accounts stay.
+Each platform has its own row on the page with the same steps: link, prove with the code, verify, hide, remove. A member who has linked nothing yet is on no board; the page tells them so, and their profile says they haven't linked anything. A handle can belong to at most one member. Linking LeetCode starts tracking from that moment: what the member already solved is their starting point and doesn't count towards weekly or monthly progress, and badges they already hold don't arrive as notifications. Unlinking LeetCode deletes its stats and history; the member and their other linked accounts stay.
 
 A linked account can be unlinked at any time, or hidden on the member's profile. A hidden account still counts on the leaderboard and in the trends; other members' browsers receive it flagged as hidden and without the day-by-day series, and the profile page doesn't show it. The owner and admins see everything.
 
@@ -247,6 +252,7 @@ The theme is driven by CSS variables in `src/index.css`:
 
 ## Security
 
+- **Members only, enforced by the API.** Every route that returns member, board, trend or profile data requires a session and answers `401` (with the code `session_required`) without one; hiding the UI is only a convenience on top. The few public routes are the sign-in, sign-up and password-reset endpoints, the session check, logout and the feedback form. `tests/gating.test.ts` fails if any route is open to visitors without being on its short allow-list.
 - Passwords are hashed with scrypt and a unique salt per password.
 - An account locks for 15 minutes after 5 failed password attempts, whether at login or when confirming a password change or deletion. Attempts are also rate limited per IP.
 - Unknown usernames and wrong passwords return the same error.
@@ -299,7 +305,7 @@ Changes to an existing database are versioned migrations in `db.ts` (`MIGRATIONS
 
 **Database credentials.** Keep separate Turso databases, and separate tokens, for development, preview and production, and set each only in the matching Vercel environment. The app needs read and write access, so it can't use a read-only token; create it per database, set an expiry you are willing to rotate on, and never reuse it for tooling. The app refuses to start with a remote URL that isn't encrypted (`libsql://` or `https://`). Rotate the token if it was ever pasted into a chat, an issue or a log.
 
-**How progress is counted.** Each member has a `tracking_start` day and a `baseline_solved` total (their all-time count when they signed up). Weeks run Monday to Sunday (UTC) and the weekly counter restarts from 0 every Monday. A member who joins mid-week is counted from their joining day to that Sunday, measured from their baseline, and from then on like everyone else. Group growth is the sum of what each member has solved since they joined, so adding someone never inflates the chart with their past.
+**How progress is counted.** Each member has a `tracking_start` day and a `baseline_solved` total (their all-time count when they linked LeetCode). Weeks run Monday to Sunday (UTC) and the weekly counter restarts from 0 every Monday. A member who links LeetCode mid-week is counted from that day to that Sunday, measured from their baseline, and from then on like everyone else. Group growth is the sum of what each member has solved since they joined, so linking someone never inflates the chart with their past.
 
 **Activity heatmap.** Daily activity is the difference between consecutive snapshots. When a gap of N days separates two snapshots, the difference is spread evenly over those days. Days before anyone was tracked show as "no data", which is different from a tracked day where nobody solved anything.
 
@@ -358,7 +364,7 @@ All endpoints live under `/api`.
 | GET | `/api/trends` | Members | LeetCode group trend, difficulty breakdown and top solver of the week |
 | GET | `/api/trends?platform=codeforces` | Members | The same shape, built from linked Codeforces accounts |
 | GET | `/api/trends?platform=codingame` | Members | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
-| POST | `/api/users/:id/refresh` | Admin, rate limited | Refresh one member from LeetCode |
+| POST | `/api/users/:id/refresh` | Admin, rate limited | Refresh one member from LeetCode (a member without LeetCode only has their other accounts refreshed) |
 | POST | `/api/sync-if-stale` | Members, rate limited | Refresh stale members within a time budget (used by the page whenever a member opens the board) |
 | POST | `/api/auth/register` | Public | Sign up with a username and password (no LeetCode needed) |
 | POST | `/api/auth/login` | Public | Log in with `username` + `password` (the old `leetcodeUsername` field is still accepted) |
@@ -370,14 +376,14 @@ All endpoints live under `/api`.
 | POST | `/api/account/leetcode/start` | Member, rate limited | Start linking a LeetCode account (optional) and get the proof code to put in its profile Summary |
 | POST | `/api/account/leetcode/verify` | Member, rate limited | Verify the code, link the account and start tracking from now |
 | DELETE | `/api/account/leetcode` | Member | Unlink LeetCode and delete its stats and history; the member stays |
-| POST | `/api/account/platforms/:platform/start` | Member | Start linking a Codeforces or CodinGame account and get the proof code |
-| POST | `/api/account/platforms/:platform/verify` | Member | Verify the proof code and finish linking |
+| POST | `/api/account/platforms/:platform/start` | Member, rate limited | Start linking a Codeforces or CodinGame account and get the proof code |
+| POST | `/api/account/platforms/:platform/verify` | Member, rate limited | Verify the proof code and finish linking |
 | PATCH | `/api/account/platforms/:platform` | Member | Show or hide a linked account. Body `{ "hidden": boolean }` |
 | DELETE | `/api/account/platforms/:platform` | Member | Unlink an account |
 | POST | `/api/account/password` | Member | Change the password (needs the current one) |
 | POST | `/api/account/delete` | Member | Delete the account (needs the password) |
 | GET | `/api/notifications` and related | Member | See [Notification API](#notification-api) |
-| POST | `/api/refresh-all` | Admin | Refresh every member |
+| POST | `/api/refresh-all` | Admin, rate limited | Refresh every member who linked LeetCode, plus every linked Codeforces and CodinGame account |
 | DELETE | `/api/users/:id` | Admin | Remove a member |
 | GET | `/api/admin/sync-status` | Admin | LeetCode sync health, one row per member who linked LeetCode |
 | GET / POST | `/api/admin/notifications` | Admin | See [Notification API](#notification-api) |
@@ -395,7 +401,8 @@ Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh
 | All `/api` requests | 300 per 15 minutes |
 | Login | 20 per 15 minutes |
 | Sign-up | 10 per hour |
-| Verification (sign-up and linking) | 20 per 15 minutes |
+| Verification (linking accounts, password reset) | 20 per 15 minutes |
+| Starting a password reset | 10 per hour |
 | Single-member refresh and sync-if-stale | 6 per minute |
 | Account actions and admin messages | 20 per 15 minutes |
 | Feedback form | 10 per hour |
@@ -431,7 +438,9 @@ leeterboard/
 │   ├── ComparePage.tsx     head-to-head view
 │   ├── CodeforcesPage.tsx  Codeforces board
 │   ├── CodinGamePage.tsx   CodinGame board
-│   ├── AccountPage.tsx     account settings and linked accounts
+│   ├── AccountPage.tsx     account settings and linked accounts (a card per platform)
+│   ├── linkedAccounts.ts   who counts as linked, and the LeetCode board's members
+│   ├── SessionGate.tsx     shows only the sign-in screen without a session; LoginModal.tsx is its form
 │   ├── AdminDashboard.tsx  sync health, messages and the feedback inbox
 │   ├── FeedbackWidget.tsx  floating Star on GitHub and Feedback buttons
 │   ├── Podium.tsx, WinnerBanner.tsx, ActivityHeatmap.tsx, TierAvatar.tsx, ...
@@ -441,6 +450,7 @@ leeterboard/
 │   └── NotificationBell.tsx, Toast.tsx, Modal.tsx, ...
 ├── server.ts               Express app: auth, account, sync and trend routes
 ├── auth.ts                 sessions, password hashing, admin check
+├── usernames.ts            rules for choosing a username
 ├── db.ts                   database access and MIGRATIONS
 ├── platformSync.ts         sync for linked platform accounts
 ├── platformTrends.ts       group trend for a linked platform
