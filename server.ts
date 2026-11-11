@@ -14,8 +14,10 @@ import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
 import { checkEmail, maskEmail, parseAllowedDomains } from "./emails.js";
 import { EMAIL_RATE_LIMITED_MESSAGE, refundEmailQuota, takeEmailQuota } from "./emailLimit.js";
 import {
+  addEmailCodeMail,
   alreadyRegisteredMail,
   codeMatches,
+  emailInUseMail,
   EMAIL_CODE_TTL_MINUTES,
   generateCode,
   hashCode,
@@ -45,6 +47,10 @@ import {
   purgeExpiredPendingResets,
   startPendingEmailCode,
   getPendingEmailCode,
+  getPendingEmailCodeForUser,
+  deletePendingEmailCodesForUser,
+  getUserEmail,
+  setUserEmail,
   bumpPendingEmailAttempts,
   consumePendingEmailCode,
   deletePendingEmailCode,
@@ -1581,7 +1587,14 @@ app.get("/api/auth/session", async (req, res) => {
       if (readSession(req)) clearSessionCookie(res);
       return res.json({ status: "guest" });
     }
-    res.json({ status: "authenticated", user: { ...resolved.user, isAdmin: resolved.isAdmin } });
+    // A member's OWN address is the one place it is ever returned (so the
+    // account page can show it). It is added here, to this response only: the
+    // User mapping used by the board, profiles and admin tables has no email.
+    const own = await getUserEmail(resolved.user.id);
+    res.json({
+      status: "authenticated",
+      user: { ...resolved.user, isAdmin: resolved.isAdmin, email: own?.email ?? null, emailVerified: Boolean(own?.verifiedAt) }
+    });
   } catch (error: any) {
     console.error(`[Auth] session check failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
@@ -1596,7 +1609,7 @@ app.get("/api/auth/session", async (req, res) => {
 async function checkCurrentPassword(
   userId: string,
   password: unknown,
-  action: "password_change" | "account_delete",
+  action: "password_change" | "account_delete" | "email_change",
   ip: string | undefined
 ): Promise<{ record: UserWithAuth | null; status: number; error: string; code?: string }> {
   const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
@@ -2083,6 +2096,149 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] platform visibility failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — add or change the member's e-mail address, step 1 of 2: a 6-digit code
+// goes to the new address. Needs the current password, like changing the
+// password does: an address is what "Forgot password" mails a code to, so
+// swapping it is as sensitive as the password itself and a stolen session alone
+// must not be enough.
+//
+// Anti-enumeration, as for sign-up. An address that belongs to another member
+// is answered exactly like a free one (same status, same body shape, one mail
+// either way: a notice instead of a code, and a pending request holding a code
+// nobody received, so the verify step can't tell them apart either). Applies the
+// same ALLOWED_EMAIL_DOMAINS list as sign-up, the same 3-an-hour limit per
+// address and the same 60-second resend wait.
+const ACCOUNT_MAIL_UNAVAILABLE_MESSAGE = "Email isn't available right now. Please try again later.";
+const EMAIL_REQUEST_EXPIRED_MESSAGE = "This request has expired. Please start again.";
+const EMAIL_WRONG_CODE_MESSAGE = "That code isn't right. Check it and try again.";
+const EMAIL_LOCKED_MESSAGE = "Too many wrong codes. Please start again.";
+
+app.post("/api/account/email/start", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const mailer = getMailer();
+    if (!mailer) {
+      logSecurityEvent("mail_unconfigured", { ip: req.ip, route: "account/email/start" });
+      return res.status(503).json({ error: ACCOUNT_MAIL_UNAVAILABLE_MESSAGE });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const emailCheck = checkEmail(body.email, ALLOWED_EMAIL_DOMAINS);
+    if (!emailCheck.ok) {
+      return res.status(400).json({ error: emailCheck.error });
+    }
+    const email = emailCheck.email;
+    const maskedEmail = maskEmail(email);
+
+    const check = await checkCurrentPassword(id, body.currentPassword, "email_change", req.ip);
+    if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
+
+    const quota = await takeEmailQuota("add_email", email);
+    if (!quota.allowed) {
+      logSecurityEvent("email_rate_limited", { ip: req.ip, userId: id, maskedEmail, purpose: "add_email" });
+      return res.status(429).json({ error: EMAIL_RATE_LIMITED_MESSAGE });
+    }
+
+    // From here on both outcomes do the same work, in the same order.
+    const now = new Date();
+    await deleteExpiredPendingEmailCodes(now.toISOString());
+    await deletePendingEmailCodesForUser(id, "add_email", email);
+    const taken = await emailTaken(email, id);
+
+    const pendingId = crypto.randomBytes(32).toString("hex");
+    const code = generateCode(); // for an address another member has, it is never sent
+    const started = await startPendingEmailCode(
+      {
+        id: pendingId,
+        purpose: "add_email",
+        email,
+        userId: id,
+        username: null,
+        displayName: null,
+        passwordHash: null,
+        codeHash: hashCode(pendingId, code),
+        createdAt: now.toISOString(),
+        lastSentAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + SIGNUP_TTL_MS).toISOString()
+      },
+      SIGNUP_RESEND_COOLDOWN_MS
+    );
+    if (!started) {
+      await refundEmailQuota("add_email", quota);
+      return res.status(429).json({ error: SIGNUP_RESEND_WAIT_MESSAGE });
+    }
+
+    try {
+      await mailer.send({ to: email, ...(taken ? emailInUseMail() : addEmailCodeMail(code)) });
+    } catch (err) {
+      await deletePendingEmailCode(pendingId);
+      await refundEmailQuota("add_email", quota);
+      logSecurityEvent("mail_send_failed", {
+        ip: req.ip,
+        route: "account/email/start",
+        provider: mailer.provider,
+        kind: err instanceof MailError ? err.kind : "unknown",
+        status: err instanceof MailError ? err.status : undefined
+      });
+      return res.status(503).json({ error: SIGNUP_MAIL_FAILED_MESSAGE });
+    }
+
+    logSecurityEvent(taken ? "email_notice_sent" : "email_code_sent", { ip: req.ip, userId: id, maskedEmail, purpose: "add_email" }, "info");
+    res.json({ expiresInMinutes: EMAIL_CODE_TTL_MINUTES, maskedEmail });
+  } catch (error: any) {
+    console.error(`[Account] email start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — add or change the e-mail address, step 2 of 2: the code from the mail.
+// The request is the member's own open one (found through the session, so no
+// cookie is needed), and the attempt rules are the sign-up ones: every try is
+// counted atomically before the code is compared, the fifth wrong one deletes
+// the request, and a right code afterwards is refused.
+app.post("/api/account/email/verify", verifyLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const expired = async (pendingId?: string) => {
+      if (pendingId) await deletePendingEmailCode(pendingId);
+      return res.status(400).json({ error: EMAIL_REQUEST_EXPIRED_MESSAGE, expired: true });
+    };
+
+    const pending = await getPendingEmailCodeForUser(id, "add_email");
+    if (!pending) return expired();
+    if (Date.parse(pending.expiresAt) <= Date.now()) return expired(pending.id);
+
+    const maskedEmail = maskEmail(pending.email);
+    const code = parseCodeInput((req.body as Record<string, unknown> | undefined)?.code);
+
+    const attempts = await bumpPendingEmailAttempts(pending.id);
+    if (attempts === null) return expired();
+    const right = code !== null && codeMatches(pending.id, code, pending.codeHash);
+    if (!right || attempts > MAX_EMAIL_CODE_ATTEMPTS) {
+      if (attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
+        await deletePendingEmailCode(pending.id);
+        logSecurityEvent("email_code_locked", { ip: req.ip, userId: id, maskedEmail, attempts, purpose: "add_email" }, "warn");
+        return res.status(429).json({ error: EMAIL_LOCKED_MESSAGE, expired: true });
+      }
+      logSecurityEvent("email_code_failed", { ip: req.ip, userId: id, maskedEmail, attempts, purpose: "add_email" }, "warn");
+      return res.status(400).json({ error: EMAIL_WRONG_CODE_MESSAGE });
+    }
+
+    // The right code. If another member has the address by now, say nothing
+    // about it: end the request like an expired one.
+    if (await emailTaken(pending.email, id)) return expired(pending.id);
+    const consumed = await consumePendingEmailCode(pending.id, new Date().toISOString());
+    if (!consumed) return expired();
+    if (!(await setUserEmail(id, consumed.email))) return expired(); // the unique index decided
+
+    logSecurityEvent("email_verified", { ip: req.ip, userId: id, maskedEmail, purpose: "add_email" }, "info");
+    res.json({ success: true, maskedEmail, emailVerified: true });
+  } catch (error: any) {
+    console.error(`[Account] email verify failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });

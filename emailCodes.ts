@@ -183,6 +183,25 @@ export function alreadyRegisteredMail(): MailContent {
   };
 }
 
+/**
+ * Sent instead of a code when a signed-in member asks to add an address that
+ * already belongs to an account. Like alreadyRegisteredMail it carries no code
+ * and no detail: the member who typed the address is told nothing different
+ * from what they are told for a free address.
+ */
+export function emailInUseMail(): MailContent {
+  return {
+    subject: "About adding this email to a Leeterboard account",
+    text: [
+      "Someone asked to add this email address to a Leeterboard account, but it already belongs to an account.",
+      "",
+      "If that was you, nothing more is needed: sign in to the account that has this address. If you have forgotten its password, choose \"Forgot password\" on the sign-in page.",
+      "",
+      "If it was not you, you can ignore this email. Nothing has been changed."
+    ].join("\n")
+  };
+}
+
 /** Sent after a password changes, so an owner who didn't do it finds out. */
 export function passwordChangedMail(): MailContent {
   return {

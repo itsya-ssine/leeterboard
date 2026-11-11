@@ -2333,6 +2333,34 @@ export async function bumpPendingEmailAttempts(id: string): Promise<number | nul
   return res.rows.length ? Number(res.rows[0].attempts) : null;
 }
 
+// A signed-in member's open request for this purpose (add_email, ...). The
+// member flows bind the request to the SESSION, not to a cookie: the start
+// route deletes the member's requests for other addresses, so there is at most
+// one. Null when none (or when a newer request for the same address, from
+// someone else, took the slot).
+export async function getPendingEmailCodeForUser(userId: string, purpose: EmailCodePurpose): Promise<PendingEmailCode | null> {
+  const res = await client.execute({
+    sql: "SELECT * FROM pending_email_codes WHERE user_id = ? AND purpose = ? ORDER BY created_at DESC LIMIT 1",
+    args: [userId, purpose]
+  });
+  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+// Drops a member's open requests for every address EXCEPT `exceptEmail`. The
+// one for that address is left alone on purpose: replacing it is the job of
+// startPendingEmailCode, which applies the resend wait; deleting it here would
+// let a member skip the wait.
+export async function deletePendingEmailCodesForUser(
+  userId: string,
+  purpose: EmailCodePurpose,
+  exceptEmail: string
+): Promise<void> {
+  await client.execute({
+    sql: "DELETE FROM pending_email_codes WHERE user_id = ? AND purpose = ? AND email != ?",
+    args: [userId, purpose, normalizeEmail(exceptEmail)]
+  });
+}
+
 export async function deletePendingEmailCode(id: string): Promise<void> {
   await client.execute({ sql: "DELETE FROM pending_email_codes WHERE id = ?", args: [id] });
 }
