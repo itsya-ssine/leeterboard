@@ -10,7 +10,9 @@ import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount,
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
-import { assertMailConfigAtBoot } from "./mailer.js";
+import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
+import { checkEmail, maskEmail, parseAllowedDomains } from "./emails.js";
+import { alreadyRegisteredMail, EMAIL_CODE_TTL_MINUTES, generateCode, hashCode, signupCodeMail } from "./emailCodes.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -32,6 +34,10 @@ import {
   consumePendingReset,
   deletePendingResetsFor,
   purgeExpiredPendingResets,
+  startPendingEmailCode,
+  deletePendingEmailCode,
+  deleteExpiredPendingEmailCodes,
+  emailTaken,
   insertUser,
   updateUser,
   deleteUserById,
@@ -969,6 +975,128 @@ async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
 
 const LEETCODE_UNAVAILABLE_MESSAGE =
   "Couldn't reach LeetCode right now. Please try again in a moment.";
+
+// POST — sign-up, step 1 of 2: choose a username, a password and an e-mail
+// address, and have a 6-digit code mailed to the address. NOTHING is created
+// here but a pending request: the account exists only once /register/verify
+// accepts the code. The username, display name and the already-hashed password
+// wait in pending_email_codes; the browser holds only the random id of that row,
+// in an httpOnly cookie (the same binding the password reset uses).
+//
+// Anti-enumeration. Whether or not the address already has an account, this
+// answers the same way: the same status, the same body shape, the same cookie
+// and the same 60-second resend rule, with one mail sent either way (a code, or
+// a notice that the address is already registered). It does the same work too,
+// so response time says nothing. To keep the NEXT step from giving it away, an
+// already-registered address also gets a pending row, with a code that was
+// generated but never sent to anyone: verifying against it fails exactly like a
+// wrong guess, and can't succeed. A taken USERNAME is still a plain 409, since
+// usernames are public on profiles.
+const SIGNUP_COOKIE = "signup";
+const SIGNUP_TTL_MS = EMAIL_CODE_TTL_MINUTES * 60_000;
+const SIGNUP_RESEND_COOLDOWN_MS = 60_000;
+const signupCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/api/auth"
+};
+const SIGNUP_UNAVAILABLE_MESSAGE = "Sign-up is temporarily unavailable. Please try again later.";
+const SIGNUP_RESEND_WAIT_MESSAGE = "Wait a minute before asking for another code.";
+const SIGNUP_MAIL_FAILED_MESSAGE = "We couldn't send the email right now. Please try again in a few minutes.";
+// Optional: only addresses at these domains may sign up. Empty = any domain.
+const ALLOWED_EMAIL_DOMAINS = parseAllowedDomains(process.env.ALLOWED_EMAIL_DOMAINS);
+if (ALLOWED_EMAIL_DOMAINS.length > 0) {
+  console.info(`[Config] Sign-up is limited to email addresses at: ${ALLOWED_EMAIL_DOMAINS.join(", ")}`);
+}
+
+app.post("/api/auth/register/start", registerLimiter, async (req, res) => {
+  try {
+    // Without a working mail provider nobody could verify, so don't take sign-ups.
+    const mailer = getMailer();
+    if (!mailer) {
+      logSecurityEvent("mail_unconfigured", { ip: req.ip, route: "register/start" });
+      return res.status(503).json({ error: SIGNUP_UNAVAILABLE_MESSAGE });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    const check = checkUsername(body.username);
+    if (!check.ok) {
+      return res.status(400).json({ error: check.error });
+    }
+    const username = check.username;
+
+    const passwordError = validatePassword(body.password, username);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
+    }
+
+    const emailCheck = checkEmail(body.email, ALLOWED_EMAIL_DOMAINS);
+    if (!emailCheck.ok) {
+      return res.status(400).json({ error: emailCheck.error });
+    }
+    const email = emailCheck.email;
+    const maskedEmail = maskEmail(email);
+
+    // Look before hashing, so a taken name costs nothing. The unique index on
+    // login_username is what actually decides (see /register/verify).
+    if (await getUserAuthByLoginUsername(username)) {
+      return res.status(409).json({ error: "That username is taken." });
+    }
+
+    // From here on both outcomes do the same work, in the same order.
+    const passwordHash = await hashPassword(body.password as string);
+    const now = new Date();
+    await deleteExpiredPendingEmailCodes(now.toISOString());
+    const registered = await emailTaken(email);
+
+    const id = crypto.randomBytes(32).toString("hex");
+    const code = generateCode(); // for an already-registered address it is never sent
+    const started = await startPendingEmailCode(
+      {
+        id,
+        purpose: "signup",
+        email,
+        userId: null,
+        username,
+        displayName: cleanDisplayName(body.displayName, username),
+        passwordHash,
+        codeHash: hashCode(id, code),
+        createdAt: now.toISOString(),
+        lastSentAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + SIGNUP_TTL_MS).toISOString()
+      },
+      SIGNUP_RESEND_COOLDOWN_MS
+    );
+    if (!started) {
+      return res.status(429).json({ error: SIGNUP_RESEND_WAIT_MESSAGE });
+    }
+
+    try {
+      await mailer.send({ to: email, ...(registered ? alreadyRegisteredMail() : signupCodeMail(code)) });
+    } catch (err) {
+      // Nothing reached the address, so don't leave a request that makes the
+      // person wait out the resend delay for a mail that never left.
+      await deletePendingEmailCode(id);
+      logSecurityEvent("mail_send_failed", {
+        ip: req.ip,
+        route: "register/start",
+        provider: mailer.provider,
+        kind: err instanceof MailError ? err.kind : "unknown",
+        status: err instanceof MailError ? err.status : undefined
+      });
+      return res.status(503).json({ error: SIGNUP_MAIL_FAILED_MESSAGE });
+    }
+
+    logSecurityEvent(registered ? "signup_notice_sent" : "signup_code_sent", { ip: req.ip, maskedEmail }, "info");
+    res.cookie(SIGNUP_COOKIE, id, { ...signupCookieOptions, maxAge: SIGNUP_TTL_MS });
+    res.json({ expiresInMinutes: EMAIL_CODE_TTL_MINUTES, maskedEmail });
+  } catch (error: any) {
+    console.error(`[Auth] sign-up start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
 
 // POST — sign up. One step: pick a username and a password and you are in.
 // Nothing here needs a LeetCode account; a member links LeetCode (and the other

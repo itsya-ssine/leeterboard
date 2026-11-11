@@ -145,6 +145,7 @@ describe("members", () => {
 // public; review it as one.
 const PUBLIC_ROUTES = new Set([
   "POST /api/auth/register",
+  "POST /api/auth/register/start",
   "POST /api/auth/login",
   "POST /api/auth/reset/start",
   "POST /api/auth/reset/verify",

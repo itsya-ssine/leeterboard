@@ -2245,6 +2245,53 @@ export async function createPendingEmailCode(p: Omit<PendingEmailCode, "attempts
   });
 }
 
+// Starts (or restarts) the open request for this purpose and address, but only
+// when no code went to that address within `cooldownMs`. Returns false, and
+// changes nothing, when one did. It is ONE statement, so a burst of parallel
+// starts for the same address gets exactly one true: a read-then-write check
+// would let them all through and mail the address once each. When it replaces
+// an older row it replaces everything, id and code hash included, and the
+// attempt counter starts again at zero.
+export async function startPendingEmailCode(
+  p: Omit<PendingEmailCode, "attempts">,
+  cooldownMs: number
+): Promise<boolean> {
+  const cutoff = new Date(Date.parse(p.lastSentAt) - cooldownMs).toISOString();
+  const res = await client.execute({
+    sql: `INSERT INTO pending_email_codes
+            (id, purpose, email, user_id, username, display_name, password_hash,
+             code_hash, attempts, created_at, last_sent_at, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+          ON CONFLICT(purpose, email) DO UPDATE SET
+            id = excluded.id,
+            user_id = excluded.user_id,
+            username = excluded.username,
+            display_name = excluded.display_name,
+            password_hash = excluded.password_hash,
+            code_hash = excluded.code_hash,
+            attempts = 0,
+            created_at = excluded.created_at,
+            last_sent_at = excluded.last_sent_at,
+            expires_at = excluded.expires_at
+          WHERE pending_email_codes.last_sent_at <= ?`,
+    args: [
+      p.id,
+      p.purpose,
+      normalizeEmail(p.email),
+      p.userId,
+      p.username,
+      p.displayName,
+      p.passwordHash,
+      p.codeHash,
+      p.createdAt,
+      p.lastSentAt,
+      p.expiresAt,
+      cutoff
+    ]
+  });
+  return (res.rowsAffected ?? 0) > 0;
+}
+
 export async function getPendingEmailCode(id: string): Promise<PendingEmailCode | null> {
   const res = await client.execute({ sql: "SELECT * FROM pending_email_codes WHERE id = ?", args: [id] });
   return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;

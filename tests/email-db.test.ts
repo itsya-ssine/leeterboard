@@ -139,6 +139,76 @@ describe("pending e-mail codes", () => {
   });
 });
 
+describe("startPendingEmailCode (the atomic resend cooldown)", () => {
+  const COOLDOWN = 60_000;
+  const at = (iso: string) => ({ createdAt: iso, lastSentAt: iso, expiresAt: "2099-01-01T00:00:00.000Z" });
+
+  it("creates the request when there is none", async () => {
+    const c = code(at("2026-06-01T12:00:00.000Z"));
+    assert.equal(await db.startPendingEmailCode(c, COOLDOWN), true);
+    assert.deepEqual(await db.getPendingEmailCode(c.id), { ...c, attempts: 0 });
+  });
+
+  it("refuses, and changes nothing, when a code went to that address within the cooldown", async () => {
+    const first = code(at("2026-06-01T12:00:00.000Z"));
+    await db.startPendingEmailCode(first, COOLDOWN);
+    await db.bumpPendingEmailAttempts(first.id);
+
+    const second = code({ ...at("2026-06-01T12:00:30.000Z"), codeHash: "other" });
+    assert.equal(await db.startPendingEmailCode(second, COOLDOWN), false);
+
+    assert.equal(await db.getPendingEmailCode(second.id), null);
+    assert.deepEqual(await db.getPendingEmailCode(first.id), { ...first, attempts: 1 });
+    assert.equal(await count("SELECT COUNT(*) AS n FROM pending_email_codes"), 1);
+  });
+
+  it("allows it again exactly when the cooldown has passed, and not a moment before", async () => {
+    const first = code(at("2026-06-01T12:00:00.000Z"));
+    await db.startPendingEmailCode(first, COOLDOWN);
+    assert.equal(await db.startPendingEmailCode(code(at("2026-06-01T12:00:59.999Z")), COOLDOWN), false);
+    assert.equal(await db.startPendingEmailCode(code(at("2026-06-01T12:01:00.000Z")), COOLDOWN), true);
+  });
+
+  it("replaces the whole request when it goes ahead: new id and code, attempts back to zero, old id dead", async () => {
+    const first = code(at("2026-06-01T12:00:00.000Z"));
+    await db.startPendingEmailCode(first, COOLDOWN);
+    await db.bumpPendingEmailAttempts(first.id);
+    await db.bumpPendingEmailAttempts(first.id);
+
+    const second = code({ ...at("2026-06-01T12:05:00.000Z"), codeHash: "fresh", username: "renamed", passwordHash: "scrypt$other" });
+    assert.equal(await db.startPendingEmailCode(second, COOLDOWN), true);
+
+    assert.equal(await db.getPendingEmailCode(first.id), null);
+    assert.deepEqual(await db.getPendingEmailCode(second.id), { ...second, attempts: 0 });
+    assert.equal(await count("SELECT COUNT(*) AS n FROM pending_email_codes"), 1);
+  });
+
+  it("keys the cooldown on purpose and address, so others are not held up", async () => {
+    await addUser("u1", "alice");
+    const t = at("2026-06-01T12:00:00.000Z");
+    assert.equal(await db.startPendingEmailCode(code(t), COOLDOWN), true);
+    assert.equal(await db.startPendingEmailCode(code({ ...t, email: "other@example.com" }), COOLDOWN), true);
+    assert.equal(
+      await db.startPendingEmailCode(code({ ...t, purpose: "reset", userId: "u1", username: null, displayName: null }), COOLDOWN),
+      true
+    );
+    assert.equal(await db.startPendingEmailCode(code(t), COOLDOWN), false);
+  });
+
+  it("treats a differently-cased address as the same address", async () => {
+    const t = at("2026-06-01T12:00:00.000Z");
+    assert.equal(await db.startPendingEmailCode(code({ ...t, email: "Same@Example.com" }), COOLDOWN), true);
+    assert.equal(await db.startPendingEmailCode(code({ ...t, email: "SAME@example.COM" }), COOLDOWN), false);
+  });
+
+  it("lets exactly one of many parallel starts for one address through", async () => {
+    const t = at("2026-06-01T12:00:00.000Z");
+    const results = await Promise.all(Array.from({ length: 12 }, () => db.startPendingEmailCode(code(t), COOLDOWN)));
+    assert.equal(results.filter(Boolean).length, 1);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM pending_email_codes"), 1);
+  });
+});
+
 describe("consumePendingEmailCode", () => {
   it("hands back the whole row once, then never again", async () => {
     const c = code();
