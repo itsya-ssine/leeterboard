@@ -208,6 +208,25 @@ describe("start answers the same for every address", () => {
   });
 });
 
+describe("timing", () => {
+  it("takes about as long for a member's address as for an unknown one (a coarse guard: both do the same work)", async () => {
+    const median = async (known: boolean) => {
+      const times: number[] = [];
+      for (let i = 0; i < 5; i++) {
+        const email = known ? (await makeMember()).email : freshEmail();
+        const t0 = performance.now();
+        const res = await startReset({ email, newPassword: NEW_PW });
+        times.push(performance.now() - t0);
+        assert.equal(res.status, 200, res.text);
+      }
+      return times.sort((a, b) => a - b)[2];
+    };
+    const unknown = await median(false);
+    const member = await median(true);
+    assert.ok(Math.abs(unknown - member) < 400, `medians differ too much: unknown ${unknown.toFixed(0)} ms, member ${member.toFixed(0)} ms`);
+  });
+});
+
 describe("limits", () => {
   it("allows 3 starts an hour per address, then 429s the same for a member's address and an unknown one", async () => {
     const member = await makeMember();
