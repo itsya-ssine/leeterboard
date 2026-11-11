@@ -12,6 +12,7 @@ import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
 import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
 import { checkEmail, maskEmail, parseAllowedDomains } from "./emails.js";
+import { EMAIL_RATE_LIMITED_MESSAGE, refundEmailQuota, takeEmailQuota } from "./emailLimit.js";
 import {
   alreadyRegisteredMail,
   codeMatches,
@@ -1056,6 +1057,14 @@ app.post("/api/auth/register/start", registerLimiter, async (req, res) => {
       return res.status(409).json({ error: "That username is taken." });
     }
 
+    // At most 3 codes an hour to one address, however many IPs ask. Counted
+    // before anything else is looked at, and the same for a registered address.
+    const quota = await takeEmailQuota("signup", email);
+    if (!quota.allowed) {
+      logSecurityEvent("email_rate_limited", { ip: req.ip, maskedEmail, purpose: "signup" });
+      return res.status(429).json({ error: EMAIL_RATE_LIMITED_MESSAGE });
+    }
+
     // From here on both outcomes do the same work, in the same order.
     const passwordHash = await hashPassword(body.password as string);
     const now = new Date();
@@ -1081,6 +1090,7 @@ app.post("/api/auth/register/start", registerLimiter, async (req, res) => {
       SIGNUP_RESEND_COOLDOWN_MS
     );
     if (!started) {
+      await refundEmailQuota("signup", quota); // nothing was sent: an early Resend click costs nothing
       return res.status(429).json({ error: SIGNUP_RESEND_WAIT_MESSAGE });
     }
 
@@ -1090,6 +1100,7 @@ app.post("/api/auth/register/start", registerLimiter, async (req, res) => {
       // Nothing reached the address, so don't leave a request that makes the
       // person wait out the resend delay for a mail that never left.
       await deletePendingEmailCode(id);
+      await refundEmailQuota("signup", quota); // nothing reached the address
       logSecurityEvent("mail_send_failed", {
         ip: req.ip,
         route: "register/start",

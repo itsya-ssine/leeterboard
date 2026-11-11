@@ -22,6 +22,9 @@ export const EMAIL_CODE_TTL_MINUTES = 10;
 // Changing this string invalidates every code that is waiting to be entered:
 // harmless (they live ten minutes) but deliberate.
 const KEY_LABEL = "leeterboard/email-code/v1";
+// Same idea for the per-address rate-limit keys (emailLimit.ts): a third key,
+// so a copy of the rate_limits table can't be used to test guesses of addresses.
+const LIMIT_KEY_LABEL = "leeterboard/email-limit/v1";
 
 const CODE_RE = /^\d{6}$/;
 const HASH_RE = /^[0-9a-f]{64}$/i;
@@ -31,14 +34,27 @@ export function generateCode(): string {
   return String(crypto.randomInt(0, 10 ** EMAIL_CODE_LENGTH)).padStart(EMAIL_CODE_LENGTH, "0");
 }
 
-function codeKey(): Buffer {
+function derivedKey(label: string): Buffer {
   const secret = process.env.JWT_SECRET;
   // Thrown, not swallowed into "wrong code": a missing secret is a broken
   // deployment, and every verification failing quietly would hide that.
   if (!secret || secret.length < 32) {
     throw new Error("JWT_SECRET is missing or too short; it is needed to key the e-mail code hashes.");
   }
-  return crypto.createHmac("sha256", secret).update(KEY_LABEL).digest();
+  return crypto.createHmac("sha256", secret).update(label).digest();
+}
+
+const codeKey = () => derivedKey(KEY_LABEL);
+
+/**
+ * The key a per-address rate limit counts under: lowercase hex HMAC-SHA256 of
+ * the (normalised) address. The address itself never reaches the rate_limits
+ * table, and without the server's secret the key can't be recomputed from a
+ * guessed address.
+ */
+export function emailLimitKey(email: string): string {
+  if (typeof email !== "string" || email === "") throw new TypeError("emailLimitKey needs an address.");
+  return crypto.createHmac("sha256", derivedKey(LIMIT_KEY_LABEL)).update(email.trim().toLowerCase()).digest("hex");
 }
 
 /**
