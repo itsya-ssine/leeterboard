@@ -55,3 +55,27 @@ export function resetSentMessage(maskedEmail: string): string {
 export function resendLabel(seconds: number): string {
   return seconds > 0 ? `Resend code in ${seconds}s` : "Resend code";
 }
+
+/**
+ * What the account page's email card shows about the member's OWN address (the
+ * session is the only place it comes from). `masked` is the address as
+ * maskEmail gives it; the full address is never rendered, so it can't end up in
+ * a screenshot of the settings page.
+ */
+export type EmailCardView =
+  | { kind: "none" }
+  | { kind: "verified" | "unverified"; masked: string };
+
+export function emailCardView(
+  email: string | null | undefined,
+  emailVerified: boolean | undefined,
+  mask: (email: string) => string
+): EmailCardView {
+  if (!email) return { kind: "none" };
+  return { kind: emailVerified === false ? "unverified" : "verified", masked: mask(email) };
+}
+
+/** True when the typed address is the one the member already has (any letter case, surrounding spaces ignored). */
+export function isSameEmail(typed: string, current: string | null | undefined): boolean {
+  return !!current && typed.trim().toLowerCase() === current.trim().toLowerCase();
+}

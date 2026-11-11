@@ -12,12 +12,17 @@ import {
   Link2,
   Lock,
   LogOut,
+  Mail,
   Plus,
   RefreshCw,
   Trash2,
   UserRound
 } from "lucide-react";
 import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
+import CodeEntry from "./CodeEntry.js";
+import { maskEmail } from "../emails.js";
+import { checkEmailInput } from "./signup.js";
+import { classifyCodeError, codeSentMessage, emailCardView, isSameEmail } from "./signupFlow.js";
 import type { PlatformId } from "./types.js";
 import { hasNothingLinked, rowAccountFor, type LinkId, type RowAccount } from "./linkedAccounts.js";
 import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
@@ -606,6 +611,224 @@ function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
   );
 }
 
+/* ---------- Email ---------- */
+
+// The member's own address, for recovery: add or change it with a code sent to
+// the new address (the current password is asked first, as the server requires).
+// The full address is never drawn: the card shows it masked, and nobody else
+// ever receives it. Existing members are never forced to add one.
+type EmailStep = "view" | "form" | "code";
+
+function EmailCard() {
+  const { user, startEmailChange, verifyEmailChange } = useAuth();
+  const [step, setStep] = useState<EmailStep>("view");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useNoticeState();
+  // Code step: where the code went, how long it lives, when it was requested
+  // (for the resend countdown), an error from the last try, a resend confirmation.
+  const [challenge, setChallenge] = useState<{ message: string; expiresInMinutes: number } | null>(null);
+  const [sentAt, setSentAt] = useState(0);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codeNotice, setCodeNotice] = useState<string | null>(null);
+
+  if (!user) return null;
+
+  const view = emailCardView(user.email, user.emailVerified, maskEmail);
+
+  const reset = () => {
+    setStep("view");
+    setEmail("");
+    setPassword(""); // never keep the password longer than the flow needs it
+    setChallenge(null);
+    setCodeError(null);
+    setCodeNotice(null);
+    setNotice(null);
+  };
+
+  // Asks the server to send a code. Used by the form and by Resend, which differ
+  // only in where a failure is shown.
+  const sendCode = async (): Promise<{ message: string; expiresInMinutes: number } | { error: string }> => {
+    const problem = checkEmailInput(email);
+    if (problem) return { error: problem };
+    if (isSameEmail(email, user.email)) return { error: "That is already your email address." };
+    if (!password) return { error: "Enter your current password to confirm it is you." };
+    setBusy(true);
+    try {
+      const sent = await startEmailChange(email.trim(), password);
+      setSentAt(Date.now());
+      return { message: codeSentMessage(sent.maskedEmail), expiresInMinutes: sent.expiresInMinutes };
+    } catch (err: any) {
+      return { error: err.message || "Couldn't send the code." };
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNotice(null);
+    const sent = await sendCode();
+    if ("error" in sent) {
+      setNotice({ kind: "error", message: sent.error });
+      return;
+    }
+    setChallenge(sent);
+    setCodeError(null);
+    setCodeNotice(null);
+    setStep("code");
+  };
+
+  const handleResend = async () => {
+    setCodeError(null);
+    setCodeNotice(null);
+    const sent = await sendCode();
+    if ("error" in sent) {
+      setCodeError(sent.error);
+      return;
+    }
+    setChallenge(sent);
+    setCodeNotice("A new code was sent. The earlier one no longer works.");
+  };
+
+  const handleVerify = async (code: string) => {
+    setCodeError(null);
+    setCodeNotice(null);
+    setBusy(true);
+    try {
+      await verifyEmailChange(code);
+      reset();
+      setNotice({ kind: "success", message: "Email verified." });
+    } catch (err) {
+      const failure = classifyCodeError(err);
+      if (failure.action === "restart") {
+        // Expired, locked or used up: back to the form (address kept) with the reason.
+        setStep("form");
+        setChallenge(null);
+        setNotice({ kind: "error", message: failure.message });
+      } else {
+        setCodeError(failure.message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      icon={<Mail className="size-4 text-teal-300" />}
+      title="Email"
+      description="Used to reset your password if you forget it. It is never shown to other members."
+      id="account-email-card"
+    >
+      {step === "view" && (
+        <div className="flex flex-col gap-3">
+          {view.kind === "none" ? (
+            <p id="account-email-none" className="rounded-lg bg-ink-950/80 p-3 text-sm text-mist-400 ring-1 ring-line">
+              No email yet. Add one to be able to reset your password.
+            </p>
+          ) : (
+            <p
+              id="account-email-current"
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-ink-950/80 p-3 text-sm text-mist-100 ring-1 ring-line"
+            >
+              <span className="min-w-0 break-all font-mono">{view.masked}</span>
+              {view.kind === "verified" ? (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-teal-300">
+                  <Check className="size-3.5" aria-hidden="true" />
+                  Verified
+                </span>
+              ) : (
+                <span className="text-xs font-medium text-amber-300">Not verified</span>
+              )}
+            </p>
+          )}
+          <NoticeBox notice={notice} />
+          <button type="button" onClick={() => setStep("form")} className={btnSecondary} id="account-email-open">
+            {view.kind === "none" ? <Plus className="size-4" /> : <RefreshCw className="size-4" />}
+            {view.kind === "none" ? "Add an email" : "Change email"}
+          </button>
+        </div>
+      )}
+
+      {step === "form" && (
+        <form onSubmit={handleForm} className="flex flex-col gap-3" noValidate>
+          <div>
+            <label htmlFor="acct-email" className={labelCls}>
+              {view.kind === "none" ? "Email" : "New email"}
+            </label>
+            <input
+              id="acct-email"
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={254}
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={inputCls}
+              disabled={busy}
+              required
+            />
+          </div>
+          <div>
+            <label htmlFor="acct-email-pw" className={labelCls}>
+              Current password
+            </label>
+            <input
+              id="acct-email-pw"
+              type="password"
+              autoComplete="current-password"
+              maxLength={128}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputCls}
+              disabled={busy}
+              required
+            />
+            <p className="mt-1.5 text-xs text-mist-500">We send a 6-digit code to the new address to confirm it.</p>
+          </div>
+          <NoticeBox notice={notice} />
+          <button type="submit" disabled={busy} className={btnPrimary}>
+            {busy && <RefreshCw className="size-4 animate-spin" />}
+            {busy ? "Sending code…" : "Send me a code"}
+          </button>
+          <button type="button" onClick={reset} disabled={busy} className={btnSecondary}>
+            Cancel
+          </button>
+        </form>
+      )}
+
+      {step === "code" && challenge && (
+        <div className="-mt-5">
+          <CodeEntry
+            message={challenge.message}
+            expiresInMinutes={challenge.expiresInMinutes}
+            sentAt={sentAt}
+            busy={busy}
+            error={codeError}
+            notice={codeNotice}
+            submitLabel="Verify email"
+            busyLabel="Verifying…"
+            backLabel="Use a different email"
+            onSubmit={handleVerify}
+            onResend={handleResend}
+            onBack={() => {
+              setStep("form");
+              setChallenge(null);
+              setCodeError(null);
+              setCodeNotice(null);
+            }}
+          />
+        </div>
+      )}
+    </Card>
+  );
+}
+
 const goHome = () => {
   window.location.hash = "#/";
 };
@@ -1010,6 +1233,8 @@ export default function AccountPage({
         {/* ---------- Right column: security and account ---------- */}
         <div className="flex min-w-0 flex-col gap-6">
           <LinkedAccountsCard onChanged={onChanged} />
+
+          <EmailCard />
 
           <Card icon={<KeyRound className="size-4 text-teal-300" />} title="Change password" id="account-password-card">
             <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
