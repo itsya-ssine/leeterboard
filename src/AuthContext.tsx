@@ -59,10 +59,6 @@ interface AuthContextValue {
   // is all that step 2 sends. No LeetCode is needed.
   startRegistration: (username: string, password: string, email: string, displayName?: string) => Promise<EmailCodeChallenge>;
   verifyRegistration: (code: string) => Promise<User>;
-  // Removed: the one-step sign-up no longer exists on the server. Kept only so
-  // the old form still compiles until the two-step form replaces it; it always
-  // throws an AuthError that says so.
-  register: (username: string, password: string, displayName?: string) => Promise<User>;
   logout: () => Promise<void>;
   // Forgot password: step 1 (address + the new password) always answers the
   // same, account or not; step 2 takes the code, sets the password and signs in.
@@ -169,10 +165,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSessionEnded(false);
     setStatus("authenticated");
     return data;
-  }, []);
-
-  const register = useCallback(async (): Promise<User> => {
-    throw new AuthError("Sign-up now asks for an email address and a code. The new form is coming in the next update.");
   }, []);
 
   const startPasswordReset = useCallback((email: string, newPassword: string) => requestResetCode(email, newPassword), []);
@@ -303,7 +295,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         startRegistration,
         verifyRegistration,
-        register,
         logout,
         startPasswordReset,
         verifyPasswordReset,
