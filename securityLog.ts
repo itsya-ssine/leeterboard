@@ -15,7 +15,8 @@
 //   platform_link_verified, platform_link_failed, platform_unlinked, admin_user_removed,
 //   admin_refresh, admin_message_sent, feedback_received,
 //   admin_feedback_deleted, csrf_blocked, rate_limited, session_rejected,
-//   signup_code_sent, signup_notice_sent, mail_unconfigured, mail_send_failed
+//   signup_code_sent, signup_notice_sent, signup_code_failed, signup_code_locked,
+//   mail_unconfigured, mail_send_failed
 
 export type SecurityEvent =
   | "login_failed"
@@ -43,6 +44,8 @@ export type SecurityEvent =
   | "rate_limited"
   | "signup_code_sent"
   | "signup_notice_sent"
+  | "signup_code_failed"
+  | "signup_code_locked"
   | "mail_unconfigured"
   | "mail_send_failed";
 

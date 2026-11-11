@@ -12,8 +12,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { client, startServer, type TestServer } from "./helpers.js";
-import { makeUser } from "./f2-seed.js";
+import { client, registerViaApi, startServer, type TestServer } from "./helpers.js";
+import { makeFakeMail, makeUser } from "./f2-seed.js";
 
 const PW = "correct-horse-battery-9";
 
@@ -21,6 +21,7 @@ let tmpDir = "";
 let server: TestServer;
 let api: ReturnType<typeof client>;
 const ids = new Map<string, string>();
+const mail = makeFakeMail();
 
 const login = (body: Record<string, unknown>) => api("POST", "/api/auth/login", { body: { password: PW, ...body } });
 
@@ -73,12 +74,13 @@ before(async () => {
   await db.insertUser(dave, hash, { loginUsername: "dave" });
   ids.set("dave", dave.id);
 
-  server = await startServer({ TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret });
+  server = await startServer({ TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret, ...mail.env });
   api = client(server);
 });
 
 after(async () => {
   await server?.stop();
+  mail.cleanup();
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -110,7 +112,7 @@ describe("signing in by login name", () => {
   });
 
   it("lets a member who signed up through the new sign-up back in after signing out", async () => {
-    const signUp = await api("POST", "/api/auth/register", { body: { username: "Newbie_1", password: PW } });
+    const signUp = await registerViaApi(api, mail, { username: "Newbie_1", password: PW });
     assert.equal(signUp.status, 201);
     await api("POST", "/api/logout", { cookie: signUp.cookie });
 

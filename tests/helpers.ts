@@ -115,3 +115,36 @@ export function client(server: TestServer) {
     return { status: res.status, headers: res.headers, text, json, cookie };
   };
 }
+
+/**
+ * Signs a member up through the real two-step flow and returns what the verify
+ * step answered: start, read the 6-digit code from the fake mail outbox
+ * (tests/f2-seed.ts makeFakeMail), then verify with the "signup" cookie the
+ * start step set. The server under test must have been started with
+ * `mail.env`.
+ *
+ * Every call comes from its own client IP (x-forwarded-for; production trusts
+ * one proxy), because sign-up is limited to 10 starts an hour per IP and the
+ * verify step to 20 per 15 minutes. Pass `ip` to spend one IP on purpose.
+ */
+let registerIpSeq = 0;
+export async function registerViaApi(
+  api: ReturnType<typeof client>,
+  mail: { lastCode(to: string): string | null },
+  input: { username: string; password: string; email?: string; displayName?: string; ip?: string }
+): Promise<ApiResult> {
+  const email = input.email ?? `${input.username.toLowerCase().replace(/[^a-z0-9]/g, "")}@example.com`;
+  const ip = input.ip ?? `10.88.${Math.floor(++registerIpSeq / 250)}.${(registerIpSeq % 250) + 1}`;
+  const headers = { "x-forwarded-for": ip };
+
+  const started = await api("POST", "/api/auth/register/start", {
+    body: { username: input.username, password: input.password, email, displayName: input.displayName },
+    headers
+  });
+  if (started.status !== 200) return started;
+
+  const signup = /(?:^|,\s*)signup=([^;]+)/.exec(started.headers.get("set-cookie") ?? "")?.[1];
+  const code = mail.lastCode(email);
+  if (!signup || !code) throw new Error(`registerViaApi: no signup cookie or no mailed code for ${email}`);
+  return api("POST", "/api/auth/register/verify", { body: { code }, cookie: `signup=${signup}`, headers });
+}

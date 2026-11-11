@@ -1075,6 +1075,14 @@ export interface InsertUserOptions {
    * pass one.
    */
   loginUsername?: string;
+  /**
+   * An address the caller has ALREADY verified (a sign-up that just entered the
+   * right code). It is stored lowercase with email_verified_at set to now, in
+   * the same INSERT as the member, so there is no moment where the account
+   * exists without it. Omitted = no address (every member before e-mail
+   * sign-up, and anyone inserted by a test or the admin script).
+   */
+  email?: string;
 }
 
 export async function insertUser(user: User, passwordHash: string, options: InsertUserOptions = {}): Promise<void> {
@@ -1087,6 +1095,7 @@ export async function insertUser(user: User, passwordHash: string, options: Inse
   if (loginUsername === null) {
     throw new Error("insertUser needs a loginUsername for a member without a LeetCode account.");
   }
+  const email = options.email === undefined ? null : normalizeEmail(options.email);
   await client.batch(
     [
       {
@@ -1094,8 +1103,8 @@ export async function insertUser(user: User, passwordHash: string, options: Inse
           (id, display_name, login_username, leetcode_username, avatar_url, all_time_solved,
            easy_solved, medium_solved, hard_solved, weekly_progress, monthly_progress,
            last_updated, tracking_start, baseline_solved, contest_rating, contests_attended,
-           current_streak, longest_streak, password_hash)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           current_streak, longest_streak, password_hash, email, email_verified_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
           user.id,
           user.displayName,
@@ -1115,7 +1124,9 @@ export async function insertUser(user: User, passwordHash: string, options: Inse
           user.contestsAttended,
           user.currentStreak,
           user.longestStreak,
-          passwordHash
+          passwordHash,
+          email,
+          email === null ? null : new Date().toISOString()
         ]
       },
       ...user.history.map((h) => upsertSnapshot(user.id, h))

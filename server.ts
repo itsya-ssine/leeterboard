@@ -12,7 +12,15 @@ import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
 import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
 import { checkEmail, maskEmail, parseAllowedDomains } from "./emails.js";
-import { alreadyRegisteredMail, EMAIL_CODE_TTL_MINUTES, generateCode, hashCode, signupCodeMail } from "./emailCodes.js";
+import {
+  alreadyRegisteredMail,
+  codeMatches,
+  EMAIL_CODE_TTL_MINUTES,
+  generateCode,
+  hashCode,
+  parseCodeInput,
+  signupCodeMail
+} from "./emailCodes.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -35,6 +43,9 @@ import {
   deletePendingResetsFor,
   purgeExpiredPendingResets,
   startPendingEmailCode,
+  getPendingEmailCode,
+  bumpPendingEmailAttempts,
+  consumePendingEmailCode,
   deletePendingEmailCode,
   deleteExpiredPendingEmailCodes,
   emailTaken,
@@ -1098,36 +1109,82 @@ app.post("/api/auth/register/start", registerLimiter, async (req, res) => {
   }
 });
 
-// POST — sign up. One step: pick a username and a password and you are in.
-// Nothing here needs a LeetCode account; a member links LeetCode (and the other
-// platforms) afterwards from their account settings.
-app.post("/api/auth/register", registerLimiter, async (req, res) => {
+// POST — sign-up, step 2 of 2: the 6-digit code from the mail. The pending id
+// comes from the httpOnly "signup" cookie set by /register/start, never from the
+// body, so a code typed by someone else's browser verifies nothing. The account
+// is created here and only here, with the e-mail address already verified, no
+// LeetCode (a member links LeetCode and the other platforms afterwards from
+// their account settings) and the password hash that was made at the start.
+//
+// Guessing is capped at MAX_EMAIL_CODE_ATTEMPTS tries per pending request. Every
+// try is counted BEFORE the code is looked at, in one atomic statement, so a
+// burst of parallel guesses can't exceed the cap: at most five of them are ever
+// compared. The fifth wrong one deletes the request, and a right code after
+// that finds nothing. A request for an address that was already registered holds
+// a code nobody received, so it fails exactly like a wrong guess.
+const MAX_EMAIL_CODE_ATTEMPTS = 5;
+const SIGNUP_EXPIRED_MESSAGE = "This sign-up has expired. Please start again.";
+const SIGNUP_WRONG_CODE_MESSAGE = "That code isn't right. Check it and try again.";
+const SIGNUP_LOCKED_MESSAGE = "Too many wrong codes. Please start again.";
+
+app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
   try {
-    const body = (req.body ?? {}) as Record<string, unknown>;
+    const expired = async (pendingId?: string) => {
+      if (pendingId) await deletePendingEmailCode(pendingId);
+      res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
+      return res.status(400).json({ error: SIGNUP_EXPIRED_MESSAGE, expired: true });
+    };
 
-    const check = checkUsername(body.username);
-    if (!check.ok) {
-      return res.status(400).json({ error: check.error });
+    const cookieValue = req.cookies?.[SIGNUP_COOKIE];
+    const pending =
+      typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingEmailCode(cookieValue) : null;
+    if (!pending || pending.purpose !== "signup" || !pending.username || !pending.passwordHash) {
+      return expired();
     }
-    const username = check.username;
-
-    const passwordError = validatePassword(body.password, username);
-    if (passwordError) {
-      return res.status(400).json({ error: passwordError });
-    }
-
-    // Look before hashing, so a taken name costs nothing. The unique index on
-    // login_username is what actually decides; see the catch below.
-    if (await getUserAuthByLoginUsername(username)) {
-      return res.status(409).json({ error: "That username is taken." });
+    if (Date.parse(pending.expiresAt) <= Date.now()) {
+      return expired(pending.id);
     }
 
-    const passwordHash = await hashPassword(body.password as string);
+    const maskedEmail = maskEmail(pending.email);
+    const code = parseCodeInput((req.body as Record<string, unknown> | undefined)?.code);
+
+    // Count this try first (atomically), then judge it.
+    const attempts = await bumpPendingEmailAttempts(pending.id);
+    if (attempts === null) {
+      return expired(); // the request vanished under us (used, replaced or pruned)
+    }
+    const right = code !== null && codeMatches(pending.id, code, pending.codeHash);
+    if (!right || attempts > MAX_EMAIL_CODE_ATTEMPTS) {
+      if (attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
+        await deletePendingEmailCode(pending.id);
+        res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
+        logSecurityEvent("signup_code_locked", { ip: req.ip, maskedEmail, attempts }, "warn");
+        return res.status(429).json({ error: SIGNUP_LOCKED_MESSAGE, expired: true });
+      }
+      logSecurityEvent("signup_code_failed", { ip: req.ip, maskedEmail, attempts }, "warn");
+      return res.status(400).json({ error: SIGNUP_WRONG_CODE_MESSAGE });
+    }
+
+    // The right code. Someone may have registered this address since the
+    // request began (or it is one that was registered all along and the code
+    // was guessed): don't say so, just end the request like an expired one.
+    if (await emailTaken(pending.email)) {
+      return expired(pending.id);
+    }
+
+    // Take the request atomically, so of two simultaneous verifications with the
+    // right code exactly one gets it and creates the account.
+    const taken = await consumePendingEmailCode(pending.id, new Date().toISOString());
+    if (!taken || !taken.username || !taken.passwordHash) {
+      return expired();
+    }
+
     // A new member has no LeetCode data: no solved counts, no history, no
     // baseline. All of that starts when they link LeetCode.
+    const username = taken.username;
     const user: User = {
       id: `user-${crypto.randomUUID()}`,
-      displayName: cleanDisplayName(body.displayName, username),
+      displayName: taken.displayName || username,
       loginUsername: username,
       leetcodeLinked: false,
       leetcodeUsername: "",
@@ -1153,17 +1210,25 @@ app.post("/api/auth/register", registerLimiter, async (req, res) => {
       baselineSolved: 0,
       history: []
     };
-    await insertUser(user, passwordHash, { loginUsername: username });
+    try {
+      await insertUser(user, taken.passwordHash, { loginUsername: username, email: taken.email });
+    } catch (error: any) {
+      if (!String(error?.message).includes("UNIQUE")) throw error;
+      res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
+      // The unique indexes decide. A taken NAME is public (it is on profiles), so
+      // say so; a taken ADDRESS is not, so it ends like an expired request.
+      if (await getUserAuthByLoginUsername(username)) {
+        return res.status(409).json({ error: "That username was just taken. Please start again with another one." });
+      }
+      return res.status(400).json({ error: SIGNUP_EXPIRED_MESSAGE, expired: true });
+    }
 
-    logSecurityEvent("account_created", { ip: req.ip, userId: user.id, username }, "info");
-    setSessionCookie(res, user, passwordHash);
+    logSecurityEvent("account_created", { ip: req.ip, userId: user.id, username, maskedEmail }, "info");
+    res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
+    setSessionCookie(res, user, taken.passwordHash);
     res.status(201).json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
-    if (String(error?.message).includes("UNIQUE")) {
-      // Two sign-ups for the same name raced each other and the other one won.
-      return res.status(409).json({ error: "That username is taken." });
-    }
-    console.error(`[Auth] sign-up failed: ${error.message}`);
+    console.error(`[Auth] sign-up verify failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });

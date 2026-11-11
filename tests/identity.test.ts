@@ -16,8 +16,8 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import jwt from "jsonwebtoken";
-import { client, startServer, type TestServer } from "./helpers.js";
-import { makeUser } from "./f2-seed.js";
+import { client, registerViaApi, startServer, type TestServer } from "./helpers.js";
+import { makeFakeMail, makeUser } from "./f2-seed.js";
 
 const PW = "correct-horse-battery-9";
 const NEW_PW = "another-long-passphrase-4";
@@ -28,6 +28,7 @@ let legacyHash = "";
 let server: TestServer;
 let api: ReturnType<typeof client>;
 let carolCookie = "";
+const mail = makeFakeMail();
 
 before(async () => {
   secret = crypto.randomBytes(48).toString("hex");
@@ -46,19 +47,18 @@ before(async () => {
   legacyHash = await hashPassword(PW);
   await db.insertUser(makeUser("Bob_99"), legacyHash);
 
-  server = await startServer({ TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret });
+  server = await startServer({ TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret, ...mail.env });
   api = client(server);
 
   // A new member with no LeetCode account.
-  const reg = await api("POST", "/api/auth/register", {
-    body: { username: "Carol_Example_1", password: PW, displayName: "Carol" }
-  });
+  const reg = await registerViaApi(api, mail, { username: "Carol_Example_1", password: PW, displayName: "Carol" });
   assert.equal(reg.status, 201, reg.text);
   carolCookie = reg.cookie!;
 });
 
 after(async () => {
   await server?.stop();
+  mail.cleanup();
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
