@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { checkCode, normalizeCode } from "./signup.js";
-import { codeSentMessage, resendLabel, secondsLeft } from "./signupFlow.js";
+import { resendLabel, secondsLeft } from "./signupFlow.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -21,7 +21,7 @@ const linkBtn = `cursor-pointer font-medium text-teal-300 underline-offset-2 hov
 // countdown on the Resend button is deliberately NOT a live region (a number
 // announced every second is noise); the button is disabled meanwhile.
 export default function CodeEntry({
-  maskedEmail,
+  message,
   expiresInMinutes,
   sentAt,
   busy,
@@ -34,7 +34,8 @@ export default function CodeEntry({
   onResend,
   onBack
 }: {
-  maskedEmail: string;
+  // The line that says where the code went (codeSentMessage or resetSentMessage).
+  message: string;
   expiresInMinutes: number;
   // When the code on its way was requested (Date.now()), for the resend countdown.
   sentAt: number;
@@ -96,7 +97,7 @@ export default function CodeEntry({
   return (
     <form onSubmit={submit} className="mt-5 flex flex-col gap-4" noValidate>
       <div>
-        <p className="text-sm leading-relaxed text-mist-400">{codeSentMessage(maskedEmail)}</p>
+        <p className="text-sm leading-relaxed text-mist-400">{message}</p>
         <p className="mt-1 text-sm leading-relaxed text-mist-500">
           It can take a minute to arrive. Check your spam folder too. The code works for {expiresInMinutes} minutes.
         </p>

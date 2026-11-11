@@ -40,6 +40,17 @@ export function codeSentMessage(maskedEmail: string): string {
   return `We sent a ${EMAIL_CODE_LENGTH}-digit code to ${maskedEmail}.`;
 }
 
+/**
+ * The line on the code step of "forgot password". Unlike sign-up it does not
+ * claim a code was sent: the server answers the same whether or not the address
+ * has an account, so the form says "if". `maskedEmail` is the address the
+ * person just typed, masked in the browser (maskEmail in emails.ts), never
+ * anything the server said about it.
+ */
+export function resetSentMessage(maskedEmail: string): string {
+  return `If ${maskedEmail} has an account, we sent a ${EMAIL_CODE_LENGTH}-digit code to it.`;
+}
+
 /** What the Resend button says: the countdown while it is disabled. */
 export function resendLabel(seconds: number): string {
   return seconds > 0 ? `Resend code in ${seconds}s` : "Resend code";

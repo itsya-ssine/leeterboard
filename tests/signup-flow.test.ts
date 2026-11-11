@@ -13,7 +13,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import CodeEntry from "../src/CodeEntry.js";
 import { AuthError } from "../src/authApi.js";
-import { classifyCodeError, codeSentMessage, resendLabel, secondsLeft } from "../src/signupFlow.js";
+import { classifyCodeError, codeSentMessage, resendLabel, resetSentMessage, secondsLeft } from "../src/signupFlow.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const read = (f: string) => fs.readFileSync(path.join(root, f), "utf8");
@@ -81,12 +81,17 @@ describe("the resend countdown", () => {
   it("says where the code went", () => {
     assert.equal(codeSentMessage("a***@example.com"), "We sent a 6-digit code to a***@example.com.");
   });
+
+  it("forgot password says 'if', never that a code was sent", () => {
+    assert.equal(resetSentMessage("a***@example.com"), "If a***@example.com has an account, we sent a 6-digit code to it.");
+    assert.match(resetSentMessage("x"), /^If /);
+  });
 });
 
 const entry = (over: Partial<React.ComponentProps<typeof CodeEntry>> = {}) =>
   renderToStaticMarkup(
     React.createElement(CodeEntry, {
-      maskedEmail: "a***@example.com",
+      message: codeSentMessage("a***@example.com"),
       expiresInMinutes: 10,
       sentAt: Date.now(),
       busy: false,
@@ -237,3 +242,70 @@ describe("LoginModal", () => {
     assert.match(entrySrc, /useEffect\(\(\) => \{\s*if \(error\)/);
   });
 });
+
+describe("LoginModal: forgot password", () => {
+  const modal = read("src/LoginModal.tsx");
+
+  it("has a 'Forgot password?' link on the log-in form", () => {
+    const login = /\{tab === "login" && !forgot && \([\s\S]*?\n          \)\}/.exec(modal)![0];
+    assert.match(login, /Forgot password\?/);
+    assert.match(login, /onClick=\{openForgot\}/);
+  });
+
+  it("asks for the email and a NEW password, with the right field hints", () => {
+    const ids = [...modal.matchAll(/id="(forgot-[a-z]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(ids, ["forgot-email", "forgot-password"]);
+    const email = /<input\s+id="forgot-email"[\s\S]*?\/>/.exec(modal)![0];
+    assert.match(email, /type="email"/);
+    assert.match(email, /autoComplete="email"/);
+    const pw = /<input\s+id="forgot-password"[\s\S]*?\/>/.exec(modal)![0];
+    assert.match(pw, /type="password"/);
+    assert.match(pw, /autoComplete="new-password"/);
+    assert.doesNotMatch(pw, /current-password/);
+  });
+
+  it("tells members who never added an email to ask an admin", () => {
+    assert.match(modal, /never added an email address to your account[\s\S]*?ask\s+an admin to reset your password/);
+  });
+
+  it("checks the address and the new password in the browser, then calls startPasswordReset / verifyPasswordReset", () => {
+    assert.match(modal, /checkEmailInput\(email\) \?\? checkNewPassword\(password\)/);
+    assert.match(modal, /startPasswordReset\(email\.trim\(\), password\)/);
+    assert.match(modal, /verifyPasswordReset\(code\)/);
+  });
+
+  it("never says whether the address has an account: the code step is worded with 'if', from the address the person typed", () => {
+    assert.match(modal, /resetSentMessage\(maskEmail\(email\.trim\(\)\.toLowerCase\(\)\)\)/);
+    assert.match(modal, /If that address has an account, a new code was sent/);
+    const forgotSource = modal.slice(modal.indexOf("// ---------- Forgot password ----------"), modal.indexOf("return (\n    <AnimatePresence>"));
+    assert.doesNotMatch(forgotSource, /maskedEmail|no account|not found|doesn't exist|unknown (address|email)/i);
+  });
+
+  it("signs in and closes after a verified reset, with a toast, and goes back to the details when the request is gone", () => {
+    assert.match(modal, /toast\("success", "Password changed\. You're signed in\."\)/);
+    const verify = /const handleForgotVerify[\s\S]*?\n  \};/.exec(modal)![0];
+    assert.match(verify, /finish\(\)/);
+    assert.match(verify, /classifyCodeError\(err\)/);
+    assert.match(verify, /failure\.action === "restart"[\s\S]*?setStep\("details"\)/);
+    assert.doesNotMatch(verify, /setEmail|setPassword/, "nothing typed is wiped on a restart");
+  });
+
+  it("clears what was typed when it opens, closes or finishes, and on every fresh open of the dialog", () => {
+    const open = /const openForgot = \(\) => \{[\s\S]*?\n  \};/.exec(modal)![0];
+    assert.match(open, /setPassword\(""\)/);
+    assert.match(open, /setEmail\(""\)/);
+    assert.match(/const closeForgot = \(\) => \{[\s\S]*?\n  \};/.exec(modal)![0], /setPassword\(""\)/);
+    assert.match(/useEffect\(\(\) => \{\s*if \(open\) \{[\s\S]*?\n    \}\n  \}, \[open\]\)/.exec(modal)![0], /setForgot\(false\)/);
+    assert.match(modal, /const switchTab[\s\S]*?setForgot\(false\)/);
+  });
+
+  it("names the dialog 'Reset password' for screen readers while it is open", () => {
+    assert.match(modal, /label=\{tab === "signup" \? "Sign up" : forgot \? "Reset password" : "Log in"\}/);
+  });
+
+  it("reuses the shared code step", () => {
+    assert.equal((modal.match(/<CodeEntry/g) ?? []).length, 2);
+    assert.match(modal, /submitLabel="Verify and set new password"/);
+  });
+});
+

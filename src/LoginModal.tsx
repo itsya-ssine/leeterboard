@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, LogIn, RefreshCw, UserPlus } from "lucide-react";
-import { useAuth, type EmailCodeChallenge } from "./AuthContext.js";
+import { AlertTriangle, KeyRound, LogIn, RefreshCw, UserPlus } from "lucide-react";
+import { useAuth } from "./AuthContext.js";
 import CodeEntry from "./CodeEntry.js";
 import Modal from "./Modal.js";
 import { useToast } from "./Toast.js";
-import { AFTER_SIGNUP_PROMPT, checkSignup, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "./signup.js";
-import { classifyCodeError } from "./signupFlow.js";
+import { maskEmail } from "../emails.js";
+import {
+  AFTER_SIGNUP_PROMPT,
+  checkEmailInput,
+  checkNewPassword,
+  checkSignup,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH
+} from "./signup.js";
+import { classifyCodeError, codeSentMessage, resetSentMessage } from "./signupFlow.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -18,8 +26,14 @@ const btnPrimary = `inline-flex h-10 w-full cursor-pointer items-center justify-
 const linkBtn = `cursor-pointer font-medium text-teal-300 underline-offset-2 hover:underline ${focusRing} rounded`;
 
 type Tab = "login" | "signup";
-// Sign-up has two steps: the details, then the code that was e-mailed.
+// Sign-up and "forgot password" both have two steps: the details, then the code
+// that was e-mailed.
 type SignupStep = "details" | "code";
+// The code step: the line saying where the code went, and how long it lives.
+interface CodeStepInfo {
+  message: string;
+  expiresInMinutes: number;
+}
 
 function ErrorBox({ message }: { message: string }) {
   return (
@@ -47,7 +61,7 @@ export default function LoginModal({
   // A message shown above the form, e.g. that the session ended.
   notice?: string;
 }) {
-  const { login, startRegistration, verifyRegistration } = useAuth();
+  const { login, startRegistration, verifyRegistration, startPasswordReset, verifyPasswordReset } = useAuth();
   const { toast } = useToast();
 
   const [tab, setTab] = useState<Tab>("login");
@@ -56,9 +70,12 @@ export default function LoginModal({
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [step, setStep] = useState<SignupStep>("details");
+  // "Forgot password?" is a view of the log-in tab: e-mail + new password, then
+  // the code. It reuses the e-mail and password fields and the code step below.
+  const [forgot, setForgot] = useState(false);
   // Step 2: where the code went, when it was requested (for the resend
   // countdown), and a confirmation after a resend.
-  const [challenge, setChallenge] = useState<EmailCodeChallenge | null>(null);
+  const [challenge, setChallenge] = useState<CodeStepInfo | null>(null);
   const [sentAt, setSentAt] = useState(0);
   const [notice2, setNotice2] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,6 +90,7 @@ export default function LoginModal({
       setPassword("");
       setDisplayName("");
       setEmail("");
+      setForgot(false);
       setStep("details");
       setChallenge(null);
       setNotice2(null);
@@ -83,6 +101,7 @@ export default function LoginModal({
 
   const switchTab = (next: Tab) => {
     setTab(next);
+    setForgot(false);
     setStep("details");
     setChallenge(null);
     setNotice2(null);
@@ -116,7 +135,7 @@ export default function LoginModal({
   // Step 1 of 2: the server checks the details and e-mails a 6-digit code. No
   // account exists yet. Asking again for an address that is already registered
   // looks exactly the same, so this step says nothing about who has an account.
-  const requestCode = async (): Promise<EmailCodeChallenge | null> => {
+  const requestCode = async (): Promise<CodeStepInfo | null> => {
     const problem = checkSignup(username, password, email);
     if (problem) {
       setError(problem);
@@ -126,7 +145,7 @@ export default function LoginModal({
     try {
       const sent = await startRegistration(username.trim(), password, email.trim(), displayName.trim() || undefined);
       setSentAt(Date.now());
-      return sent;
+      return { message: codeSentMessage(sent.maskedEmail), expiresInMinutes: sent.expiresInMinutes };
     } catch (err: any) {
       setError(err.message || "Couldn't send the code.");
       return null;
@@ -189,13 +208,102 @@ export default function LoginModal({
     setError(null);
   };
 
+  // ---------- Forgot password ----------
+  // Step 1 of 2: the address and the NEW password. The server answers the same
+  // whether or not the address belongs to an account (and sends a code only if
+  // it does), so this form says "if" and never what it found. The password is
+  // chosen now and held, hashed, by the server until the right code arrives.
+  const openForgot = () => {
+    setForgot(true);
+    setEmail(""); // not a leftover from the sign-up form
+    setStep("details");
+    setChallenge(null);
+    setNotice2(null);
+    setError(null);
+    setPassword(""); // whatever was typed in the log-in form is not a new password
+  };
+
+  const closeForgot = () => {
+    setForgot(false);
+    setStep("details");
+    setChallenge(null);
+    setNotice2(null);
+    setError(null);
+    setPassword("");
+  };
+
+  const requestResetCode = async (): Promise<CodeStepInfo | null> => {
+    const problem = checkEmailInput(email) ?? checkNewPassword(password);
+    if (problem) {
+      setError(problem);
+      return null;
+    }
+    setBusy(true);
+    try {
+      const sent = await startPasswordReset(email.trim(), password);
+      setSentAt(Date.now());
+      return {
+        message: resetSentMessage(maskEmail(email.trim().toLowerCase())),
+        expiresInMinutes: sent.expiresInMinutes
+      };
+    } catch (err: any) {
+      setError(err.message || "Couldn't start the password reset.");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleForgotDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setNotice2(null);
+    const sent = await requestResetCode();
+    if (sent) {
+      setChallenge(sent);
+      setStep("code");
+    }
+  };
+
+  const handleForgotResend = async () => {
+    setError(null);
+    setNotice2(null);
+    const sent = await requestResetCode();
+    if (sent) {
+      setChallenge(sent);
+      setNotice2("If that address has an account, a new code was sent. The earlier one no longer works.");
+    }
+  };
+
+  // Step 2 of 2: the right code sets the new password, signs this device in
+  // (every other session is signed out by the server) and closes the dialog.
+  const handleForgotVerify = async (code: string) => {
+    setError(null);
+    setNotice2(null);
+    setBusy(true);
+    try {
+      await verifyPasswordReset(code);
+      toast("success", "Password changed. You're signed in.");
+      finish();
+    } catch (err) {
+      const failure = classifyCodeError(err);
+      if (failure.action === "restart") {
+        setStep("details");
+        setChallenge(null);
+      }
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <AnimatePresence>
       {open && (
         <Modal
           onClose={onClose}
           dismissible={dismissible}
-          label={tab === "login" ? "Log in" : "Sign up"}
+          label={tab === "signup" ? "Sign up" : forgot ? "Reset password" : "Log in"}
           maxWidth="max-w-sm"
           id="auth-modal"
         >
@@ -233,7 +341,7 @@ export default function LoginModal({
           )}
 
           {/* ---------- Log in ---------- */}
-          {tab === "login" && (
+          {tab === "login" && !forgot && (
             <form onSubmit={handleLogin} className="mt-5 flex flex-col gap-4">
               <p className="text-sm leading-relaxed text-mist-400">
                 Log in with your username and password. If you joined before accounts were separate from LeetCode, your username is your LeetCode username.
@@ -272,6 +380,11 @@ export default function LoginModal({
                   required
                 />
               </div>
+              <p className="-mt-2 text-right text-sm">
+                <button type="button" onClick={openForgot} className={linkBtn}>
+                  Forgot password?
+                </button>
+              </p>
 
               {error && <ErrorBox message={error} />}
 
@@ -289,10 +402,97 @@ export default function LoginModal({
             </form>
           )}
 
+          {/* ---------- Forgot password, step 2: the code ---------- */}
+          {tab === "login" && forgot && step === "code" && challenge && (
+            <CodeEntry
+              message={challenge.message}
+              expiresInMinutes={challenge.expiresInMinutes}
+              sentAt={sentAt}
+              busy={busy}
+              error={error}
+              notice={notice2}
+              submitLabel="Verify and set new password"
+              busyLabel="Setting password…"
+              backLabel="Use a different email"
+              onSubmit={handleForgotVerify}
+              onResend={handleForgotResend}
+              onBack={() => {
+                setStep("details");
+                setChallenge(null);
+                setNotice2(null);
+                setError(null);
+              }}
+            />
+          )}
+
+          {/* ---------- Forgot password, step 1: the address and the new password ---------- */}
+          {tab === "login" && forgot && step === "details" && (
+            <form onSubmit={handleForgotDetails} className="mt-5 flex flex-col gap-4" noValidate>
+              <p className="text-sm leading-relaxed text-mist-400">
+                Enter the email address on your account and choose a new password. We send a 6-digit code there to
+                confirm it is you. If you never added an email address to your account, this can't work for you: ask
+                an admin to reset your password.
+              </p>
+
+              <div>
+                <label htmlFor="forgot-email" className="mb-1.5 block text-sm font-medium text-mist-400">
+                  Email
+                </label>
+                <input
+                  id="forgot-email"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  maxLength={254}
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={inputCls}
+                  disabled={busy}
+                  required
+                />
+              </div>
+
+              <div>
+                <label htmlFor="forgot-password" className="mb-1.5 block text-sm font-medium text-mist-400">
+                  New password <span className="font-normal text-mist-500">({PASSWORD_MIN_LENGTH}+ characters)</span>
+                </label>
+                <input
+                  id="forgot-password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_LENGTH}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className={inputCls}
+                  disabled={busy}
+                  required
+                />
+              </div>
+
+              {error && <ErrorBox message={error} />}
+
+              <button type="submit" disabled={busy} className={btnPrimary}>
+                {busy ? <RefreshCw className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+                {busy ? "Sending code…" : "Send me a code"}
+              </button>
+
+              <p className="text-center text-sm text-mist-500">
+                Remembered it?{" "}
+                <button type="button" onClick={closeForgot} className={linkBtn}>
+                  Back to log in
+                </button>
+              </p>
+            </form>
+          )}
+
           {/* ---------- Sign up, step 2: the code ---------- */}
           {tab === "signup" && step === "code" && challenge && (
             <CodeEntry
-              maskedEmail={challenge.maskedEmail}
+              message={challenge.message}
               expiresInMinutes={challenge.expiresInMinutes}
               sentAt={sentAt}
               busy={busy}
