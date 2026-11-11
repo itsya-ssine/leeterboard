@@ -38,11 +38,15 @@ describe("sign-up form checks", () => {
 describe("the auth form no longer asks for a LeetCode proof", () => {
   const modal = read("src/LoginModal.tsx");
   const ctx = read("src/AuthContext.tsx");
+  const api = read("src/authApi.ts");
 
-  it("signs up through POST /api/auth/register in one step", () => {
-    assert.match(ctx, /"\/api\/auth\/register"/);
-    assert.doesNotMatch(ctx, /register\/leetcode|register\/verify/);
-    assert.doesNotMatch(modal, /startRegistration|verifyRegistration|challenge/i);
+  it("signs up in two steps (a code by e-mail), never through the removed one-step route or a LeetCode proof", () => {
+    assert.match(api, /"\/api\/auth\/register\/start"/);
+    assert.match(api, /"\/api\/auth\/register\/verify"/);
+    assert.doesNotMatch(ctx + api, /"\/api\/auth\/register"/);
+    assert.doesNotMatch(ctx + api, /register\/leetcode/);
+    assert.match(ctx, /startRegistration/);
+    assert.match(ctx, /verifyRegistration/);
   });
 
   it("logs in with a plain username", () => {

@@ -97,6 +97,12 @@ export interface User {
   // never trust a client-supplied value for this, it's always derived
   // server-side from the admin list in auth.ts.
   isAdmin?: boolean;
+  // The member's OWN e-mail address and whether it was verified. Present only
+  // on the record /api/auth/session returns for the signed-in member (null when
+  // they have none); every other record, and every other member's, has neither.
+  // Never shown to anyone else.
+  email?: string | null;
+  emailVerified?: boolean;
 }
 
 export interface LeaderboardStats {

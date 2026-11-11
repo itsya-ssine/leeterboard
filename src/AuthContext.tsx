@@ -1,6 +1,26 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { User, PlatformId } from "./types.js";
 import { installSessionExpiryHandler } from "./api.js";
+import {
+  AuthError,
+  mergeSessionUser,
+  postJson,
+  requestEmailCode,
+  requestJson,
+  requestResetCode,
+  requestSignupCode,
+  submitEmailCode,
+  submitResetCode,
+  submitSignupCode,
+  type EmailCodeChallenge,
+  type EmailVerifiedResult,
+  type PasswordResetChallenge
+} from "./authApi.js";
+
+// The error every auth call throws; defined in authApi.ts, re-exported here for
+// the components that already import it from this file.
+export { AuthError };
+export type { EmailCodeChallenge, EmailVerifiedResult, PasswordResetChallenge };
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
 
@@ -32,10 +52,27 @@ interface AuthContextValue {
   // Sign in with the login name. Members who signed up with LeetCode before
   // login names existed use their LeetCode username (the same name, lowercase).
   login: (username: string, password: string) => Promise<User>;
-  // Create an account with a username and password (no LeetCode needed) and
-  // sign in with it. The server answers 409 when the name is taken.
+  // Create an account: step 1 sends a 6-digit code to the address (the server
+  // answers 409 when the username is taken, and says nothing about whether the
+  // address is already registered); step 2 takes the code, creates the account
+  // and signs in. The pending sign-up lives in an httpOnly cookie, so the code
+  // is all that step 2 sends. No LeetCode is needed.
+  startRegistration: (username: string, password: string, email: string, displayName?: string) => Promise<EmailCodeChallenge>;
+  verifyRegistration: (code: string) => Promise<User>;
+  // Removed: the one-step sign-up no longer exists on the server. Kept only so
+  // the old form still compiles until the two-step form replaces it; it always
+  // throws an AuthError that says so.
   register: (username: string, password: string, displayName?: string) => Promise<User>;
   logout: () => Promise<void>;
+  // Forgot password: step 1 (address + the new password) always answers the
+  // same, account or not; step 2 takes the code, sets the password and signs in.
+  startPasswordReset: (email: string, newPassword: string) => Promise<PasswordResetChallenge>;
+  verifyPasswordReset: (code: string) => Promise<User>;
+  // Add or change the member's own address (needs the current password): step 1
+  // sends a code to the new address, step 2 takes it. A successful step 2
+  // re-reads the session, so user.email and user.emailVerified are current.
+  startEmailChange: (email: string, currentPassword: string) => Promise<EmailCodeChallenge>;
+  verifyEmailChange: (code: string) => Promise<EmailVerifiedResult>;
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
   updateSchool: (school: string) => Promise<User>;
@@ -54,42 +91,6 @@ interface AuthContextValue {
   verifyLeetcodeLink: () => Promise<User>;
   unlinkLeetcode: () => Promise<User>;
 }
-
-// Thrown for any non-2xx response; `expired` is set when the server says the
-// sign-up in progress is gone and has to be started again.
-export class AuthError extends Error {
-  expired: boolean;
-  constructor(message: string, expired = false) {
-    super(message);
-    this.name = "AuthError";
-    this.expired = expired;
-  }
-}
-
-async function requestJson<T>(method: string, url: string, body: unknown = {}): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-  } catch {
-    throw new AuthError("Couldn't reach the server. Check your connection and try again.");
-  }
-  let data: any = null;
-  try {
-    data = await res.json();
-  } catch {
-    // Non-JSON body (e.g. a proxy error page) — fall through to the generic message.
-  }
-  if (!res.ok) {
-    throw new AuthError(data?.error || "Something went wrong. Please try again.", Boolean(data?.expired));
-  }
-  return data as T;
-}
-
-const postJson = <T,>(url: string, body: unknown = {}) => requestJson<T>("POST", url, body);
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -131,7 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch("/api/auth/session");
       const data = await res.json();
       if (data.status === "authenticated") {
-        setUser(data.user);
+        setUser((prev) => mergeSessionUser(prev, data.user));
         setSessionEnded(false);
         setStatus("authenticated");
       } else {
@@ -156,24 +157,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data;
   }, []);
 
-  const register = useCallback(async (username: string, password: string, displayName?: string) => {
-    const data = await postJson<User>("/api/auth/register", { username, password, displayName });
+  const startRegistration = useCallback(
+    (username: string, password: string, email: string, displayName?: string) =>
+      requestSignupCode(username, password, email, displayName),
+    []
+  );
+
+  const verifyRegistration = useCallback(async (code: string) => {
+    const data = await submitSignupCode(code);
     setUser(data);
     setSessionEnded(false);
     setStatus("authenticated");
     return data;
   }, []);
 
+  const register = useCallback(async (): Promise<User> => {
+    throw new AuthError("Sign-up now asks for an email address and a code. The new form is coming in the next update.");
+  }, []);
+
+  const startPasswordReset = useCallback((email: string, newPassword: string) => requestResetCode(email, newPassword), []);
+
+  const verifyPasswordReset = useCallback(async (code: string) => {
+    const data = await submitResetCode(code);
+    setUser(data);
+    setSessionEnded(false);
+    setStatus("authenticated");
+    return data;
+  }, []);
+
+  const startEmailChange = useCallback((email: string, currentPassword: string) => requestEmailCode(email, currentPassword), []);
+
+  const verifyEmailChange = useCallback(
+    async (code: string) => {
+      const result = await submitEmailCode(code);
+      await refreshSession(); // the session is where the member's own address comes from
+      return result;
+    },
+    [refreshSession]
+  );
+
   const updateDisplayName = useCallback(async (displayName: string) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", { displayName });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
   // An empty string clears the school.
   const updateSchool = useCallback(async (school: string) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", { school });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -181,7 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // with a specific message when one isn't acceptable.
   const updateProfileDetails = useCallback(async (details: ProfileDetails) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", details);
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -209,13 +241,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyPlatformLink = useCallback(async (platform: PlatformId) => {
     const data = await postJson<User>(`/api/account/platforms/${platform}/verify`);
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
   const unlinkPlatform = useCallback(async (platform: PlatformId) => {
     const data = await requestJson<User>("DELETE", `/api/account/platforms/${platform}`);
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -223,7 +255,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // the member themself always see it; the server enforces this.
   const setPlatformHidden = useCallback(async (platform: PlatformId, hidden: boolean) => {
     const data = await requestJson<User>("PATCH", `/api/account/platforms/${platform}`, { hidden });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -231,7 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // leaderboard and in the global stats.
   const setHideLeetcodeStats = useCallback(async (hidden: boolean) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", { hideLeetcodeStats: hidden });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -243,13 +275,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyLeetcodeLink = useCallback(async () => {
     const data = await postJson<User>("/api/account/leetcode/verify");
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
   const unlinkLeetcode = useCallback(async () => {
     const data = await requestJson<User>("DELETE", "/api/account/leetcode");
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -269,8 +301,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         sessionEnded,
         login,
+        startRegistration,
+        verifyRegistration,
         register,
         logout,
+        startPasswordReset,
+        verifyPasswordReset,
+        startEmailChange,
+        verifyEmailChange,
         refreshSession,
         updateDisplayName,
         updateSchool,

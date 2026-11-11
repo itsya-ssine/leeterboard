@@ -34,6 +34,7 @@ const query = async (sql: string, args: (string | number)[] = []) => {
   const c = createClient({ url: server.dbUrl });
   try {
     await c.execute("PRAGMA busy_timeout = 5000"); // the server may be mid-write
+    await c.execute("PRAGMA journal_mode = WAL"); // readers and the server's writes then don't block each other
     return (await c.execute({ sql, args })).rows.map((r) => ({ ...r }));
   } finally {
     c.close();
@@ -43,6 +44,7 @@ const run = async (sql: string, args: (string | number)[] = []) => {
   const c = createClient({ url: server.dbUrl });
   try {
     await c.execute("PRAGMA busy_timeout = 5000"); // the server may be mid-write
+    await c.execute("PRAGMA journal_mode = WAL"); // readers and the server's writes then don't block each other
     await c.execute({ sql, args });
   } finally {
     c.close();
