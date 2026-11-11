@@ -33,6 +33,7 @@ const fresh = () => {
 const query = async (sql: string, args: (string | number)[] = []) => {
   const c = createClient({ url: server.dbUrl });
   try {
+    await c.execute("PRAGMA busy_timeout = 5000"); // the server may be mid-write
     return (await c.execute({ sql, args })).rows.map((r) => ({ ...r }));
   } finally {
     c.close();
@@ -41,6 +42,7 @@ const query = async (sql: string, args: (string | number)[] = []) => {
 const run = async (sql: string, args: (string | number)[] = []) => {
   const c = createClient({ url: server.dbUrl });
   try {
+    await c.execute("PRAGMA busy_timeout = 5000"); // the server may be mid-write
     await c.execute({ sql, args });
   } finally {
     c.close();

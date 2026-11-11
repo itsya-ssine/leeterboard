@@ -202,6 +202,24 @@ export function emailInUseMail(): MailContent {
   };
 }
 
+/**
+ * Sent instead of a code when the owner of an address asked to reset their
+ * password to one the site doesn't allow (their own username). It goes to the
+ * owner only; the person at the keyboard gets the same neutral page as always.
+ */
+export function resetPasswordRejectedMail(): MailContent {
+  return {
+    subject: "About your Leeterboard password reset",
+    text: [
+      "Someone asked to reset the password of the Leeterboard account that uses this email address, but the new password they chose can't be used (a password can't be the same as the username).",
+      "",
+      "If that was you, go back to \"Forgot password\" and choose a different password. No code was sent and nothing has been changed.",
+      "",
+      "If it was not you, you can ignore this email."
+    ].join("\n")
+  };
+}
+
 /** Sent after a password changes, so an owner who didn't do it finds out. */
 export function passwordChangedMail(): MailContent {
   return {

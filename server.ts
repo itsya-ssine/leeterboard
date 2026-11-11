@@ -18,6 +18,9 @@ import {
   alreadyRegisteredMail,
   codeMatches,
   emailInUseMail,
+  passwordChangedMail,
+  passwordResetCodeMail,
+  resetPasswordRejectedMail,
   EMAIL_CODE_TTL_MINUTES,
   generateCode,
   hashCode,
@@ -50,6 +53,7 @@ import {
   getPendingEmailCodeForUser,
   deletePendingEmailCodesForUser,
   getUserEmail,
+  getUserByEmail,
   setUserEmail,
   bumpPendingEmailAttempts,
   consumePendingEmailCode,
@@ -1466,6 +1470,200 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
     console.error(`[Auth] reset verify failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — forgot password by e-mailed code, step 1. Public. Body { email,
+// newPassword }. The person chooses the new password now; it is hashed and held
+// server-side until the code is entered, like the platform-proof reset above.
+//
+// ALWAYS answers the same (200, same body, same cookie) whether or not the
+// address belongs to a member, so it can't be used to find out who has an
+// account or which addresses members use. A code is only mailed when the
+// address is a member's VERIFIED one and that member may reset by e-mail. Not
+// allowed, and silent about it: an unknown address, an address nobody verified,
+// and admin accounts (recovered with `npm run admin`, like the platform-proof
+// reset). A pending request is stored for those too, holding a code nobody
+// received, so the verify step can't tell them apart either.
+//
+// Known limit: the mail is sent before answering, so an address with no account
+// answers a little faster than one with an account (nothing to send). The
+// per-IP (resetLimiter) and per-address limits slow anyone measuring that.
+const RESET_EMAIL_COOKIE = "pwresetmail";
+const RESET_EMAIL_NEUTRAL_MESSAGE = "If that address has an account, we sent a code.";
+const RESET_EMAIL_EXPIRED_MESSAGE = "This reset request has expired. Please start again.";
+const RESET_EMAIL_WRONG_CODE_MESSAGE = "That code isn't right. Check it and try again.";
+const RESET_EMAIL_LOCKED_MESSAGE = "Too many wrong codes. Please start again.";
+
+app.post("/api/auth/reset/email/start", resetLimiter, async (req, res) => {
+  try {
+    const mailer = getMailer();
+    if (!mailer) {
+      logSecurityEvent("mail_unconfigured", { ip: req.ip, route: "reset/email/start" });
+      return res.status(503).json({ error: "Password reset by email isn't available right now. Please try again later." });
+    }
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    // Any domain: an address a member verified earlier stays usable if the
+    // sign-up allow-list changes afterwards.
+    const emailCheck = checkEmail(body.email);
+    if (!emailCheck.ok) return res.status(400).json({ error: emailCheck.error });
+    const passwordError = validatePassword(body.newPassword, "");
+    if (passwordError) return res.status(400).json({ error: passwordError });
+    const email = emailCheck.email;
+    const maskedEmail = maskEmail(email);
+
+    // Hash before looking anyone up, so a refusal costs what an acceptance does.
+    const passwordHash = await hashPassword(body.newPassword as string);
+
+    const quota = await takeEmailQuota("reset", email);
+    if (!quota.allowed) {
+      logSecurityEvent("email_rate_limited", { ip: req.ip, maskedEmail, purpose: "reset" });
+      return res.status(429).json({ error: EMAIL_RATE_LIMITED_MESSAGE });
+    }
+
+    const now = new Date();
+    await deleteExpiredPendingEmailCodes(now.toISOString());
+    const found = await getUserByEmail(email);
+    const blockedReason = !found ? "unknown_email" : !found.emailVerifiedAt ? "unverified_email" : isAdminUser(found.record.user) ? "admin" : null;
+    const member = found && !blockedReason ? found.record.user : null;
+    // The username check of the other password forms, done here because it is
+    // only now that the username is known. The owner hears about it by mail.
+    const passwordIsUsername = member !== null && (body.newPassword as string).toLowerCase() === member.loginUsername.toLowerCase();
+
+    const pendingId = crypto.randomBytes(32).toString("hex");
+    const code = generateCode(); // for a request that isn't allowed, it is never sent
+    const started = await startPendingEmailCode(
+      {
+        id: pendingId,
+        purpose: "reset",
+        email,
+        userId: member?.id ?? null,
+        username: null,
+        displayName: null,
+        passwordHash,
+        codeHash: hashCode(pendingId, code),
+        createdAt: now.toISOString(),
+        lastSentAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + SIGNUP_TTL_MS).toISOString()
+      },
+      SIGNUP_RESEND_COOLDOWN_MS
+    );
+    if (!started) {
+      await refundEmailQuota("reset", quota);
+      return res.status(429).json({ error: SIGNUP_RESEND_WAIT_MESSAGE });
+    }
+
+    if (member) {
+      try {
+        await mailer.send({ to: email, ...(passwordIsUsername ? resetPasswordRejectedMail() : passwordResetCodeMail(code)) });
+        logSecurityEvent(passwordIsUsername ? "email_notice_sent" : "email_code_sent", { ip: req.ip, userId: member.id, maskedEmail, purpose: "reset" }, "info");
+      } catch (err) {
+        // The answer must not change: say nothing, give the count back, log it.
+        await refundEmailQuota("reset", quota);
+        logSecurityEvent("mail_send_failed", {
+          ip: req.ip,
+          route: "reset/email/start",
+          provider: mailer.provider,
+          kind: err instanceof MailError ? err.kind : "unknown",
+          status: err instanceof MailError ? err.status : undefined
+        });
+      }
+    } else {
+      logSecurityEvent("reset_email_blocked", { ip: req.ip, maskedEmail, reason: blockedReason });
+    }
+
+    res.cookie(RESET_EMAIL_COOKIE, pendingId, { ...resetCookieOptions, maxAge: SIGNUP_TTL_MS });
+    res.json({ message: RESET_EMAIL_NEUTRAL_MESSAGE, expiresInMinutes: EMAIL_CODE_TTL_MINUTES });
+  } catch (error: any) {
+    console.error(`[Auth] reset email start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — forgot password by e-mailed code, step 2. Public. Body { code }; the
+// pending id comes from the httpOnly "pwresetmail" cookie. The attempt rules are
+// the sign-up ones (every try counted atomically first, the 5th wrong one
+// deletes the request, a right code afterwards is refused). A right code sets
+// the new password, signs the person in, signs every other session out (a new
+// hash invalidates them, and any lockout is cleared), leaves the owner an
+// in-app notice and mails the address that the password changed.
+app.post("/api/auth/reset/email/verify", verifyLimiter, async (req, res) => {
+  try {
+    const expired = async (pendingId?: string) => {
+      if (pendingId) await deletePendingEmailCode(pendingId);
+      res.clearCookie(RESET_EMAIL_COOKIE, resetCookieOptions);
+      return res.status(400).json({ error: RESET_EMAIL_EXPIRED_MESSAGE, expired: true });
+    };
+
+    const cookieValue = req.cookies?.[RESET_EMAIL_COOKIE];
+    const pending =
+      typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingEmailCode(cookieValue) : null;
+    if (!pending || pending.purpose !== "reset" || !pending.passwordHash) return expired();
+    if (Date.parse(pending.expiresAt) <= Date.now()) return expired(pending.id);
+
+    const maskedEmail = maskEmail(pending.email);
+    const code = parseCodeInput((req.body as Record<string, unknown> | undefined)?.code);
+
+    const attempts = await bumpPendingEmailAttempts(pending.id);
+    if (attempts === null) return expired();
+    const right = code !== null && codeMatches(pending.id, code, pending.codeHash);
+    if (!right || attempts > MAX_EMAIL_CODE_ATTEMPTS) {
+      if (attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
+        await deletePendingEmailCode(pending.id);
+        res.clearCookie(RESET_EMAIL_COOKIE, resetCookieOptions);
+        logSecurityEvent("email_code_locked", { ip: req.ip, maskedEmail, attempts, purpose: "reset" }, "warn");
+        return res.status(429).json({ error: RESET_EMAIL_LOCKED_MESSAGE, expired: true });
+      }
+      logSecurityEvent("email_code_failed", { ip: req.ip, maskedEmail, attempts, purpose: "reset" }, "warn");
+      return res.status(400).json({ error: RESET_EMAIL_WRONG_CODE_MESSAGE });
+    }
+
+    // Things can change between the two steps: check again. The member must
+    // still exist, still have this verified address, and still not be an admin.
+    const user = pending.userId ? await getUserById(pending.userId) : null;
+    const own = user ? await getUserEmail(user.id) : null;
+    if (!user || !own || !own.verifiedAt || own.email.toLowerCase() !== pending.email || isAdminUser(user)) {
+      return expired(pending.id);
+    }
+
+    const consumed = await consumePendingEmailCode(pending.id, new Date().toISOString());
+    if (!consumed || !consumed.passwordHash) return expired();
+
+    const hadPassword = isPasswordHash((await getUserAuthById(user.id))?.auth.passwordHash);
+    // A new hash signs every older session out and clears any lockout.
+    await setPasswordHash(user.id, consumed.passwordHash);
+    await deletePendingResetsFor(user.id);
+    await createSecurityNotice(
+      user.id,
+      "Your password was reset",
+      `Someone entered a code sent to your email address (${maskedEmail}) and used it to set a new password. ` +
+        "If that was you, nothing more to do. If it wasn't, change your password in your account settings and ask an admin for help."
+    );
+    logSecurityEvent("password_reset_via_email", { ip: req.ip, userId: user.id, maskedEmail, hadPassword }, hadPassword ? "warn" : "info");
+
+    // Tell the address's owner. A mail failure doesn't undo a reset that happened.
+    const mailer = getMailer();
+    if (mailer) {
+      try {
+        await mailer.send({ to: own.email, ...passwordChangedMail() });
+      } catch (err) {
+        logSecurityEvent("mail_send_failed", {
+          ip: req.ip,
+          route: "reset/email/verify",
+          provider: mailer.provider,
+          kind: err instanceof MailError ? err.kind : "unknown",
+          status: err instanceof MailError ? err.status : undefined
+        });
+      }
+    }
+
+    res.clearCookie(RESET_EMAIL_COOKIE, resetCookieOptions);
+    setSessionCookie(res, user, consumed.passwordHash);
+    res.json({ ...user, isAdmin: isAdminUser(user) });
+  } catch (error: any) {
+    console.error(`[Auth] reset email verify failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
