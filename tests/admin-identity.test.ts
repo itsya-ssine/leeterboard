@@ -12,8 +12,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { client, startServer, type TestServer } from "./helpers.js";
-import { makeFakeMail, makeUser } from "./f2-seed.js";
+import { client, signUpViaOAuth, startServer, type TestServer } from "./helpers.js";
+import { makeFakeOAuth, makeUser, mergeEnv, OAUTH_TEST_ENV } from "./f2-seed.js";
 
 const PW = "correct-horse-battery-9";
 
@@ -22,7 +22,7 @@ let server: TestServer;
 let api: ReturnType<typeof client>;
 let db: typeof import("../db.js");
 const ids = new Map<string, string>();
-const mail = makeFakeMail(); // sign-up needs a working mail provider, even to be refused
+const fake = makeFakeOAuth(); // sign-up needs a provider, even to be refused
 
 before(async () => {
   const secret = crypto.randomBytes(48).toString("hex");
@@ -67,19 +67,21 @@ before(async () => {
     ids.set(name, user.id);
   }
 
-  server = await startServer({
-    TURSO_DATABASE_URL: dbUrl,
-    JWT_SECRET: secret,
-    ADMIN_USER_IDS: `${ids.get("f2_id_admin")!},${ids.get("f2_plain_admin")!}`,
-    ADMIN_LEETCODE_USERNAMES: "f2_name_listed",
-    ...mail.env
-  });
+  server = await startServer(
+    mergeEnv(fake.env, {
+      TURSO_DATABASE_URL: dbUrl,
+      JWT_SECRET: secret,
+      ADMIN_USER_IDS: `${ids.get("f2_id_admin")!},${ids.get("f2_plain_admin")!}`,
+      ADMIN_LEETCODE_USERNAMES: "f2_name_listed",
+      ...OAUTH_TEST_ENV
+    })
+  );
   api = client(server);
 });
 
 after(async () => {
   await server?.stop();
-  mail.cleanup();
+  fake.cleanup();
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -136,9 +138,7 @@ describe("a member without a LeetCode account can be an admin", () => {
 describe("the id-admin can't be taken over by signing up with their name", () => {
   it("refuses the admin account's name (409) and leaves its password alone", async () => {
     const hashBefore = (await db.getUserAuthByLoginUsername("f2_id_admin"))!.auth.passwordHash;
-    const res = await api("POST", "/api/auth/register/start", {
-      body: { username: "F2_ID_Admin", password: "attacker-chosen-password-99", email: "attacker@example.com" }
-    });
+    const res = await signUpViaOAuth(api, fake, { username: "F2_ID_Admin", email: "attacker@example.com" });
     assert.equal(res.status, 409);
     assert.equal(res.cookie, null);
     assert.equal((await db.getUserAuthByLoginUsername("f2_id_admin"))!.auth.passwordHash, hashBefore);
@@ -146,9 +146,7 @@ describe("the id-admin can't be taken over by signing up with their name", () =>
   });
 
   it("treats an ordinary member's name the same way, so nothing says which accounts are special", async () => {
-    const res = await api("POST", "/api/auth/register/start", {
-      body: { username: "f2_member", password: "another-chosen-password-77", email: "attacker2@example.com" }
-    });
+    const res = await signUpViaOAuth(api, fake, { username: "f2_member", email: "attacker2@example.com" });
     assert.equal(res.status, 409);
     assert.equal(res.json.error, "That username is taken.");
   });

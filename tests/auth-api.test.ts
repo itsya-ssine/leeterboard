@@ -8,7 +8,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { parseCodeInput } from "../emailCodes.js";
 import { checkEmail } from "../emails.js";
 import {
   AuthError,
@@ -277,19 +276,6 @@ describe("code checks in the form", () => {
     assert.match(checkCode("1234567")!, /6 digits/);
     assert.match(checkCode("12a456")!, /digits only/);
     assert.match(checkCode("abcdef")!, /digits only/);
-  });
-
-  it("never accepts what the server would refuse, and takes what it takes", () => {
-    const table = ["123456", "123 456", "12-34-56", "12345", "1234567", "12a456", "", " ", "٠٠٠٠٠٠", "１２３４５６", "123456\n", "12 34 56 78"];
-    for (const code of table) {
-      const serverTakes = parseCodeInput(code) !== null;
-      assert.equal(checkCode(code) === null, serverTakes, JSON.stringify(code));
-    }
-  });
-
-  it("counts down the same 60 seconds the server makes a resend wait", () => {
-    const server = read("server.ts");
-    assert.equal(Number(/SIGNUP_RESEND_COOLDOWN_MS = ([\d_]+)/.exec(server)?.[1].replace(/_/g, "")) / 1000, RESEND_WAIT_SECONDS);
   });
 });
 

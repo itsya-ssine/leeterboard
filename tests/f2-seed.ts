@@ -73,54 +73,8 @@ export function makeFakeLeetCode() {
   };
 }
 
-// A throwaway folder standing in for "Resend" (see fake-mail.mjs). The server
-// under test runs in production mode with the real "resend" provider; this fake
-// answers its HTTPS call and keeps what was sent.
-export interface FakeMailMessage {
-  to: string;
-  from: string;
-  subject: string;
-  text: string;
-  sentAt: string;
-}
-
-export function makeFakeMail() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "leeterboard-fake-mail-"));
-  const marker = (name: string, on: boolean) => {
-    const file = path.join(dir, name);
-    if (on) fs.writeFileSync(file, "");
-    else fs.rmSync(file, { force: true });
-  };
-  // Every message sent so far, oldest first, optionally only those to `to`.
-  const mails = (to?: string): FakeMailMessage[] =>
-    fs
-      .readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .sort()
-      .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) as FakeMailMessage)
-      .filter((m) => to === undefined || m.to.toLowerCase() === to.trim().toLowerCase());
-  return {
-    dir,
-    mails,
-    lastMail: (to: string): FakeMailMessage | null => mails(to).at(-1) ?? null,
-    // The 6-digit code in the newest mail to `to`, or null when it has none.
-    lastCode: (to: string): string | null => /\b(\d{6})\b/.exec(mails(to).at(-1)?.text ?? "")?.[1] ?? null,
-    setDown: (on: boolean) => marker("_down", on), // provider outage: every send answers 500
-    setRejecting: (on: boolean) => marker("_reject", on), // every send answers 422
-    // Env for startServer(): real "resend" provider, fake network.
-    env: {
-      EMAIL_PROVIDER: "resend",
-      EMAIL_API_KEY: "re_test_key_do_not_log_me",
-      EMAIL_FROM: "Leeterboard <no-reply@leeterboard.test>",
-      FAKE_MAIL_DIR: dir,
-      NODE_OPTIONS: `--import ${pathToFileURL(path.resolve(import.meta.dirname, "fake-mail.mjs")).href}`
-    } as Record<string, string>,
-    cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
-  };
-}
-
 // startServer() takes one env object, and NODE_OPTIONS can only be set once, so
-// two fakes (LeetCode and mail) join their --import flags here.
+// two fakes (LeetCode and OAuth) join their --import flags here.
 export function mergeEnv(...envs: Record<string, string>[]): Record<string, string> {
   const merged: Record<string, string> = Object.assign({}, ...envs);
   const options = envs.map((e) => e.NODE_OPTIONS).filter(Boolean);
@@ -176,3 +130,14 @@ export function makeFakeOAuth() {
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
   };
 }
+
+// The variables that switch sign-in with Google and GitHub on for a server under
+// test (join with makeFakeOAuth().env through mergeEnv()).
+export const OAUTH_TEST_ENV: Record<string, string> = {
+  PUBLIC_URL: "https://leeterboard.test",
+  GITHUB_CLIENT_ID: "gh-id",
+  GITHUB_CLIENT_SECRET: "gh-secret-VALUE",
+  GOOGLE_CLIENT_ID: "g-id",
+  GOOGLE_CLIENT_SECRET: "g-secret-VALUE",
+  OAUTH_DEV_PROVIDER_URL: ""
+};

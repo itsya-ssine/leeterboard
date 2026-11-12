@@ -132,14 +132,14 @@ describe("db/schema.sql matches initDb() and the migrations", () => {
     }
   });
 
-  it("includes the e-mail columns, the unique e-mail index and pending_email_codes", async () => {
+  it("includes the e-mail columns and the unique e-mail index, and no pending_email_codes", async () => {
     for (const db of [fromInit, fromSchema]) {
       const cols = (await rowsOf(db, "SELECT name FROM pragma_table_info('users')")).map((r) => r.name);
       assert.ok(cols.includes("email") && cols.includes("email_verified_at"));
       const idx = await rowsOf(db, "SELECT sql FROM sqlite_master WHERE name = 'idx_users_email'");
       assert.match(normalize(String(idx[0]?.sql)), /create unique index idx_users_email on users\(lower\(email\)\)\s*where email is not null/);
       const t = await rowsOf(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pending_email_codes'");
-      assert.equal(t.length, 1);
+      assert.equal(t.length, 0, "pending_email_codes was dropped by migration 19");
     }
   });
 

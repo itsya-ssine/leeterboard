@@ -10,7 +10,6 @@ import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount,
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
-import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
 import { assertOAuthDevAtBoot, exchangeAndFetchProfile, OAuthError } from "./oauthProviders.js";
 import {
   buildAuthorizeUrl,
@@ -22,22 +21,7 @@ import {
   stateMatches,
   type OAuthErrorCode
 } from "./oauth.js";
-import { checkEmail, maskEmail, parseAllowedDomains } from "./emails.js";
-import { EMAIL_RATE_LIMITED_MESSAGE, refundEmailQuota, takeEmailQuota } from "./emailLimit.js";
-import {
-  addEmailCodeMail,
-  alreadyRegisteredMail,
-  codeMatches,
-  emailInUseMail,
-  passwordChangedMail,
-  passwordResetCodeMail,
-  resetPasswordRejectedMail,
-  EMAIL_CODE_TTL_MINUTES,
-  generateCode,
-  hashCode,
-  parseCodeInput,
-  signupCodeMail
-} from "./emailCodes.js";
+import { maskEmail, parseAllowedDomains } from "./emails.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -59,17 +43,9 @@ import {
   consumePendingReset,
   deletePendingResetsFor,
   purgeExpiredPendingResets,
-  startPendingEmailCode,
-  getPendingEmailCode,
-  getPendingEmailCodeForUser,
-  deletePendingEmailCodesForUser,
   getUserEmail,
   getUserByEmail,
   setUserEmail,
-  bumpPendingEmailAttempts,
-  consumePendingEmailCode,
-  deletePendingEmailCode,
-  deleteExpiredPendingEmailCodes,
   emailTaken,
   insertUser,
   updateUser,
@@ -143,7 +119,7 @@ import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
-import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter, oauthLimiter } from "./rateLimit.js";
+import { apiLimiter, pageLimiter, loginLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter, oauthLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -209,9 +185,6 @@ app.use("/api", apiLimiter);
 // reused for every invocation handled by that instance, so this still only
 // runs once per instance rather than once per request. Registered before
 // any routes below so it actually applies to all of them.
-// Say loudly, once, if e-mail isn't usable (sign-up then answers 503), and stop
-// if the development-only outbox provider is configured in production.
-assertMailConfigAtBoot();
 // Stop if the development-only OAUTH_DEV_PROVIDER_URL is set in production (sign-in with
 // Google / GitHub would then send the client secret to that address).
 const oauthDev = assertOAuthDevAtBoot();
@@ -1031,261 +1004,11 @@ async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
 const LEETCODE_UNAVAILABLE_MESSAGE =
   "Couldn't reach LeetCode right now. Please try again in a moment.";
 
-// POST — sign-up, step 1 of 2: choose a username, a password and an e-mail
-// address, and have a 6-digit code mailed to the address. NOTHING is created
-// here but a pending request: the account exists only once /register/verify
-// accepts the code. The username, display name and the already-hashed password
-// wait in pending_email_codes; the browser holds only the random id of that row,
-// in an httpOnly cookie (the same binding the password reset uses).
-//
-// Anti-enumeration. Whether or not the address already has an account, this
-// answers the same way: the same status, the same body shape, the same cookie
-// and the same 60-second resend rule, with one mail sent either way (a code, or
-// a notice that the address is already registered). It does the same work too,
-// so response time says nothing. To keep the NEXT step from giving it away, an
-// already-registered address also gets a pending row, with a code that was
-// generated but never sent to anyone: verifying against it fails exactly like a
-// wrong guess, and can't succeed. A taken USERNAME is still a plain 409, since
-// usernames are public on profiles.
-const SIGNUP_COOKIE = "signup";
-const SIGNUP_TTL_MS = EMAIL_CODE_TTL_MINUTES * 60_000;
-const SIGNUP_RESEND_COOLDOWN_MS = 60_000;
-const signupCookieOptions = {
-  httpOnly: true,
-  sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
-  path: "/api/auth"
-};
-const SIGNUP_UNAVAILABLE_MESSAGE = "Sign-up is temporarily unavailable. Please try again later.";
-const SIGNUP_RESEND_WAIT_MESSAGE = "Wait a minute before asking for another code.";
-const SIGNUP_MAIL_FAILED_MESSAGE = "We couldn't send the email right now. Please try again in a few minutes.";
 // Optional: only addresses at these domains may sign up. Empty = any domain.
 const ALLOWED_EMAIL_DOMAINS = parseAllowedDomains(process.env.ALLOWED_EMAIL_DOMAINS);
 if (ALLOWED_EMAIL_DOMAINS.length > 0) {
   console.info(`[Config] Sign-up is limited to email addresses at: ${ALLOWED_EMAIL_DOMAINS.join(", ")}`);
 }
-
-app.post("/api/auth/register/start", registerLimiter, async (req, res) => {
-  try {
-    // Without a working mail provider nobody could verify, so don't take sign-ups.
-    const mailer = getMailer();
-    if (!mailer) {
-      logSecurityEvent("mail_unconfigured", { ip: req.ip, route: "register/start" });
-      return res.status(503).json({ error: SIGNUP_UNAVAILABLE_MESSAGE });
-    }
-
-    const body = (req.body ?? {}) as Record<string, unknown>;
-
-    const check = checkUsername(body.username);
-    if (!check.ok) {
-      return res.status(400).json({ error: check.error });
-    }
-    const username = check.username;
-
-    const passwordError = validatePassword(body.password, username);
-    if (passwordError) {
-      return res.status(400).json({ error: passwordError });
-    }
-
-    const emailCheck = checkEmail(body.email, ALLOWED_EMAIL_DOMAINS);
-    if (!emailCheck.ok) {
-      return res.status(400).json({ error: emailCheck.error });
-    }
-    const email = emailCheck.email;
-    const maskedEmail = maskEmail(email);
-
-    // Look before hashing, so a taken name costs nothing. The unique index on
-    // login_username is what actually decides (see /register/verify).
-    if (await getUserAuthByLoginUsername(username)) {
-      return res.status(409).json({ error: "That username is taken." });
-    }
-
-    // At most 3 codes an hour to one address, however many IPs ask. Counted
-    // before anything else is looked at, and the same for a registered address.
-    const quota = await takeEmailQuota("signup", email);
-    if (!quota.allowed) {
-      logSecurityEvent("email_rate_limited", { ip: req.ip, maskedEmail, purpose: "signup" });
-      return res.status(429).json({ error: EMAIL_RATE_LIMITED_MESSAGE });
-    }
-
-    // From here on both outcomes do the same work, in the same order.
-    const passwordHash = await hashPassword(body.password as string);
-    const now = new Date();
-    await deleteExpiredPendingEmailCodes(now.toISOString());
-    const registered = await emailTaken(email);
-
-    const id = crypto.randomBytes(32).toString("hex");
-    const code = generateCode(); // for an already-registered address it is never sent
-    const started = await startPendingEmailCode(
-      {
-        id,
-        purpose: "signup",
-        email,
-        userId: null,
-        username,
-        displayName: cleanDisplayName(body.displayName, username),
-        passwordHash,
-        codeHash: hashCode(id, code),
-        createdAt: now.toISOString(),
-        lastSentAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + SIGNUP_TTL_MS).toISOString()
-      },
-      SIGNUP_RESEND_COOLDOWN_MS
-    );
-    if (!started) {
-      await refundEmailQuota("signup", quota); // nothing was sent: an early Resend click costs nothing
-      return res.status(429).json({ error: SIGNUP_RESEND_WAIT_MESSAGE });
-    }
-
-    try {
-      await mailer.send({ to: email, ...(registered ? alreadyRegisteredMail() : signupCodeMail(code)) });
-    } catch (err) {
-      // Nothing reached the address, so don't leave a request that makes the
-      // person wait out the resend delay for a mail that never left.
-      await deletePendingEmailCode(id);
-      await refundEmailQuota("signup", quota); // nothing reached the address
-      logSecurityEvent("mail_send_failed", {
-        ip: req.ip,
-        route: "register/start",
-        provider: mailer.provider,
-        kind: err instanceof MailError ? err.kind : "unknown",
-        status: err instanceof MailError ? err.status : undefined
-      });
-      return res.status(503).json({ error: SIGNUP_MAIL_FAILED_MESSAGE });
-    }
-
-    logSecurityEvent(registered ? "signup_notice_sent" : "signup_code_sent", { ip: req.ip, maskedEmail }, "info");
-    res.cookie(SIGNUP_COOKIE, id, { ...signupCookieOptions, maxAge: SIGNUP_TTL_MS });
-    res.json({ expiresInMinutes: EMAIL_CODE_TTL_MINUTES, maskedEmail });
-  } catch (error: any) {
-    console.error(`[Auth] sign-up start failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
-
-// POST — sign-up, step 2 of 2: the 6-digit code from the mail. The pending id
-// comes from the httpOnly "signup" cookie set by /register/start, never from the
-// body, so a code typed by someone else's browser verifies nothing. The account
-// is created here and only here, with the e-mail address already verified, no
-// LeetCode (a member links LeetCode and the other platforms afterwards from
-// their account settings) and the password hash that was made at the start.
-//
-// Guessing is capped at MAX_EMAIL_CODE_ATTEMPTS tries per pending request. Every
-// try is counted BEFORE the code is looked at, in one atomic statement, so a
-// burst of parallel guesses can't exceed the cap: at most five of them are ever
-// compared. The fifth wrong one deletes the request, and a right code after
-// that finds nothing. A request for an address that was already registered holds
-// a code nobody received, so it fails exactly like a wrong guess.
-const MAX_EMAIL_CODE_ATTEMPTS = 5;
-const SIGNUP_EXPIRED_MESSAGE = "This sign-up has expired. Please start again.";
-const SIGNUP_WRONG_CODE_MESSAGE = "That code isn't right. Check it and try again.";
-const SIGNUP_LOCKED_MESSAGE = "Too many wrong codes. Please start again.";
-
-app.post("/api/auth/register/verify", verifyLimiter, async (req, res) => {
-  try {
-    const expired = async (pendingId?: string) => {
-      if (pendingId) await deletePendingEmailCode(pendingId);
-      res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
-      return res.status(400).json({ error: SIGNUP_EXPIRED_MESSAGE, expired: true });
-    };
-
-    const cookieValue = req.cookies?.[SIGNUP_COOKIE];
-    const pending =
-      typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingEmailCode(cookieValue) : null;
-    if (!pending || pending.purpose !== "signup" || !pending.username || !pending.passwordHash) {
-      return expired();
-    }
-    if (Date.parse(pending.expiresAt) <= Date.now()) {
-      return expired(pending.id);
-    }
-
-    const maskedEmail = maskEmail(pending.email);
-    const code = parseCodeInput((req.body as Record<string, unknown> | undefined)?.code);
-
-    // Count this try first (atomically), then judge it.
-    const attempts = await bumpPendingEmailAttempts(pending.id);
-    if (attempts === null) {
-      return expired(); // the request vanished under us (used, replaced or pruned)
-    }
-    const right = code !== null && codeMatches(pending.id, code, pending.codeHash);
-    if (!right || attempts > MAX_EMAIL_CODE_ATTEMPTS) {
-      if (attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
-        await deletePendingEmailCode(pending.id);
-        res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
-        logSecurityEvent("signup_code_locked", { ip: req.ip, maskedEmail, attempts }, "warn");
-        return res.status(429).json({ error: SIGNUP_LOCKED_MESSAGE, expired: true });
-      }
-      logSecurityEvent("signup_code_failed", { ip: req.ip, maskedEmail, attempts }, "warn");
-      return res.status(400).json({ error: SIGNUP_WRONG_CODE_MESSAGE });
-    }
-
-    // The right code. Someone may have registered this address since the
-    // request began (or it is one that was registered all along and the code
-    // was guessed): don't say so, just end the request like an expired one.
-    if (await emailTaken(pending.email)) {
-      return expired(pending.id);
-    }
-
-    // Take the request atomically, so of two simultaneous verifications with the
-    // right code exactly one gets it and creates the account.
-    const taken = await consumePendingEmailCode(pending.id, new Date().toISOString());
-    if (!taken || !taken.username || !taken.passwordHash) {
-      return expired();
-    }
-
-    // A new member has no LeetCode data: no solved counts, no history, no
-    // baseline. All of that starts when they link LeetCode.
-    const username = taken.username;
-    const user: User = {
-      id: `user-${crypto.randomUUID()}`,
-      displayName: taken.displayName || username,
-      loginUsername: username,
-      leetcodeLinked: false,
-      leetcodeUsername: "",
-      avatarUrl: defaultAvatar(username),
-      school: "",
-      bio: "",
-      githubUrl: "",
-      linkedinUrl: "",
-      websiteUrl: "",
-      allTimeSolved: 0,
-      easySolved: 0,
-      mediumSolved: 0,
-      hardSolved: 0,
-      contestRating: null,
-      contestsAttended: 0,
-      currentStreak: null,
-      longestStreak: null,
-      weeklyProgress: 0,
-      monthlyProgress: 0,
-      rank: 0,
-      lastUpdated: null,
-      trackingStart: "",
-      baselineSolved: 0,
-      history: []
-    };
-    try {
-      await insertUser(user, taken.passwordHash, { loginUsername: username, email: taken.email });
-    } catch (error: any) {
-      if (!String(error?.message).includes("UNIQUE")) throw error;
-      res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
-      // The unique indexes decide. A taken NAME is public (it is on profiles), so
-      // say so; a taken ADDRESS is not, so it ends like an expired request.
-      if (await getUserAuthByLoginUsername(username)) {
-        return res.status(409).json({ error: "That username was just taken. Please start again with another one." });
-      }
-      return res.status(400).json({ error: SIGNUP_EXPIRED_MESSAGE, expired: true });
-    }
-
-    logSecurityEvent("account_created", { ip: req.ip, userId: user.id, username, maskedEmail }, "info");
-    res.clearCookie(SIGNUP_COOKIE, signupCookieOptions);
-    setSessionCookie(res, user, taken.passwordHash);
-    res.status(201).json({ ...user, isAdmin: isAdminUser(user) });
-  } catch (error: any) {
-    console.error(`[Auth] sign-up verify failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
 
 // POST — forgot password, step 1. Someone who can't sign in can still prove they
 // own an account the member linked (LeetCode, Codeforces or CodinGame) by putting
@@ -1503,200 +1226,6 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
     console.error(`[Auth] reset verify failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
-
-// POST — forgot password by e-mailed code, step 1. Public. Body { email,
-// newPassword }. The person chooses the new password now; it is hashed and held
-// server-side until the code is entered, like the platform-proof reset above.
-//
-// ALWAYS answers the same (200, same body, same cookie) whether or not the
-// address belongs to a member, so it can't be used to find out who has an
-// account or which addresses members use. A code is only mailed when the
-// address is a member's VERIFIED one and that member may reset by e-mail. Not
-// allowed, and silent about it: an unknown address, an address nobody verified,
-// and admin accounts (recovered with `npm run admin`, like the platform-proof
-// reset). A pending request is stored for those too, holding a code nobody
-// received, so the verify step can't tell them apart either.
-//
-// Known limit: the mail is sent before answering, so an address with no account
-// answers a little faster than one with an account (nothing to send). The
-// per-IP (resetLimiter) and per-address limits slow anyone measuring that.
-const RESET_EMAIL_COOKIE = "pwresetmail";
-const RESET_EMAIL_NEUTRAL_MESSAGE = "If that address has an account, we sent a code.";
-const RESET_EMAIL_EXPIRED_MESSAGE = "This reset request has expired. Please start again.";
-const RESET_EMAIL_WRONG_CODE_MESSAGE = "That code isn't right. Check it and try again.";
-const RESET_EMAIL_LOCKED_MESSAGE = "Too many wrong codes. Please start again.";
-
-app.post("/api/auth/reset/email/start", resetLimiter, async (req, res) => {
-  try {
-    const mailer = getMailer();
-    if (!mailer) {
-      logSecurityEvent("mail_unconfigured", { ip: req.ip, route: "reset/email/start" });
-      return res.status(503).json({ error: "Password reset by email isn't available right now. Please try again later." });
-    }
-
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    // Any domain: an address a member verified earlier stays usable if the
-    // sign-up allow-list changes afterwards.
-    const emailCheck = checkEmail(body.email);
-    if (!emailCheck.ok) return res.status(400).json({ error: emailCheck.error });
-    const passwordError = validatePassword(body.newPassword, "");
-    if (passwordError) return res.status(400).json({ error: passwordError });
-    const email = emailCheck.email;
-    const maskedEmail = maskEmail(email);
-
-    // Hash before looking anyone up, so a refusal costs what an acceptance does.
-    const passwordHash = await hashPassword(body.newPassword as string);
-
-    const quota = await takeEmailQuota("reset", email);
-    if (!quota.allowed) {
-      logSecurityEvent("email_rate_limited", { ip: req.ip, maskedEmail, purpose: "reset" });
-      return res.status(429).json({ error: EMAIL_RATE_LIMITED_MESSAGE });
-    }
-
-    const now = new Date();
-    await deleteExpiredPendingEmailCodes(now.toISOString());
-    const found = await getUserByEmail(email);
-    const blockedReason = !found ? "unknown_email" : !found.emailVerifiedAt ? "unverified_email" : isAdminUser(found.record.user) ? "admin" : null;
-    const member = found && !blockedReason ? found.record.user : null;
-    // The username check of the other password forms, done here because it is
-    // only now that the username is known. The owner hears about it by mail.
-    const passwordIsUsername = member !== null && (body.newPassword as string).toLowerCase() === member.loginUsername.toLowerCase();
-
-    const pendingId = crypto.randomBytes(32).toString("hex");
-    const code = generateCode(); // for a request that isn't allowed, it is never sent
-    const started = await startPendingEmailCode(
-      {
-        id: pendingId,
-        purpose: "reset",
-        email,
-        userId: member?.id ?? null,
-        username: null,
-        displayName: null,
-        passwordHash,
-        codeHash: hashCode(pendingId, code),
-        createdAt: now.toISOString(),
-        lastSentAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + SIGNUP_TTL_MS).toISOString()
-      },
-      SIGNUP_RESEND_COOLDOWN_MS
-    );
-    if (!started) {
-      await refundEmailQuota("reset", quota);
-      return res.status(429).json({ error: SIGNUP_RESEND_WAIT_MESSAGE });
-    }
-
-    if (member) {
-      try {
-        await mailer.send({ to: email, ...(passwordIsUsername ? resetPasswordRejectedMail() : passwordResetCodeMail(code)) });
-        logSecurityEvent(passwordIsUsername ? "email_notice_sent" : "email_code_sent", { ip: req.ip, userId: member.id, maskedEmail, purpose: "reset" }, "info");
-      } catch (err) {
-        // The answer must not change: say nothing, give the count back, log it.
-        await refundEmailQuota("reset", quota);
-        logSecurityEvent("mail_send_failed", {
-          ip: req.ip,
-          route: "reset/email/start",
-          provider: mailer.provider,
-          kind: err instanceof MailError ? err.kind : "unknown",
-          status: err instanceof MailError ? err.status : undefined
-        });
-      }
-    } else {
-      logSecurityEvent("reset_email_blocked", { ip: req.ip, maskedEmail, reason: blockedReason });
-    }
-
-    res.cookie(RESET_EMAIL_COOKIE, pendingId, { ...resetCookieOptions, maxAge: SIGNUP_TTL_MS });
-    res.json({ message: RESET_EMAIL_NEUTRAL_MESSAGE, expiresInMinutes: EMAIL_CODE_TTL_MINUTES });
-  } catch (error: any) {
-    console.error(`[Auth] reset email start failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
-
-// POST — forgot password by e-mailed code, step 2. Public. Body { code }; the
-// pending id comes from the httpOnly "pwresetmail" cookie. The attempt rules are
-// the sign-up ones (every try counted atomically first, the 5th wrong one
-// deletes the request, a right code afterwards is refused). A right code sets
-// the new password, signs the person in, signs every other session out (a new
-// hash invalidates them, and any lockout is cleared), leaves the owner an
-// in-app notice and mails the address that the password changed.
-app.post("/api/auth/reset/email/verify", verifyLimiter, async (req, res) => {
-  try {
-    const expired = async (pendingId?: string) => {
-      if (pendingId) await deletePendingEmailCode(pendingId);
-      res.clearCookie(RESET_EMAIL_COOKIE, resetCookieOptions);
-      return res.status(400).json({ error: RESET_EMAIL_EXPIRED_MESSAGE, expired: true });
-    };
-
-    const cookieValue = req.cookies?.[RESET_EMAIL_COOKIE];
-    const pending =
-      typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingEmailCode(cookieValue) : null;
-    if (!pending || pending.purpose !== "reset" || !pending.passwordHash) return expired();
-    if (Date.parse(pending.expiresAt) <= Date.now()) return expired(pending.id);
-
-    const maskedEmail = maskEmail(pending.email);
-    const code = parseCodeInput((req.body as Record<string, unknown> | undefined)?.code);
-
-    const attempts = await bumpPendingEmailAttempts(pending.id);
-    if (attempts === null) return expired();
-    const right = code !== null && codeMatches(pending.id, code, pending.codeHash);
-    if (!right || attempts > MAX_EMAIL_CODE_ATTEMPTS) {
-      if (attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
-        await deletePendingEmailCode(pending.id);
-        res.clearCookie(RESET_EMAIL_COOKIE, resetCookieOptions);
-        logSecurityEvent("email_code_locked", { ip: req.ip, maskedEmail, attempts, purpose: "reset" }, "warn");
-        return res.status(429).json({ error: RESET_EMAIL_LOCKED_MESSAGE, expired: true });
-      }
-      logSecurityEvent("email_code_failed", { ip: req.ip, maskedEmail, attempts, purpose: "reset" }, "warn");
-      return res.status(400).json({ error: RESET_EMAIL_WRONG_CODE_MESSAGE });
-    }
-
-    // Things can change between the two steps: check again. The member must
-    // still exist, still have this verified address, and still not be an admin.
-    const user = pending.userId ? await getUserById(pending.userId) : null;
-    const own = user ? await getUserEmail(user.id) : null;
-    if (!user || !own || !own.verifiedAt || own.email.toLowerCase() !== pending.email || isAdminUser(user)) {
-      return expired(pending.id);
-    }
-
-    const consumed = await consumePendingEmailCode(pending.id, new Date().toISOString());
-    if (!consumed || !consumed.passwordHash) return expired();
-
-    const hadPassword = isPasswordHash((await getUserAuthById(user.id))?.auth.passwordHash);
-    // A new hash signs every older session out and clears any lockout.
-    await setPasswordHash(user.id, consumed.passwordHash);
-    await deletePendingResetsFor(user.id);
-    await createSecurityNotice(
-      user.id,
-      "Your password was reset",
-      `Someone entered a code sent to your email address (${maskedEmail}) and used it to set a new password. ` +
-        "If that was you, nothing more to do. If it wasn't, change your password in your account settings and ask an admin for help."
-    );
-    logSecurityEvent("password_reset_via_email", { ip: req.ip, userId: user.id, maskedEmail, hadPassword }, hadPassword ? "warn" : "info");
-
-    // Tell the address's owner. A mail failure doesn't undo a reset that happened.
-    const mailer = getMailer();
-    if (mailer) {
-      try {
-        await mailer.send({ to: own.email, ...passwordChangedMail() });
-      } catch (err) {
-        logSecurityEvent("mail_send_failed", {
-          ip: req.ip,
-          route: "reset/email/verify",
-          provider: mailer.provider,
-          kind: err instanceof MailError ? err.kind : "unknown",
-          status: err instanceof MailError ? err.status : undefined
-        });
-      }
-    }
-
-    res.clearCookie(RESET_EMAIL_COOKIE, resetCookieOptions);
-    setSessionCookie(res, user, consumed.passwordHash);
-    res.json({ ...user, isAdmin: isAdminUser(user) });
-  } catch (error: any) {
-    console.error(`[Auth] reset email verify failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
@@ -2289,7 +1818,7 @@ const NO_PASSWORD_ERROR = "This account doesn't use a password.";
 async function checkCurrentPassword(
   userId: string,
   password: unknown,
-  action: "password_change" | "account_delete" | "email_change" | "oauth_link",
+  action: "password_change" | "account_delete" | "oauth_link",
   ip: string | undefined
 ): Promise<ReauthResult> {
   const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
@@ -2794,149 +2323,6 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
     res.json(updated);
   } catch (error: any) {
     console.error(`[Account] platform visibility failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
-
-// POST — add or change the member's e-mail address, step 1 of 2: a 6-digit code
-// goes to the new address. Needs the current password, like changing the
-// password does: an address is what "Forgot password" mails a code to, so
-// swapping it is as sensitive as the password itself and a stolen session alone
-// must not be enough.
-//
-// Anti-enumeration, as for sign-up. An address that belongs to another member
-// is answered exactly like a free one (same status, same body shape, one mail
-// either way: a notice instead of a code, and a pending request holding a code
-// nobody received, so the verify step can't tell them apart either). Applies the
-// same ALLOWED_EMAIL_DOMAINS list as sign-up, the same 3-an-hour limit per
-// address and the same 60-second resend wait.
-const ACCOUNT_MAIL_UNAVAILABLE_MESSAGE = "Email isn't available right now. Please try again later.";
-const EMAIL_REQUEST_EXPIRED_MESSAGE = "This request has expired. Please start again.";
-const EMAIL_WRONG_CODE_MESSAGE = "That code isn't right. Check it and try again.";
-const EMAIL_LOCKED_MESSAGE = "Too many wrong codes. Please start again.";
-
-app.post("/api/account/email/start", accountLimiter, requireAuth, async (req, res) => {
-  try {
-    const { id } = (req as any).user as { id: string };
-    const mailer = getMailer();
-    if (!mailer) {
-      logSecurityEvent("mail_unconfigured", { ip: req.ip, route: "account/email/start" });
-      return res.status(503).json({ error: ACCOUNT_MAIL_UNAVAILABLE_MESSAGE });
-    }
-
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const emailCheck = checkEmail(body.email, ALLOWED_EMAIL_DOMAINS);
-    if (!emailCheck.ok) {
-      return res.status(400).json({ error: emailCheck.error });
-    }
-    const email = emailCheck.email;
-    const maskedEmail = maskEmail(email);
-
-    const check = await checkCurrentPassword(id, body.currentPassword, "email_change", req.ip);
-    if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
-
-    const quota = await takeEmailQuota("add_email", email);
-    if (!quota.allowed) {
-      logSecurityEvent("email_rate_limited", { ip: req.ip, userId: id, maskedEmail, purpose: "add_email" });
-      return res.status(429).json({ error: EMAIL_RATE_LIMITED_MESSAGE });
-    }
-
-    // From here on both outcomes do the same work, in the same order.
-    const now = new Date();
-    await deleteExpiredPendingEmailCodes(now.toISOString());
-    await deletePendingEmailCodesForUser(id, "add_email", email);
-    const taken = await emailTaken(email, id);
-
-    const pendingId = crypto.randomBytes(32).toString("hex");
-    const code = generateCode(); // for an address another member has, it is never sent
-    const started = await startPendingEmailCode(
-      {
-        id: pendingId,
-        purpose: "add_email",
-        email,
-        userId: id,
-        username: null,
-        displayName: null,
-        passwordHash: null,
-        codeHash: hashCode(pendingId, code),
-        createdAt: now.toISOString(),
-        lastSentAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + SIGNUP_TTL_MS).toISOString()
-      },
-      SIGNUP_RESEND_COOLDOWN_MS
-    );
-    if (!started) {
-      await refundEmailQuota("add_email", quota);
-      return res.status(429).json({ error: SIGNUP_RESEND_WAIT_MESSAGE });
-    }
-
-    try {
-      await mailer.send({ to: email, ...(taken ? emailInUseMail() : addEmailCodeMail(code)) });
-    } catch (err) {
-      await deletePendingEmailCode(pendingId);
-      await refundEmailQuota("add_email", quota);
-      logSecurityEvent("mail_send_failed", {
-        ip: req.ip,
-        route: "account/email/start",
-        provider: mailer.provider,
-        kind: err instanceof MailError ? err.kind : "unknown",
-        status: err instanceof MailError ? err.status : undefined
-      });
-      return res.status(503).json({ error: SIGNUP_MAIL_FAILED_MESSAGE });
-    }
-
-    logSecurityEvent(taken ? "email_notice_sent" : "email_code_sent", { ip: req.ip, userId: id, maskedEmail, purpose: "add_email" }, "info");
-    res.json({ expiresInMinutes: EMAIL_CODE_TTL_MINUTES, maskedEmail });
-  } catch (error: any) {
-    console.error(`[Account] email start failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
-
-// POST — add or change the e-mail address, step 2 of 2: the code from the mail.
-// The request is the member's own open one (found through the session, so no
-// cookie is needed), and the attempt rules are the sign-up ones: every try is
-// counted atomically before the code is compared, the fifth wrong one deletes
-// the request, and a right code afterwards is refused.
-app.post("/api/account/email/verify", verifyLimiter, requireAuth, async (req, res) => {
-  try {
-    const { id } = (req as any).user as { id: string };
-    const expired = async (pendingId?: string) => {
-      if (pendingId) await deletePendingEmailCode(pendingId);
-      return res.status(400).json({ error: EMAIL_REQUEST_EXPIRED_MESSAGE, expired: true });
-    };
-
-    const pending = await getPendingEmailCodeForUser(id, "add_email");
-    if (!pending) return expired();
-    if (Date.parse(pending.expiresAt) <= Date.now()) return expired(pending.id);
-
-    const maskedEmail = maskEmail(pending.email);
-    const code = parseCodeInput((req.body as Record<string, unknown> | undefined)?.code);
-
-    const attempts = await bumpPendingEmailAttempts(pending.id);
-    if (attempts === null) return expired();
-    const right = code !== null && codeMatches(pending.id, code, pending.codeHash);
-    if (!right || attempts > MAX_EMAIL_CODE_ATTEMPTS) {
-      if (attempts >= MAX_EMAIL_CODE_ATTEMPTS) {
-        await deletePendingEmailCode(pending.id);
-        logSecurityEvent("email_code_locked", { ip: req.ip, userId: id, maskedEmail, attempts, purpose: "add_email" }, "warn");
-        return res.status(429).json({ error: EMAIL_LOCKED_MESSAGE, expired: true });
-      }
-      logSecurityEvent("email_code_failed", { ip: req.ip, userId: id, maskedEmail, attempts, purpose: "add_email" }, "warn");
-      return res.status(400).json({ error: EMAIL_WRONG_CODE_MESSAGE });
-    }
-
-    // The right code. If another member has the address by now, say nothing
-    // about it: end the request like an expired one.
-    if (await emailTaken(pending.email, id)) return expired(pending.id);
-    const consumed = await consumePendingEmailCode(pending.id, new Date().toISOString());
-    if (!consumed) return expired();
-    if (!(await setUserEmail(id, consumed.email))) return expired(); // the unique index decided
-
-    logSecurityEvent("email_verified", { ip: req.ip, userId: id, maskedEmail, purpose: "add_email" }, "info");
-    res.json({ success: true, maskedEmail, emailVerified: true });
-  } catch (error: any) {
-    console.error(`[Account] email verify failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });

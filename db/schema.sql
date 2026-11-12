@@ -14,7 +14,6 @@
 --          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
 --          ├─< pending_links     (1 member : open "prove you own this account" requests)
 --          ├─< pending_resets    (1 member : open "forgot password" requests)
---          ├─< pending_email_codes (0..1 member : open e-mail codes; NULL user for a sign-up)
 --          ├─< oauth_identities  (1 member : 0..2 Google / GitHub accounts they can sign in with)
 --          └─< oauth_states      (0..1 member : sign-in attempts in flight; NULL user for a sign-in)
 --   pending_oauth_signups        (standalone; a verified Google / GitHub identity waiting for a username)
@@ -22,8 +21,9 @@
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
 
--- One row per member. A member signs up with a username, a password and a
--- verified e-mail (the e-mail is optional for members who joined before it); every
+-- One row per member. A new member signs up with Google or GitHub and a chosen
+-- username, and the e-mail the provider verified is stored (members who joined
+-- before that have a password and may have no e-mail); every
 -- LeetCode column below stays empty until they link a LeetCode account (see
 -- leetcode_username), and only members who linked it are on the LeetCode board.
 CREATE TABLE users (
@@ -65,10 +65,11 @@ CREATE TABLE users (
   locked_until       TEXT,
 
   -- Private e-mail address (migration 17). Never part of the public member
-  -- payload: read it only through a dedicated query. NULL for members who have
-  -- not added one; stored lowercase and unique ignoring case when set.
+  -- payload: read it only through a dedicated query. It is the address Google or
+  -- GitHub verified. NULL for members who have not connected a provider; stored
+  -- lowercase and unique ignoring case when set.
   email              TEXT,
-  email_verified_at  TEXT                          -- ISO timestamp of the verified code; NULL = unverified / none
+  email_verified_at  TEXT                          -- ISO timestamp the provider verified it; NULL = none
 );
 CREATE UNIQUE INDEX idx_users_leetcode       ON users(leetcode_username);
 CREATE UNIQUE INDEX idx_users_leetcode_lower ON users(lower(leetcode_username));
@@ -263,30 +264,6 @@ CREATE TABLE feedback (
   read_at     TEXT                                 -- NULL = unread
 );
 CREATE INDEX idx_feedback_created ON feedback(created_at DESC);
-
--- An e-mail verification code waiting to be entered (migration 17). One open
--- row per purpose + address: a new request replaces the old one. The browser
--- only ever holds `id`. `code_hash` is an HMAC of the 6-digit code, never the
--- code. A sign-up keeps its chosen username, display name and the already
--- hashed password here until the code is verified (user_id is NULL); a reset
--- keeps the NEW password hash. Rows are single use, expire after 10 minutes and
--- are deleted after 5 wrong attempts.
-CREATE TABLE pending_email_codes (
-  id             TEXT PRIMARY KEY,                 -- random, 128 bits
-  purpose        TEXT NOT NULL CHECK (purpose IN ('signup', 'add_email', 'reset')),
-  email          TEXT NOT NULL,                    -- lowercase; goes away with the row
-  user_id        TEXT REFERENCES users(id) ON DELETE CASCADE,  -- NULL for sign-up
-  username       TEXT,                             -- sign-up only
-  display_name   TEXT,                             -- sign-up only
-  password_hash  TEXT,                             -- sign-up and reset: the NEW password, already hashed
-  code_hash      TEXT NOT NULL,
-  attempts       INTEGER NOT NULL DEFAULT 0,
-  created_at     TEXT NOT NULL,
-  last_sent_at   TEXT NOT NULL,
-  expires_at     TEXT NOT NULL
-);
-CREATE UNIQUE INDEX idx_pending_email_codes_open    ON pending_email_codes(purpose, email);
-CREATE INDEX idx_pending_email_codes_expires ON pending_email_codes(expires_at);
 
 -- Which Google / GitHub account a member can sign in with (migration 18). The
 -- key is the provider's own stable user id, NEVER the e-mail address: a member

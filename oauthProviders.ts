@@ -18,8 +18,7 @@
 // and decides what to do with an OAuthError.
 //
 // The second half of the file is the development override
-// OAUTH_DEV_PROVIDER_URL, and the boot check that refuses it in production
-// (same idea as the old "outbox" mail provider).
+// OAUTH_DEV_PROVIDER_URL, and the boot check that refuses it in production.
 
 import {
   cleanSuggestedName,

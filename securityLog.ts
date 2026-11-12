@@ -15,10 +15,6 @@
 //   platform_link_verified, platform_link_failed, platform_unlinked, admin_user_removed,
 //   admin_refresh, admin_message_sent, feedback_received,
 //   admin_feedback_deleted, csrf_blocked, rate_limited, session_rejected,
-//   signup_code_sent, signup_notice_sent, signup_code_failed, signup_code_locked,
-//   email_rate_limited, email_code_sent, email_notice_sent, email_code_failed,
-//   email_code_locked, email_verified, reset_email_blocked, password_reset_via_email,
-//   mail_unconfigured, mail_send_failed,
 //   oauth_started, oauth_login, oauth_failed, oauth_unconfigured, oauth_linked, oauth_unlinked
 
 export type SecurityEvent =
@@ -45,20 +41,6 @@ export type SecurityEvent =
   | "admin_feedback_deleted"
   | "csrf_blocked"
   | "rate_limited"
-  | "signup_code_sent"
-  | "signup_notice_sent"
-  | "signup_code_failed"
-  | "signup_code_locked"
-  | "email_rate_limited"
-  | "email_code_sent"
-  | "email_notice_sent"
-  | "email_code_failed"
-  | "email_code_locked"
-  | "email_verified"
-  | "reset_email_blocked"
-  | "password_reset_via_email"
-  | "mail_unconfigured"
-  | "mail_send_failed"
   | "oauth_started"
   | "oauth_login"
   | "oauth_failed"

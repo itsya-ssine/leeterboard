@@ -59,7 +59,6 @@ async function columnExists(table: string, column: string): Promise<boolean> {
  *
  *   users ──< history          one daily snapshot per member per UTC day
  *   users ──  sync_status      latest sync attempt per member (admin dashboard)
- *   users ──< pending_email_codes  open e-mail verification codes (sign-up, add e-mail, reset)
  *   users ──< oauth_identities     the Google / GitHub accounts a member can sign in with
  *   users ──< oauth_states         Google / GitHub sign-in attempts in flight (PKCE + state)
  *   pending_oauth_signups      a verified Google / GitHub identity waiting for a username
@@ -207,8 +206,11 @@ const FEEDBACK_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC)`
 ];
 
-/* ---------- E-mail verification codes ----------
- * Shared by initDb (fresh databases) and migration 17 (existing ones). One open
+/* ---------- E-mail verification codes (historical) ----------
+ * Used ONLY by migration 17, which has to keep creating this table so a database
+ * that is older than 17 can still be brought up to date. Migration 19 drops it
+ * again, and initDb no longer creates it, so a finished database never has it.
+ * The emailed-code flow it served is gone (sign-up is Google / GitHub now). One open
  * row per purpose + e-mail address: a new request replaces the old one. The
  * browser only ever holds the random `id`; `code_hash` is an HMAC, never the
  * code itself. `email`, and for a sign-up the chosen username and the already
@@ -380,7 +382,6 @@ export async function initDb(): Promise<void> {
       ...PLATFORM_DDL,
       ...RATE_LIMIT_DDL,
       ...FEEDBACK_DDL,
-      ...EMAIL_CODES_DDL,
       ...OAUTH_DDL
     ],
     "write"
@@ -419,7 +420,8 @@ const MIGRATIONS: Migration[] = [
   { version: 15, name: "clear_pending_registrations", up: migrateClearPendingRegistrations },
   { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze },
   { version: 17, name: "email_verification", up: migrateEmailVerification },
-  { version: 18, name: "oauth_sign_in", up: migrateOAuthSignIn }
+  { version: 18, name: "oauth_sign_in", up: migrateOAuthSignIn },
+  { version: 19, name: "drop_pending_email_codes", up: migrateDropPendingEmailCodes }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -629,7 +631,7 @@ async function migrateClearPendingRegistrations(): Promise<void> {
 
 // v17 — e-mail verification. Members get an optional, private e-mail address
 // (users.email, stored lowercase, unique ignoring case) and the time it was
-// verified, and pending_email_codes holds the codes waiting to be entered.
+// verified. It also created pending_email_codes, which v19 drops again.
 // Additive only (no table rebuild), so the previous release keeps working
 // while this runs. Existing members keep email = NULL. Safe to run twice, or
 // from two serverless instances at once.
@@ -660,6 +662,16 @@ async function migrateEmailVerification(): Promise<void> {
 // instances at once (every statement is IF NOT EXISTS).
 async function migrateOAuthSignIn(): Promise<void> {
   await client.batch(OAUTH_DDL, "write");
+}
+
+// v19 — the emailed-code flow is gone, so its table goes too. pending_email_codes
+// never held production data (migration 17 never reached production), and every
+// row in it is a short-lived code anyway. users.email and users.email_verified_at
+// STAY: they now hold the address a provider verified. Dropping the table also
+// drops its two indexes. Safe to run twice, or from two serverless instances at
+// once (IF EXISTS).
+async function migrateDropPendingEmailCodes(): Promise<void> {
+  await client.execute("DROP TABLE IF EXISTS pending_email_codes");
 }
 
 // v16 — the same sticky "this handle stopped resolving" marker LeetCode has
@@ -1290,7 +1302,6 @@ export async function deleteUserById(id: string): Promise<boolean> {
       { sql: "DELETE FROM platform_sync_status WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM platform_history WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM pending_links WHERE user_id = ?", args: [id] },
-      { sql: "DELETE FROM pending_email_codes WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM oauth_identities WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM oauth_states WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM notifications WHERE user_id = ?", args: [id] },
@@ -2241,203 +2252,18 @@ export async function setMeta(key: string, value: string): Promise<void> {
   });
 }
 
-/* ---------- E-mail addresses and verification codes ----------
+/* ---------- E-mail addresses ----------
  * A member's e-mail is private. rowToUser deliberately does not map it, so it
  * can't end up in the board, profile or admin payloads by accident: the only
  * ways to read an address are getUserEmail (a member's own) and the lookups
  * below that take an address and answer "who has it". Addresses are always
  * stored and compared in lowercase; every function here normalises its input,
  * so a caller that forgets to can't create a second spelling of the same one.
+ * The address always comes from Google or GitHub, which verified it.
  */
-
-export type EmailCodePurpose = "signup" | "add_email" | "reset";
-
-export interface PendingEmailCode {
-  id: string;
-  purpose: EmailCodePurpose;
-  email: string; // lowercase
-  userId: string | null; // null for a sign-up: the member doesn't exist yet
-  username: string | null; // sign-up only
-  displayName: string | null; // sign-up only
-  passwordHash: string | null; // sign-up and reset: the NEW password, already hashed
-  codeHash: string; // HMAC of the code (emailCodes.ts); never the code itself
-  attempts: number;
-  createdAt: string;
-  lastSentAt: string;
-  expiresAt: string;
-}
-
-function rowToPendingEmailCode(r: Record<string, unknown>): PendingEmailCode {
-  return {
-    id: r.id as string,
-    purpose: r.purpose as EmailCodePurpose,
-    email: r.email as string,
-    userId: (r.user_id as string | null) ?? null,
-    username: (r.username as string | null) ?? null,
-    displayName: (r.display_name as string | null) ?? null,
-    passwordHash: (r.password_hash as string | null) ?? null,
-    codeHash: r.code_hash as string,
-    attempts: Number(r.attempts ?? 0),
-    createdAt: r.created_at as string,
-    lastSentAt: r.last_sent_at as string,
-    expiresAt: r.expires_at as string
-  };
-}
 
 function isUniqueViolation(err: unknown): boolean {
   return /UNIQUE/i.test(String((err as { message?: unknown })?.message ?? ""));
-}
-
-// Only one open request exists per purpose and address, so starting again
-// REPLACES it: the old row goes, with its id, its code and its attempt counter,
-// and the new row starts at zero attempts. Whoever held the old id can no longer
-// verify. (INSERT OR REPLACE resolves the clash on the unique index.)
-export async function createPendingEmailCode(p: Omit<PendingEmailCode, "attempts">): Promise<void> {
-  await client.execute({
-    sql: `INSERT OR REPLACE INTO pending_email_codes
-            (id, purpose, email, user_id, username, display_name, password_hash,
-             code_hash, attempts, created_at, last_sent_at, expires_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-    args: [
-      p.id,
-      p.purpose,
-      normalizeEmail(p.email),
-      p.userId,
-      p.username,
-      p.displayName,
-      p.passwordHash,
-      p.codeHash,
-      p.createdAt,
-      p.lastSentAt,
-      p.expiresAt
-    ]
-  });
-}
-
-// Starts (or restarts) the open request for this purpose and address, but only
-// when no code went to that address within `cooldownMs`. Returns false, and
-// changes nothing, when one did. It is ONE statement, so a burst of parallel
-// starts for the same address gets exactly one true: a read-then-write check
-// would let them all through and mail the address once each. When it replaces
-// an older row it replaces everything, id and code hash included, and the
-// attempt counter starts again at zero.
-export async function startPendingEmailCode(
-  p: Omit<PendingEmailCode, "attempts">,
-  cooldownMs: number
-): Promise<boolean> {
-  const cutoff = new Date(Date.parse(p.lastSentAt) - cooldownMs).toISOString();
-  const res = await client.execute({
-    sql: `INSERT INTO pending_email_codes
-            (id, purpose, email, user_id, username, display_name, password_hash,
-             code_hash, attempts, created_at, last_sent_at, expires_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-          ON CONFLICT(purpose, email) DO UPDATE SET
-            id = excluded.id,
-            user_id = excluded.user_id,
-            username = excluded.username,
-            display_name = excluded.display_name,
-            password_hash = excluded.password_hash,
-            code_hash = excluded.code_hash,
-            attempts = 0,
-            created_at = excluded.created_at,
-            last_sent_at = excluded.last_sent_at,
-            expires_at = excluded.expires_at
-          WHERE pending_email_codes.last_sent_at <= ?`,
-    args: [
-      p.id,
-      p.purpose,
-      normalizeEmail(p.email),
-      p.userId,
-      p.username,
-      p.displayName,
-      p.passwordHash,
-      p.codeHash,
-      p.createdAt,
-      p.lastSentAt,
-      p.expiresAt,
-      cutoff
-    ]
-  });
-  return (res.rowsAffected ?? 0) > 0;
-}
-
-export async function getPendingEmailCode(id: string): Promise<PendingEmailCode | null> {
-  const res = await client.execute({ sql: "SELECT * FROM pending_email_codes WHERE id = ?", args: [id] });
-  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
-}
-
-// The open request for this purpose and address, if any. The start routes use
-// it to apply the resend cooldown (lastSentAt) before replacing the row.
-export async function getOpenPendingEmailCode(
-  purpose: EmailCodePurpose,
-  email: string
-): Promise<PendingEmailCode | null> {
-  const res = await client.execute({
-    sql: "SELECT * FROM pending_email_codes WHERE purpose = ? AND email = ?",
-    args: [purpose, normalizeEmail(email)]
-  });
-  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
-}
-
-// Counts one wrong guess and returns how many there now are, or null when the
-// request no longer exists. The increment and the read are ONE statement, so a
-// burst of parallel guesses each sees a different count and can't all pass a
-// "fewer than 5" check made on a stale read.
-export async function bumpPendingEmailAttempts(id: string): Promise<number | null> {
-  const res = await client.execute({
-    sql: "UPDATE pending_email_codes SET attempts = attempts + 1 WHERE id = ? RETURNING attempts",
-    args: [id]
-  });
-  return res.rows.length ? Number(res.rows[0].attempts) : null;
-}
-
-// A signed-in member's open request for this purpose (add_email, ...). The
-// member flows bind the request to the SESSION, not to a cookie: the start
-// route deletes the member's requests for other addresses, so there is at most
-// one. Null when none (or when a newer request for the same address, from
-// someone else, took the slot).
-export async function getPendingEmailCodeForUser(userId: string, purpose: EmailCodePurpose): Promise<PendingEmailCode | null> {
-  const res = await client.execute({
-    sql: "SELECT * FROM pending_email_codes WHERE user_id = ? AND purpose = ? ORDER BY created_at DESC LIMIT 1",
-    args: [userId, purpose]
-  });
-  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
-}
-
-// Drops a member's open requests for every address EXCEPT `exceptEmail`. The
-// one for that address is left alone on purpose: replacing it is the job of
-// startPendingEmailCode, which applies the resend wait; deleting it here would
-// let a member skip the wait.
-export async function deletePendingEmailCodesForUser(
-  userId: string,
-  purpose: EmailCodePurpose,
-  exceptEmail: string
-): Promise<void> {
-  await client.execute({
-    sql: "DELETE FROM pending_email_codes WHERE user_id = ? AND purpose = ? AND email != ?",
-    args: [userId, purpose, normalizeEmail(exceptEmail)]
-  });
-}
-
-export async function deletePendingEmailCode(id: string): Promise<void> {
-  await client.execute({ sql: "DELETE FROM pending_email_codes WHERE id = ?", args: [id] });
-}
-
-// Atomic single-use take. Deletes the row and hands it back in ONE statement,
-// so of any number of simultaneous verifications exactly one gets the row and
-// the rest get null. An expired row is not handed out (and is left for
-// deleteExpiredPendingEmailCodes), so a late verify can't succeed even if the
-// caller forgot to check the clock.
-export async function consumePendingEmailCode(id: string, nowIso: string): Promise<PendingEmailCode | null> {
-  const res = await client.execute({
-    sql: "DELETE FROM pending_email_codes WHERE id = ? AND expires_at > ? RETURNING *",
-    args: [id, nowIso]
-  });
-  return res.rows.length ? rowToPendingEmailCode(res.rows[0] as unknown as Record<string, unknown>) : null;
-}
-
-export async function deleteExpiredPendingEmailCodes(nowIso: string): Promise<void> {
-  await client.execute({ sql: "DELETE FROM pending_email_codes WHERE expires_at < ?", args: [nowIso] });
 }
 
 export interface UserByEmail {

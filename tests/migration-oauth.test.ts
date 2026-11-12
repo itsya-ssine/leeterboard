@@ -67,13 +67,9 @@ describe("migration 18: sign in with Google / GitHub", () => {
   });
 
   it("upgrades a database that has the old shape, keeps its rows, and runs once", async () => {
-    // Back to "before 18", with members and an e-mail code row that must survive.
+    // Back to "before 18", with members that must survive.
     await addUser("u1", "alice");
     await addUser("u2", "bob");
-    await db.client.execute(
-      `INSERT INTO pending_email_codes (id, purpose, email, code_hash, created_at, last_sent_at, expires_at)
-       VALUES ('c1', 'signup', 'x@example.com', 'hash', '${NOW}', '${NOW}', '${LATER}')`
-    );
     await db.client.execute("DELETE FROM schema_migrations WHERE version = 18");
     for (const name of ["oauth_identities", "oauth_states", "pending_oauth_signups"]) {
       await db.client.execute(`DROP TABLE ${name}`);
@@ -88,7 +84,6 @@ describe("migration 18: sign in with Google / GitHub", () => {
       assert.equal(await count(`SELECT COUNT(*) AS n FROM ${name}`), 0);
     }
     assert.equal(await count("SELECT COUNT(*) AS n FROM users"), 2);
-    assert.equal(await count("SELECT COUNT(*) AS n FROM pending_email_codes"), 1);
     assert.equal(await count("SELECT COUNT(*) AS n FROM schema_migrations WHERE version = 18"), 1);
   });
 

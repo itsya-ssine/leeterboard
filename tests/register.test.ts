@@ -1,12 +1,12 @@
 /**
- * Sign-up with a username, a password and a verified e-mail, no LeetCode:
- * POST /api/auth/register/start, then /register/verify (the old one-step
- * POST /api/auth/register is gone).
+ * What a new member looks like once they have signed up with Google or GitHub
+ * and chosen a username (POST /api/auth/oauth/complete): no LeetCode, no
+ * password, the provider-verified e-mail stored and never returned. The routes
+ * of the old emailed-code sign-up must be gone.
  *
- * Runs the real server against a throwaway database and a fake Resend. Sign-up
- * starts are limited to 10 an hour per IP and failed ones count too, so every
- * sign-up here comes from its own IP (registerViaApi) and the limiter test
- * spends one IP on purpose.
+ * Runs the real server against a throwaway database and the fake provider.
+ * Every sign-up comes from its own IP (signUpViaOAuth), because the OAuth routes
+ * are limited per IP.
  */
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -14,45 +14,24 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
-import { createClient } from "@libsql/client";
-import { client, registerViaApi, startServer, type TestServer } from "./helpers.js";
-import { makeFakeMail, makeUser } from "./f2-seed.js";
+import { client, signUpViaOAuth, startServer, type TestServer } from "./helpers.js";
+import { makeFakeOAuth, makeUser, mergeEnv, OAUTH_TEST_ENV } from "./f2-seed.js";
 
 const PW = "correct-horse-battery-9";
 
 let tmpDir = "";
-let dbUrl = "";
 let server: TestServer;
 let api: ReturnType<typeof client>;
 let db: typeof import("../db.js");
-let legacyHash = "";
-const mail = makeFakeMail();
+const fake = makeFakeOAuth();
 
-// A unique address per call, so the 60-second resend rule never leaks between tests.
-let seq = 0;
-const emailFor = (username: string) => `${username.toLowerCase().replace(/[^a-z0-9]/g, "")}${++seq}@example.com`;
-const register = (body: { username?: string; password?: string; displayName?: string; email?: string }) =>
-  registerViaApi(api, mail, { username: "", password: "", ...body, email: body.email ?? emailFor(body.username ?? "x") });
-// Only the first step, for the cases that are refused before any mail is sent.
-const start = (body: unknown) =>
-  api("POST", "/api/auth/register/start", { body, headers: { "x-forwarded-for": `10.99.0.${++seq % 250 + 1}` } });
-
-// Read on a fresh connection each time, like a separate process: a long-lived
-// one could keep reading an old snapshot and make "unchanged" pass for the wrong reason.
-const hashOf = async (loginUsername: string) => {
-  const c = createClient({ url: dbUrl });
-  try {
-    const rows = (await c.execute({ sql: "SELECT password_hash FROM users WHERE login_username = ?", args: [loginUsername] })).rows;
-    return rows.length ? (rows[0].password_hash as string) : undefined;
-  } finally {
-    c.close();
-  }
-};
+const count = async (sql: string, args: (string | number)[] = []) =>
+  Number((await db.client.execute({ sql, args })).rows[0].n);
 
 before(async () => {
   const secret = crypto.randomBytes(48).toString("hex");
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "leeterboard-register-"));
-  dbUrl = `file:${path.join(tmpDir, "test.db")}`;
+  const dbUrl = `file:${path.join(tmpDir, "test.db")}`;
 
   process.env.JWT_SECRET = secret;
   process.env.TURSO_DATABASE_URL = dbUrl;
@@ -63,43 +42,40 @@ before(async () => {
   await db.initDb();
   await db.client.execute("PRAGMA journal_mode = WAL");
 
-  // An existing member who signed up with LeetCode. Their login name is their
-  // LeetCode name in lowercase, the same as the migration gave every old member.
-  legacyHash = await hashPassword(PW);
-  await db.insertUser(makeUser("Bob_99"), legacyHash);
+  // An existing member who signed up with LeetCode and a password.
+  await db.insertUser(makeUser("Bob_99"), await hashPassword(PW));
 
-  server = await startServer({ TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret, ...mail.env });
+  server = await startServer(mergeEnv(fake.env, { TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret, ...OAUTH_TEST_ENV }));
   api = client(server);
 });
 
 after(async () => {
   await server?.stop();
-  mail.cleanup();
+  fake.cleanup();
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("a successful sign-up", () => {
-  let res: Awaited<ReturnType<typeof register>>;
+  let res: Awaited<ReturnType<typeof signUpViaOAuth>>;
 
   before(async () => {
-    res = await register({ username: "  Alice_99 ", password: PW, displayName: "Alice A.", email: "Alice.99@Example.COM" });
+    res = await signUpViaOAuth(api, fake, { username: "  Alice_99 ", displayName: "Alice A.", email: "Alice.99@Example.COM" });
   });
 
   it("creates the member, signs them in, and answers 201", () => {
-    assert.equal(res.status, 201);
+    assert.equal(res.status, 201, res.text);
     assert.ok(res.cookie, "a session cookie was set");
     assert.equal(res.json.displayName, "Alice A.");
     assert.equal(res.json.isAdmin, false);
   });
 
-  it("returns a member with no LeetCode data, and never the password or its hash", () => {
+  it("returns a member with no LeetCode data, and no password material", () => {
     assert.equal(res.json.leetcodeLinked, false);
     assert.equal(res.json.leetcodeUsername, "");
     assert.equal(res.json.lastUpdated, null);
     assert.equal(res.json.allTimeSolved, 0);
     assert.deepEqual(res.json.history, []);
     assert.doesNotMatch(res.text, /scrypt|passwordHash|password_hash/i);
-    assert.equal(res.text.includes(PW), false);
   });
 
   it("stores the address lowercase and verified, and never returns it", async () => {
@@ -110,7 +86,7 @@ describe("a successful sign-up", () => {
     assert.equal("email" in res.json, false);
   });
 
-  it("stores the lowercase, trimmed username and NULL for LeetCode", async () => {
+  it("stores the lowercase, trimmed username, NULL for LeetCode and no password", async () => {
     const row = (
       await db.client.execute({
         sql: "SELECT login_username, leetcode_username, last_updated, password_hash FROM users WHERE id = ?",
@@ -120,15 +96,13 @@ describe("a successful sign-up", () => {
     assert.equal(row.login_username, "alice_99");
     assert.equal(row.leetcode_username, null);
     assert.equal(row.last_updated, null);
-    assert.match(String(row.password_hash), /^scrypt/i, "the password is stored hashed");
+    assert.equal(row.password_hash, "");
   });
 
   it("starts with no history and no notifications (those begin when LeetCode is linked)", async () => {
-    const count = async (table: string) =>
-      Number((await db.client.execute({ sql: `SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`, args: [res.json.id] })).rows[0].n);
-    assert.equal(await count("history"), 0);
-    assert.equal(await count("notifications"), 0);
-    assert.equal(await count("user_awards"), 0);
+    for (const table of ["history", "notifications", "user_awards"]) {
+      assert.equal(await count(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`, [res.json.id]), 0, table);
+    }
   });
 
   it("gives a working session", async () => {
@@ -137,135 +111,79 @@ describe("a successful sign-up", () => {
     assert.equal((await api("GET", "/api/notifications", { cookie: res.cookie })).status, 200);
   });
 
-  it("logs the sign-up without the password or the address", () => {
+  it("logs the sign-up without the address", () => {
     const line = server.logs().split("\n").find((l) => l.includes('"event":"account_created"'));
     assert.ok(line, "account_created was logged");
     assert.equal(JSON.parse(line!).username, "alice_99");
     assert.equal(JSON.parse(line!).maskedEmail, "a***@example.com");
-    assert.equal(line!.includes(PW), false);
     assert.equal(line!.toLowerCase().includes("alice.99@example.com"), false);
   });
 });
 
 describe("a name that is already taken", () => {
-  it("is refused with 409 in any letter case, and changes nothing", async () => {
-    const before = await hashOf("alice_99");
-    const res = await register({ username: "ALICE_99", password: "another-chosen-password-77" });
-    assert.equal(res.status, 409);
-    assert.equal(res.json.error, "That username is taken.");
-    assert.equal(res.cookie, null);
-    assert.equal(await hashOf("alice_99"), before);
-  });
-
-  it("can't be used to take over an existing LeetCode member", async () => {
-    const res = await register({ username: "Bob_99", password: "attacker-chosen-password-99" });
-    assert.equal(res.status, 409);
-    assert.equal(res.cookie, null);
-    assert.equal(await hashOf("bob_99"), legacyHash, "their password is untouched");
+  it("is refused with 409 in any letter case, and creates nothing", async () => {
+    const before = await count("SELECT COUNT(*) AS n FROM users");
+    for (const name of ["bob_99", "BOB_99", "Alice_99"]) {
+      const res = await signUpViaOAuth(api, fake, { username: name });
+      assert.equal(res.status, 409, name);
+      assert.equal(res.cookie, null, name);
+    }
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users"), before);
   });
 });
 
-describe("input that is refused", () => {
+describe("a username that is refused", () => {
   it("rejects a name that is too short, saying why", async () => {
-    const res = await register({ username: "ab", password: PW });
+    const res = await signUpViaOAuth(api, fake, { username: "ab" });
     assert.equal(res.status, 400);
-    assert.equal(res.json.error, "Username must be 3 to 30 characters.");
+    assert.match(res.json.error, /3 to 30/);
     assert.equal(res.cookie, null);
   });
 
-  it("rejects a reserved name", async () => {
-    const res = await register({ username: "Admin", password: PW });
+  it("rejects a reserved name and creates nothing", async () => {
+    const res = await signUpViaOAuth(api, fake, { username: "admin" });
     assert.equal(res.status, 400);
-    assert.equal(res.json.error, "That username isn't available.");
-  });
-
-  it("rejects a short password", async () => {
-    const res = await register({ username: "dave_ok", password: "short" });
-    assert.equal(res.status, 400);
-    assert.match(res.json.error, /at least \d+ characters/);
-    assert.equal(await hashOf("dave_ok"), undefined, "no account was created");
-  });
-
-  it("rejects a password that is the username", async () => {
-    const res = await register({ username: "erin_ok_name", password: "erin_ok_name" });
-    assert.equal(res.status, 400);
-    assert.equal(res.json.error, "Password can't be the same as your username.");
-  });
-
-  it("rejects a body with no fields", async () => {
-    const res = await start({});
-    assert.equal(res.status, 400);
-    assert.equal(res.json.error, "Username is required.");
-  });
-
-  it("rejects a missing or malformed e-mail address, and creates nothing", async () => {
-    for (const email of [undefined, "", "not-an-email", "a@b@c.com", "x y@example.com"]) {
-      const res = await start({ username: "frank_ok", password: PW, email });
-      assert.equal(res.status, 400, String(email));
-    }
-    assert.equal(await hashOf("frank_ok"), undefined, "no account was created");
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE login_username = 'admin'"), 0);
   });
 });
 
 describe("two sign-ups for the same name at once", () => {
   it("lets exactly one win and answers the other 409, with no server error", async () => {
-    // Both starts succeed (nobody has the name yet); the unique index decides at verify.
-    const begin = async (email: string, password: string, ip: string) => {
-      const res = await api("POST", "/api/auth/register/start", {
-        body: { username: "racer", password, email },
-        headers: { "x-forwarded-for": ip }
-      });
-      assert.equal(res.status, 200);
-      return {
-        cookie: `signup=${/signup=([^;]+)/.exec(res.headers.get("set-cookie") ?? "")![1]}`,
-        code: mail.lastCode(email)!,
-        ip
-      };
-    };
-    const a = await begin("racer.a@example.com", PW, "10.98.0.1");
-    const b = await begin("racer.b@example.com", "a-different-password-12", "10.98.0.2");
-    const [ra, rb] = await Promise.all(
-      [a, b].map((x) =>
-        api("POST", "/api/auth/register/verify", { body: { code: x.code }, cookie: x.cookie, headers: { "x-forwarded-for": x.ip } })
-      )
-    );
-    assert.deepEqual([ra.status, rb.status].sort(), [201, 409]);
-
-    const rows = await db.client.execute("SELECT id, display_name FROM users WHERE login_username = 'racer'");
-    assert.equal(rows.rows.length, 1);
-    // No display name was sent, so it defaults to the username.
-    assert.equal(rows.rows[0].display_name, "racer");
+    const [a, b] = await Promise.all([
+      signUpViaOAuth(api, fake, { username: "racer" }),
+      signUpViaOAuth(api, fake, { username: "racer" })
+    ]);
+    assert.deepEqual([a.status, b.status].sort(), [201, 409]);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE login_username = 'racer'"), 1);
   });
 });
 
 describe("the old sign-ups are gone", () => {
-  it("has no one-step or LeetCode-proof endpoint any more, and stores no challenge", async () => {
-    for (const url of ["/api/auth/register", "/api/auth/register/leetcode"]) {
-      const res = await api("POST", url, { body: { leetcodeUsername: "bob_99", password: PW } });
+  it("has no password, LeetCode-proof or emailed-code sign-up or reset endpoint any more", async () => {
+    for (const url of [
+      "/api/auth/register",
+      "/api/auth/register/leetcode",
+      "/api/auth/register/start",
+      "/api/auth/register/verify",
+      "/api/auth/reset/email/start",
+      "/api/auth/reset/email/verify"
+    ]) {
+      const res = await api("POST", url, { body: { username: "x_user", password: PW, email: "x@example.com", code: "123456" } });
       assert.equal(res.status, 404, url);
       assert.equal(res.cookie, null, url);
     }
-    const c = createClient({ url: dbUrl });
-    try {
-      const rows = await c.execute("SELECT COUNT(*) AS n FROM pending_registrations");
-      assert.equal(Number(rows.rows[0].n), 0);
-    } finally {
-      c.close();
+  });
+
+  it("has no account e-mail endpoints any more (the address comes from the provider)", async () => {
+    const login = await api("POST", "/api/auth/login", { body: { username: "bob_99", password: PW } });
+    for (const url of ["/api/account/email/start", "/api/account/email/verify"]) {
+      const res = await api("POST", url, { body: { email: "x@example.com", currentPassword: PW, code: "123456" }, cookie: login.cookie });
+      assert.equal(res.status, 404, url);
     }
   });
-});
 
-describe("sign-up is rate limited", () => {
-  it("answers 429 once an IP's hourly allowance of starts is used up", async () => {
-    const ip = "10.97.0.1";
-    const startFrom = (n: number) =>
-      api("POST", "/api/auth/register/start", {
-        body: { username: `limited_${n}`, password: PW, email: `limited${n}@example.com` },
-        headers: { "x-forwarded-for": ip }
-      });
-    for (let n = 1; n <= 10; n++) assert.equal((await startFrom(n)).status, 200, `start ${n}`);
-    const res = await startFrom(11);
-    assert.equal(res.status, 429);
-    assert.equal(await hashOf("limited_11"), undefined);
+  it("stores no pending sign-up codes at all", async () => {
+    const t = await db.client.execute("SELECT 1 FROM sqlite_master WHERE name = 'pending_email_codes'");
+    assert.equal(t.rows.length, 0);
   });
 });

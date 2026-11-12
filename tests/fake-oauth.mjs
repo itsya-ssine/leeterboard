@@ -1,7 +1,7 @@
 // Preloaded into the TEST server process only (NODE_OPTIONS=--import <this file>).
 //
-// Stands in for GitHub and Google's server-to-server endpoints, the same way
-// fake-mail.mjs stands in for Resend. The server under test therefore runs in
+// Stands in for GitHub and Google's server-to-server endpoints (fake-leetcode.mjs
+// does the same for LeetCode). The server under test therefore runs in
 // production mode with the REAL oauthProviders.ts code, calling the REAL URLs;
 // only the network is faked. (The development override OAUTH_DEV_PROVIDER_URL is
 // refused in production, so black-box tests must not use it.)
