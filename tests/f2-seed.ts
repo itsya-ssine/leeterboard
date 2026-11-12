@@ -127,3 +127,52 @@ export function mergeEnv(...envs: Record<string, string>[]): Record<string, stri
   if (options.length > 0) merged.NODE_OPTIONS = options.join(" ");
   return merged;
 }
+
+// A throwaway folder standing in for "GitHub and Google" (see fake-oauth.mjs). The
+// server under test runs in production mode with the real oauthProviders.ts; this
+// fake answers its HTTPS calls. A test approves a sign-in by issuing a code, then
+// calls the server's /callback with it.
+export interface FakeOAuthProfile {
+  /** The provider's stable user id (GitHub's numeric id, Google's "sub"). */
+  id: string | number;
+  email: string;
+  name?: string;
+  /** GitHub only. Defaults to "user<id>". */
+  login?: string;
+}
+
+export interface FakeOAuthOptions {
+  unverified?: boolean; // the address is not verified
+  noPrimary?: boolean; // GitHub: only a verified non-primary address
+  badToken?: boolean; // the token endpoint refuses the code
+  down?: boolean; // the token endpoint answers 500
+  slow?: boolean; // the token endpoint never answers
+  challenge?: string; // PKCE challenge to check the verifier against
+}
+
+export function makeFakeOAuth() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "leeterboard-fake-oauth-"));
+  fs.mkdirSync(path.join(dir, "codes"));
+  return {
+    dir,
+    // The member "approves" at the provider: returns the authorization code the
+    // provider would redirect back with. Single use, like the real thing.
+    issueCode(provider: "github" | "google", profile: FakeOAuthProfile, options: FakeOAuthOptions = {}): string {
+      const code = `code${crypto.randomBytes(8).toString("hex")}`;
+      fs.writeFileSync(path.join(dir, "codes", `${provider}-${code}.json`), JSON.stringify({ profile, options }));
+      return code;
+    },
+    // Every provider call the server made so far, oldest first ("github token", "github user", ...).
+    calls: (): string[] => {
+      const file = path.join(dir, "calls.log");
+      return fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean) : [];
+    },
+    // Env for startServer(): real provider code, fake network. Join with another
+    // fake through mergeEnv() when a test needs both.
+    env: {
+      FAKE_OAUTH_DIR: dir,
+      NODE_OPTIONS: `--import ${pathToFileURL(path.resolve(import.meta.dirname, "fake-oauth.mjs")).href}`
+    } as Record<string, string>,
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
+  };
+}

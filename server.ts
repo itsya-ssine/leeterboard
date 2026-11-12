@@ -11,6 +11,7 @@ import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
 import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
+import { assertOAuthDevAtBoot } from "./oauthProviders.js";
 import { checkEmail, maskEmail, parseAllowedDomains } from "./emails.js";
 import { EMAIL_RATE_LIMITED_MESSAGE, refundEmailQuota, takeEmailQuota } from "./emailLimit.js";
 import {
@@ -187,6 +188,9 @@ app.use("/api", apiLimiter);
 // Say loudly, once, if e-mail isn't usable (sign-up then answers 503), and stop
 // if the development-only outbox provider is configured in production.
 assertMailConfigAtBoot();
+// Stop if the development-only OAUTH_DEV_PROVIDER_URL is set in production (sign-in with
+// Google / GitHub would then send the client secret to that address).
+assertOAuthDevAtBoot();
 
 const dbReady = initDb();
 app.use((req, res, next) => {
