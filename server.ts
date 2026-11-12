@@ -14,6 +14,7 @@ import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
 import { assertOAuthDevAtBoot, exchangeAndFetchProfile, OAuthError } from "./oauthProviders.js";
 import {
   buildAuthorizeUrl,
+  checkEmailDomain,
   generatePkce,
   isOAuthProvider,
   newStateId,
@@ -82,6 +83,10 @@ import {
   consumeOAuthState,
   deleteExpiredOAuthRows,
   getUserIdByOAuthIdentity,
+  createPendingOAuthSignup,
+  getPendingOAuthSignup,
+  consumePendingOAuthSignup,
+  insertUserWithIdentity,
   setPasswordHash,
   recordFailedLogin,
   clearFailedLogins,
@@ -1807,6 +1812,12 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
 const OAUTH_STATE_COOKIE = "oauth_state";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_COOKIE_PATH = "/api/auth/oauth";
+// The verified identity waiting for a username (a pending_oauth_signups row).
+const OAUTH_SIGNUP_COOKIE = "oauth_signup";
+const OAUTH_SIGNUP_TTL_MS = 15 * 60 * 1000;
+const OAUTH_SIGNUP_EXPIRED_MESSAGE = "This sign-up has expired. Please start again.";
+const OAUTH_EMAIL_IN_USE_MESSAGE =
+  "An account already uses this email. Sign in the way you did before, then connect this provider in Account settings.";
 
 // SameSite=Lax is what lets the cookie come back on the provider's top-level
 // redirect to the callback; Strict would drop it.
@@ -1819,6 +1830,10 @@ const oauthCookieOptions = {
 
 // Clears the state cookie and sends the browser back to the login page with a
 // code from the allow-list. The type makes a free-form value a compile error.
+// Wider path than the state cookie: the username screen talks to /api/auth/oauth/*,
+// and the cookie must reach exactly those routes.
+const oauthSignupCookieOptions = { ...oauthCookieOptions, path: "/api/auth" };
+
 function oauthFail(res: express.Response, code: OAuthErrorCode): void {
   res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
   res.redirect(302, `/#/login?oauth_error=${code}`);
@@ -1918,9 +1933,27 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     // 5. Who is this? Only the provider's own user id counts, never the e-mail.
     const userId = await getUserIdByOAuthIdentity(provider, profile.providerUserId);
     if (userId === null) {
-      // A new identity becomes a new member in the next step (pending sign-up and
-      // the username screen). Until then it is refused, creating nothing.
-      return refuse("unavailable", "unknown_identity");
+      // A new identity. Nothing is created here: the member first chooses a public
+      // username (POST /api/auth/oauth/complete). The address is checked now so
+      // nobody walks through the username screen only to be refused at the end.
+      if (!checkEmailDomain(profile.email, ALLOWED_EMAIL_DOMAINS)) return refuse("domain_not_allowed", "domain_not_allowed");
+      // The visitor just proved they own this address, so saying it is taken
+      // reveals nothing to a stranger. It is NOT a reason to sign them in.
+      if (await emailTaken(profile.email)) return refuse("email_in_use", "email_in_use");
+
+      const now = Date.now();
+      const pendingId = newStateId();
+      await createPendingOAuthSignup({
+        id: pendingId,
+        provider,
+        providerUserId: profile.providerUserId,
+        email: profile.email,
+        displayName: profile.displayName,
+        expiresAt: new Date(now + OAUTH_SIGNUP_TTL_MS).toISOString()
+      });
+      res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+      res.cookie(OAUTH_SIGNUP_COOKIE, pendingId, { ...oauthSignupCookieOptions, maxAge: OAUTH_SIGNUP_TTL_MS });
+      return res.redirect(302, "/#/signup/username");
     }
     const record = await getUserAuthById(userId);
     if (!record) return refuse("failed", "identity_without_member");
@@ -1932,6 +1965,139 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
   } catch (error: any) {
     console.error(`[OAuth] callback failed: ${error.message}`);
     refuse("failed", "server_error");
+  }
+});
+
+// A new member has no LeetCode data: no solved counts, no history, no baseline.
+// All of that starts when they link LeetCode from their account settings.
+function newMemberRecord(username: string, displayName: string): User {
+  return {
+    id: `user-${crypto.randomUUID()}`,
+    displayName,
+    loginUsername: username,
+    leetcodeLinked: false,
+    leetcodeUsername: "",
+    avatarUrl: defaultAvatar(username),
+    school: "",
+    bio: "",
+    githubUrl: "",
+    linkedinUrl: "",
+    websiteUrl: "",
+    allTimeSolved: 0,
+    easySolved: 0,
+    mediumSolved: 0,
+    hardSolved: 0,
+    contestRating: null,
+    contestsAttended: 0,
+    currentStreak: null,
+    longestStreak: null,
+    weeklyProgress: 0,
+    monthlyProgress: 0,
+    rank: 0,
+    lastUpdated: null,
+    trackingStart: "",
+    baselineSolved: 0,
+    history: []
+  };
+}
+
+const PENDING_ID_RE = /^[0-9a-f]{32}$/;
+
+async function readPendingOAuthSignup(req: express.Request) {
+  const value = req.cookies?.[OAUTH_SIGNUP_COOKIE];
+  if (typeof value !== "string" || !PENDING_ID_RE.test(value)) return null;
+  return getPendingOAuthSignup(value, new Date().toISOString());
+}
+
+// GET — the username screen asks who it is creating an account for. The address
+// is masked, and nothing here can be used without the httpOnly cookie that only
+// the browser that completed the provider step holds.
+app.get("/api/auth/oauth/pending", oauthLimiter, async (req, res) => {
+  try {
+    const pending = await readPendingOAuthSignup(req);
+    if (!pending) {
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      return res.status(400).json({ error: OAUTH_SIGNUP_EXPIRED_MESSAGE, expired: true });
+    }
+    res.json({
+      provider: pending.provider,
+      maskedEmail: maskEmail(pending.email),
+      suggestedDisplayName: pending.displayName
+    });
+  } catch (error: any) {
+    console.error(`[OAuth] pending lookup failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — the new member chooses a public username (and, optionally, a display
+// name). The account is created here and only here, with the provider-verified
+// address stored on it, no password and no LeetCode. Everything that can be
+// checked without spending the pending sign-up is checked first, so a typo or a
+// taken name doesn't send the person back through the provider.
+app.post("/api/auth/oauth/complete", oauthLimiter, async (req, res) => {
+  try {
+    const expired = () => {
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      return res.status(400).json({ error: OAUTH_SIGNUP_EXPIRED_MESSAGE, expired: true });
+    };
+
+    const pending = await readPendingOAuthSignup(req);
+    if (!pending) return expired();
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const check = checkUsername(body.username);
+    if (!check.ok) return res.status(400).json({ error: check.error });
+    const username = check.username;
+    if (await getUserAuthByLoginUsername(username)) {
+      return res.status(409).json({ error: "That username is taken." });
+    }
+
+    // Someone may have taken this address since the provider step.
+    if (await emailTaken(pending.email)) {
+      await consumePendingOAuthSignup(pending.id, new Date().toISOString());
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      return res.status(409).json({ error: OAUTH_EMAIL_IN_USE_MESSAGE });
+    }
+
+    // One use: of two simultaneous completions exactly one gets the row.
+    const taken = await consumePendingOAuthSignup(pending.id, new Date().toISOString());
+    if (!taken) return expired();
+
+    const user = newMemberRecord(username, cleanDisplayName(body.displayName, username));
+    try {
+      await insertUserWithIdentity(user, {
+        loginUsername: username,
+        email: taken.email,
+        provider: taken.provider,
+        providerUserId: taken.providerUserId
+      });
+    } catch (error: any) {
+      if (!String(error?.message).includes("UNIQUE")) throw error;
+      // The unique indexes decide, and the batch is all-or-nothing: no member was created.
+      if (await getUserAuthByLoginUsername(username)) {
+        // Lost a race for the name. Give the sign-up back so another name can be tried.
+        await createPendingOAuthSignup(taken);
+        return res.status(409).json({ error: "That username was just taken. Please choose another one." });
+      }
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      if (await getUserIdByOAuthIdentity(taken.provider, taken.providerUserId)) {
+        return res.status(409).json({ error: "This account already has a Leeterboard account. Sign in with it instead." });
+      }
+      return res.status(409).json({ error: OAUTH_EMAIL_IN_USE_MESSAGE });
+    }
+
+    logSecurityEvent(
+      "account_created",
+      { ip: req.ip, userId: user.id, username, maskedEmail: maskEmail(taken.email), provider: taken.provider },
+      "info"
+    );
+    res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+    setSessionCookie(res, user, ""); // no password: the token carries no fingerprint
+    res.status(201).json({ ...user, isAdmin: isAdminUser(user) });
+  } catch (error: any) {
+    console.error(`[OAuth] complete failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 

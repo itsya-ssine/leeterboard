@@ -166,8 +166,9 @@ describe("/callback", () => {
     const { state, cookie } = await begin("github");
     const code = fake.issueCode("github", { id: 9999, email: "shared@example.com" });
     const res = await hit(`/api/auth/oauth/github/callback?code=${code}&state=${state}`, cookie);
-    assert.equal(res.location, "/#/login?oauth_error=unavailable");
+    assert.equal(res.location, "/#/login?oauth_error=email_in_use");
     assert.equal(res.pick("session"), null);
+    assert.equal(res.pick("oauth_signup"), null, "no pending sign-up is started either");
   });
 
   it("refuses a missing or wrong state cookie, without calling the provider", async () => {
