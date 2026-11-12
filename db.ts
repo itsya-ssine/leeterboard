@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { User, HistoryRecord, SyncState, NotificationType, AppNotification, NotificationFeed, SentMessage, PlatformAccount, PlatformId, FeedbackCategory, FeedbackItem } from "./src/types.js";
 import type { PlatformStats } from "./platforms/common.js";
 import { normalizeEmail } from "./emails.js";
+import type { OAuthProvider } from "./oauth.js";
 
 // If TURSO_DATABASE_URL is set, connect to a real Turso cloud database.
 // Otherwise fall back to a local SQLite file (no signup needed) so the
@@ -1139,7 +1140,7 @@ export interface InsertUserOptions {
   email?: string;
 }
 
-export async function insertUser(user: User, passwordHash: string, options: InsertUserOptions = {}): Promise<void> {
+function insertUserStatements(user: User, passwordHash: string, options: InsertUserOptions): InStatement[] {
   // No LeetCode linked is stored as NULL, never as "": NULLs may repeat in the
   // unique index, empty strings may not.
   // Records built by hand may lack the flag, so only an explicit false counts.
@@ -1150,43 +1151,44 @@ export async function insertUser(user: User, passwordHash: string, options: Inse
     throw new Error("insertUser needs a loginUsername for a member without a LeetCode account.");
   }
   const email = options.email === undefined ? null : normalizeEmail(options.email);
-  await client.batch(
-    [
-      {
-        sql: `INSERT INTO users
-          (id, display_name, login_username, leetcode_username, avatar_url, all_time_solved,
-           easy_solved, medium_solved, hard_solved, weekly_progress, monthly_progress,
-           last_updated, tracking_start, baseline_solved, contest_rating, contests_attended,
-           current_streak, longest_streak, password_hash, email, email_verified_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          user.id,
-          user.displayName,
-          loginUsername,
-          leetcodeUsername,
-          user.avatarUrl,
-          user.allTimeSolved,
-          user.easySolved,
-          user.mediumSolved,
-          user.hardSolved,
-          user.weeklyProgress,
-          user.monthlyProgress,
-          user.lastUpdated,
-          user.trackingStart,
-          user.baselineSolved,
-          user.contestRating,
-          user.contestsAttended,
-          user.currentStreak,
-          user.longestStreak,
-          passwordHash,
-          email,
-          email === null ? null : new Date().toISOString()
-        ]
-      },
-      ...user.history.map((h) => upsertSnapshot(user.id, h))
-    ],
-    "write"
-  );
+  return [
+    {
+      sql: `INSERT INTO users
+        (id, display_name, login_username, leetcode_username, avatar_url, all_time_solved,
+         easy_solved, medium_solved, hard_solved, weekly_progress, monthly_progress,
+         last_updated, tracking_start, baseline_solved, contest_rating, contests_attended,
+         current_streak, longest_streak, password_hash, email, email_verified_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        user.id,
+        user.displayName,
+        loginUsername,
+        leetcodeUsername,
+        user.avatarUrl,
+        user.allTimeSolved,
+        user.easySolved,
+        user.mediumSolved,
+        user.hardSolved,
+        user.weeklyProgress,
+        user.monthlyProgress,
+        user.lastUpdated,
+        user.trackingStart,
+        user.baselineSolved,
+        user.contestRating,
+        user.contestsAttended,
+        user.currentStreak,
+        user.longestStreak,
+        passwordHash,
+        email,
+        email === null ? null : new Date().toISOString()
+      ]
+    },
+    ...user.history.map((h) => upsertSnapshot(user.id, h))
+  ];
+}
+
+export async function insertUser(user: User, passwordHash: string, options: InsertUserOptions = {}): Promise<void> {
+  await client.batch(insertUserStatements(user, passwordHash, options), "write");
 }
 
 // Used by syncing. It deliberately never writes display_name, so a sync that
@@ -2492,4 +2494,249 @@ export async function getUserEmail(id: string): Promise<{ email: string; verifie
   const row = res.rows[0] as unknown as Record<string, unknown> | undefined;
   if (!row || typeof row.email !== "string" || row.email === "") return null;
   return { email: row.email, verifiedAt: (row.email_verified_at as string | null) ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Sign in with Google / GitHub (oauth step 4)
+//
+// Three tables, three lifecycles:
+//   oauth_states           one row per sign-in attempt in flight (PKCE verifier)
+//   pending_oauth_signups  a provider-verified identity waiting for a username
+//   oauth_identities       who a member can sign in as (provider + provider id)
+//
+// Nothing here matches a member by e-mail: the only key to a member is
+// (provider, provider_user_id). The address a pending sign-up carries is stored
+// on the new member by insertUserWithIdentity and is never returned by
+// anything that feeds /api/users, boards or profiles.
+// ---------------------------------------------------------------------------
+
+export type OAuthIntent = "signin" | "link";
+
+export interface OAuthState {
+  id: string;
+  provider: OAuthProvider;
+  intent: OAuthIntent;
+  /** The member connecting a provider. Set for `link`, null for `signin`. */
+  userId: string | null;
+  /** PKCE secret. Never sent to the browser. */
+  codeVerifier: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface PendingOAuthSignup {
+  id: string;
+  provider: OAuthProvider;
+  providerUserId: string;
+  /** Lowercase, and verified by the provider. */
+  email: string;
+  displayName: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+function rowToOAuthState(r: Record<string, unknown>): OAuthState {
+  return {
+    id: r.id as string,
+    provider: r.provider as OAuthProvider,
+    intent: r.intent as OAuthIntent,
+    userId: (r.user_id as string | null) ?? null,
+    codeVerifier: r.code_verifier as string,
+    createdAt: r.created_at as string,
+    expiresAt: r.expires_at as string
+  };
+}
+
+function rowToPendingOAuthSignup(r: Record<string, unknown>): PendingOAuthSignup {
+  return {
+    id: r.id as string,
+    provider: r.provider as OAuthProvider,
+    providerUserId: r.provider_user_id as string,
+    email: r.email as string,
+    displayName: (r.display_name as string | null) ?? null,
+    createdAt: r.created_at as string,
+    expiresAt: r.expires_at as string
+  };
+}
+
+export async function createOAuthState(
+  s: Omit<OAuthState, "createdAt"> & { createdAt?: string }
+): Promise<void> {
+  // The table does not enforce this pairing, so the one place that writes
+  // states does: a `link` without a member could never be checked against the
+  // session, and a `signin` with one would be a confusing half-link.
+  if (s.intent === "link" && !s.userId) throw new Error("A link OAuth state needs a userId.");
+  if (s.intent === "signin" && s.userId) throw new Error("A signin OAuth state must not carry a userId.");
+  await client.execute({
+    sql: `INSERT INTO oauth_states (id, provider, intent, user_id, code_verifier, created_at, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    args: [s.id, s.provider, s.intent, s.userId, s.codeVerifier, s.createdAt ?? new Date().toISOString(), s.expiresAt]
+  });
+}
+
+// Atomic single-use take: the row is deleted and returned only if it still
+// exists and has not expired, so a replayed or raced callback gets null.
+export async function consumeOAuthState(id: string, nowIso: string): Promise<OAuthState | null> {
+  const res = await client.execute({
+    sql: "DELETE FROM oauth_states WHERE id = ? AND expires_at > ? RETURNING *",
+    args: [id, nowIso]
+  });
+  return res.rows.length ? rowToOAuthState(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+// One open sign-up per provider identity, so starting again REPLACES it: the old
+// row and its id go (INSERT OR REPLACE resolves the clash on the unique index),
+// and a cookie that held the old id stops working.
+export async function createPendingOAuthSignup(
+  p: Omit<PendingOAuthSignup, "createdAt"> & { createdAt?: string }
+): Promise<void> {
+  await client.execute({
+    sql: `INSERT OR REPLACE INTO pending_oauth_signups
+            (id, provider, provider_user_id, email, display_name, created_at, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    args: [
+      p.id,
+      p.provider,
+      p.providerUserId,
+      normalizeEmail(p.email),
+      p.displayName,
+      p.createdAt ?? new Date().toISOString(),
+      p.expiresAt
+    ]
+  });
+}
+
+export async function getPendingOAuthSignup(id: string, nowIso: string): Promise<PendingOAuthSignup | null> {
+  const res = await client.execute({
+    sql: "SELECT * FROM pending_oauth_signups WHERE id = ? AND expires_at > ?",
+    args: [id, nowIso]
+  });
+  return res.rows.length ? rowToPendingOAuthSignup(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+// Atomic single-use take, like consumeOAuthState.
+export async function consumePendingOAuthSignup(id: string, nowIso: string): Promise<PendingOAuthSignup | null> {
+  const res = await client.execute({
+    sql: "DELETE FROM pending_oauth_signups WHERE id = ? AND expires_at > ? RETURNING *",
+    args: [id, nowIso]
+  });
+  return res.rows.length ? rowToPendingOAuthSignup(res.rows[0] as unknown as Record<string, unknown>) : null;
+}
+
+// The member who signs in as this provider identity, if any.
+export async function getUserIdByOAuthIdentity(
+  provider: OAuthProvider,
+  providerUserId: string
+): Promise<string | null> {
+  const res = await client.execute({
+    sql: "SELECT user_id FROM oauth_identities WHERE provider = ? AND provider_user_id = ?",
+    args: [provider, providerUserId]
+  });
+  return res.rows.length ? ((res.rows[0] as unknown as Record<string, unknown>).user_id as string) : null;
+}
+
+// The providers a member has connected, in a stable order.
+export async function listOAuthProviders(userId: string): Promise<OAuthProvider[]> {
+  const res = await client.execute({
+    sql: "SELECT provider FROM oauth_identities WHERE user_id = ? ORDER BY provider",
+    args: [userId]
+  });
+  return res.rows.map((r) => (r as unknown as Record<string, unknown>).provider as OAuthProvider);
+}
+
+// Why a connect was refused, so the caller can answer with the right message
+// without parsing SQLite error text.
+export class OAuthIdentityConflictError extends Error {
+  constructor(public readonly reason: "identity_taken" | "provider_already_connected") {
+    super(`OAuth identity conflict: ${reason}`);
+    this.name = "OAuthIdentityConflictError";
+  }
+}
+
+// Connects a provider identity to an existing member. The unique indexes decide,
+// so two requests racing for the same identity cannot both win.
+//   identity_taken              this provider account already belongs to a member
+//                               (maybe this one, maybe another)
+//   provider_already_connected  this member already has a different account of
+//                               that provider
+export async function addOAuthIdentity(
+  userId: string,
+  provider: OAuthProvider,
+  providerUserId: string
+): Promise<void> {
+  try {
+    await client.execute({
+      sql: "INSERT INTO oauth_identities (provider, provider_user_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+      args: [provider, providerUserId, userId, new Date().toISOString()]
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const owner = await getUserIdByOAuthIdentity(provider, providerUserId);
+    throw new OAuthIdentityConflictError(owner !== null ? "identity_taken" : "provider_already_connected");
+  }
+}
+
+// True when a connection was removed. The caller must check countSignInMethods
+// first: this function does not stop a member removing their last way in.
+export async function removeOAuthIdentity(userId: string, provider: OAuthProvider): Promise<boolean> {
+  const res = await client.execute({
+    sql: "DELETE FROM oauth_identities WHERE user_id = ? AND provider = ?",
+    args: [userId, provider]
+  });
+  return (res.rowsAffected ?? 0) > 0;
+}
+
+export interface SignInMethods {
+  /** A real password hash is stored (the same test as auth.ts isPasswordHash). */
+  password: boolean;
+  providers: OAuthProvider[];
+  /** password (0 or 1) plus the number of connected providers. */
+  count: number;
+}
+
+// "scrypt$" is the prefix auth.ts writes. It is repeated here because auth.ts
+// imports this file; an old-format or empty hash counts as no password, exactly
+// like isPasswordHash.
+export async function countSignInMethods(userId: string): Promise<SignInMethods> {
+  const res = await client.execute({ sql: "SELECT password_hash FROM users WHERE id = ?", args: [userId] });
+  const hash = (res.rows[0] as unknown as Record<string, unknown> | undefined)?.password_hash;
+  const password = typeof hash === "string" && hash.startsWith("scrypt$");
+  const providers = await listOAuthProviders(userId);
+  return { password, providers, count: (password ? 1 : 0) + providers.length };
+}
+
+// Opportunistic pruning, called when a new attempt starts.
+export async function deleteExpiredOAuthRows(nowIso: string): Promise<void> {
+  await client.batch(
+    [
+      { sql: "DELETE FROM oauth_states WHERE expires_at < ?", args: [nowIso] },
+      { sql: "DELETE FROM pending_oauth_signups WHERE expires_at < ?", args: [nowIso] }
+    ],
+    "write"
+  );
+}
+
+export interface InsertUserWithIdentityOptions {
+  loginUsername: string;
+  /** Provider-verified. Stored lowercase with email_verified_at = now. */
+  email: string;
+  provider: OAuthProvider;
+  providerUserId: string;
+}
+
+// Creates an OAuth member: the user (verified e-mail, NO password, no
+// LeetCode) and its identity in ONE batch, which libSQL runs as a transaction,
+// so a failure leaves neither. A UNIQUE error (username, e-mail or identity)
+// propagates like insertUser's; the caller decides which one it was.
+export async function insertUserWithIdentity(user: User, options: InsertUserWithIdentityOptions): Promise<void> {
+  await client.batch(
+    [
+      ...insertUserStatements(user, "", { loginUsername: options.loginUsername, email: options.email }),
+      {
+        sql: "INSERT INTO oauth_identities (provider, provider_user_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+        args: [options.provider, options.providerUserId, user.id, new Date().toISOString()]
+      }
+    ],
+    "write"
+  );
 }
