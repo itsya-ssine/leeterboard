@@ -204,7 +204,7 @@ describe("what other members, an admin and a visitor can read", () => {
     const viewerSession = await get("/api/auth/session", viewer.cookie);
     assert.equal(viewerSession.json.user.email, VIEWER);
     assert.deepEqual(leaks(viewerSession.text, VICTIM_PROBES), []);
-    assert.deepEqual(await get("/api/auth/session", null).then((r) => r.json), { status: "guest" });
+    assert.deepEqual(await get("/api/auth/session", null).then((r) => r.json), { status: "guest", oauthProviders: [] });
   });
 
   it("a visitor gets no member data at all, so no address", async () => {

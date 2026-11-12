@@ -501,7 +501,7 @@ describe("e-mail stays private", () => {
 
   it("a guest's session has no email, and sign-in and sign-up responses carry none", async () => {
     const guest = await sessionOf(null);
-    assert.deepEqual(guest.json, { status: "guest" });
+    assert.deepEqual(guest.json, { status: "guest", oauthProviders: [] });
 
     const email = freshEmail();
     const signUp = await registerViaApi(api, mail, { username: `priv${++uniq}`, password: PW, email });

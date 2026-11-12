@@ -13,6 +13,9 @@ import { makeFakeOAuth, makeUser, mergeEnv } from "./f2-seed.js";
 
 const PW = "correct-horse-battery-9";
 const fake = makeFakeOAuth();
+// A link state for alice, written before the server starts so no test writes to the
+// database file while the server is also using it.
+const RELINK_STATE = "a".repeat(32);
 
 let tmpDir = "";
 let server: TestServer;
@@ -89,6 +92,14 @@ before(async () => {
   for (const name of ["alice", "bob", "carl", "dora", "erin", "finn", "gail"]) await db.insertUser(makeUser(name), hash);
   await db.setUserEmail(await idOf("bob"), "bob-own@example.com"); // bob already has an address
   await db.setUserEmail(await idOf("carl"), "taken@example.com"); // carl owns an address others will meet
+  await db.createOAuthState({
+    id: RELINK_STATE,
+    provider: "github",
+    intent: "link",
+    userId: await idOf("alice"),
+    codeVerifier: "v".repeat(43),
+    expiresAt: "2099-01-01T00:00:00.000Z"
+  });
 
   server = await startServer(
     mergeEnv(fake.env, {
@@ -120,13 +131,14 @@ describe("starting a connection", () => {
 
   it("needs the current password from a member who has one", async () => {
     const session = await loginPw("alice");
+    const states = await count("SELECT count(*) AS n FROM oauth_states WHERE intent = 'link'");
     const none = await call("POST", "/api/account/oauth/github/start", session, {});
     assert.equal(none.status, 400);
     const wrong = await call("POST", "/api/account/oauth/github/start", session, { currentPassword: "not-the-password-1" });
     assert.equal(wrong.status, 401);
     assert.equal(wrong.json.code, undefined, "a wrong password must not end the session");
     assert.match(server.logs(), /"event":"reauth_failed"[^\n]*"action":"oauth_link"/);
-    assert.equal(await count("SELECT count(*) AS n FROM oauth_states WHERE intent = 'link'"), 0, "no state without the password");
+    assert.equal(await count("SELECT count(*) AS n FROM oauth_states WHERE intent = 'link'"), states, "no state without the password");
   });
 
   it("answers with the provider URL and stores a link state for this member", async () => {
@@ -225,9 +237,7 @@ describe("connecting", () => {
 
   it("treats re-connecting the same identity as a no-op success", async () => {
     // A link state for alice, but the identity at the provider is alice's own already.
-    const alice = await idOf("alice");
-    const id = "a".repeat(32);
-    await db.createOAuthState({ id, provider: "github", intent: "link", userId: alice, codeVerifier: "v".repeat(43), expiresAt: "2099-01-01T00:00:00.000Z" });
+    const id = RELINK_STATE; // written before the server started
     const session = await loginPw("alice");
     const code = fake.issueCode("github", { id: 5001, email: "alice@example.com" });
     const res = await hit(`/api/auth/oauth/github/callback?code=${code}&state=${id}`, `${session}; oauth_state=${id}`);

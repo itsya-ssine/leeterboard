@@ -1926,6 +1926,7 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     if (state.intent === "link") {
       const session = await resolveSession(req);
       if (!session || session.user.id !== state.userId) return refuse("failed", "link_session_mismatch");
+      if (session.isAdmin) return refuse("admin_refused", "admin_refused", { userId: session.user.id });
     }
 
     const code = req.query.code;
@@ -2001,6 +2002,9 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     }
     const record = await getUserAuthById(userId);
     if (!record) return refuse("failed", "identity_without_member");
+    // Admin accounts sign in with their password only (an identity connected
+    // before the account became an admin must not be a way around that).
+    if (isAdminUser(record.user)) return refuse("admin_refused", "admin_refused", { userId: record.user.id });
 
     setSessionCookie(res, record.user, record.auth.passwordHash);
     res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
@@ -2018,7 +2022,12 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
 // Answers { url }: the page then does location.assign(url).
 app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id, isAdmin } = (req as any).user as { id: string; isAdmin?: boolean };
+    // Admin accounts keep password login only; nothing is connected to them.
+    if (isAdmin) {
+      logSecurityEvent("oauth_failed", { ip: req.ip, userId: id, reason: "admin_refused", route: "link" });
+      return res.status(403).json({ error: "Admin accounts can only sign in with a password." });
+    }
     const provider = req.params.provider;
     if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
       if (oauthConfig.enabled.length === 0) logSecurityEvent("oauth_unconfigured", { ip: req.ip, route: "link" });
@@ -2233,15 +2242,27 @@ app.get("/api/auth/session", async (req, res) => {
     if (!resolved) {
       // Drop a stale/invalid cookie (deleted account, changed password, ...).
       if (readSession(req)) clearSessionCookie(res);
-      return res.json({ status: "guest" });
+      // The enabled providers are public: the login screen needs them to know
+      // which buttons to show (none enabled means sign-up is unavailable).
+      return res.json({ status: "guest", oauthProviders: oauthConfig.enabled });
     }
     // A member's OWN address is the one place it is ever returned (so the
     // account page can show it). It is added here, to this response only: the
     // User mapping used by the board, profiles and admin tables has no email.
     const own = await getUserEmail(resolved.user.id);
+    // How this member can sign in, so Account settings can offer Connect and
+    // Disconnect and know which one is their last way in.
+    const methods = await countSignInMethods(resolved.user.id);
     res.json({
       status: "authenticated",
-      user: { ...resolved.user, isAdmin: resolved.isAdmin, email: own?.email ?? null, emailVerified: Boolean(own?.verifiedAt) }
+      user: {
+        ...resolved.user,
+        isAdmin: resolved.isAdmin,
+        email: own?.email ?? null,
+        emailVerified: Boolean(own?.verifiedAt),
+        signInMethods: { password: methods.password, providers: methods.providers }
+      },
+      oauthProviders: oauthConfig.enabled
     });
   } catch (error: any) {
     console.error(`[Auth] session check failed: ${error.message}`);
