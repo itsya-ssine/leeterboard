@@ -103,6 +103,8 @@ export interface User {
   // Never shown to anyone else.
   email?: string | null;
   emailVerified?: boolean;
+  // Available only on the authenticated member's session payload.
+  signInMethods?: { password: boolean; providers: Array<"github" | "google"> };
 }
 
 export interface LeaderboardStats {

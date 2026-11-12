@@ -2,10 +2,23 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { checkSignup, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "../src/signup.js";
+import { checkSignup, checkSignupUsername, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "../src/signup.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const read = (f: string) => fs.readFileSync(path.join(root, f), "utf8");
+
+describe("OAuth username checks", () => {
+  it("accepts a valid public username without requiring an email or password", () => {
+    assert.equal(checkSignupUsername("jsmith_99"), null);
+    assert.equal(checkSignupUsername("  Jsmith  "), null);
+  });
+
+  it("explains invalid and reserved usernames", () => {
+    assert.match(checkSignupUsername("")!, /required/i);
+    assert.match(checkSignupUsername("ab")!, /3 to 30/);
+    assert.match(checkSignupUsername("admin")!, /isn't available/);
+  });
+});
 
 describe("sign-up form checks", () => {
   it("accepts a normal username and password", () => {

@@ -8,7 +8,13 @@ import { checkUsername } from "../usernames.js";
 export const PASSWORD_MIN_LENGTH = 8;
 export const PASSWORD_MAX_LENGTH = 128;
 
-/** A message to show next to the form, or null when it looks fine. */
+/** Validate the public username chosen after OAuth has verified the email. */
+export function checkSignupUsername(username: string): string | null {
+  const name = checkUsername(username);
+  return name.ok ? null : name.error;
+}
+
+/** A message to show next to the legacy form, or null when it looks fine. */
 export function checkSignup(username: string, password: string, email?: string): string | null {
   const name = checkUsername(username);
   if (!name.ok) return name.error;

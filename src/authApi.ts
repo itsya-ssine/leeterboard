@@ -1,7 +1,5 @@
-// The browser's calls to the sign-up, e-mail and password-reset endpoints, and
-// the error they throw. Kept out of AuthContext.tsx (no React, no DOM beyond
-// `fetch`) so the exact requests can be unit-tested with a stubbed fetch, the
-// same way src/signup.ts is: AuthContext only decides what to do with a result.
+// Browser-side authentication requests and their errors. Kept out of
+// AuthContext.tsx so the requests can be unit-tested with a stubbed fetch.
 import type { User } from "./types.js";
 
 /**
@@ -22,14 +20,12 @@ export class AuthError extends Error {
   }
 }
 
-export async function requestJson<T>(method: string, url: string, body: unknown = {}): Promise<T> {
+export async function requestJson<T>(method: string, url: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
+    const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    res = await fetch(url, init);
   } catch {
     throw new AuthError("Couldn't reach the server. Check your connection and try again.");
   }
@@ -47,6 +43,46 @@ export async function requestJson<T>(method: string, url: string, body: unknown 
 
 export const postJson = <T,>(url: string, body: unknown = {}) => requestJson<T>("POST", url, body);
 
+export type OAuthProvider = "github" | "google";
+
+export interface PendingOAuthSignup {
+  provider: OAuthProvider;
+  maskedEmail: string;
+  suggestedDisplayName: string | null;
+}
+
+export interface OAuthLinkStart {
+  url: string;
+}
+
+/** Start a provider sign-in by navigating to the server's fixed start route. */
+export function startOAuthSignIn(provider: OAuthProvider): void {
+  window.location.assign(`/api/auth/oauth/${provider}/start`);
+}
+
+/** Read the short-lived pending identity after the provider callback. */
+export const fetchPendingOAuthSignup = () =>
+  requestJson<PendingOAuthSignup>("GET", "/api/auth/oauth/pending");
+
+/** Complete provider sign-up after the member has chosen a public username. */
+export const completeOAuthSignup = (username: string, displayName?: string) =>
+  postJson<User>("/api/auth/oauth/complete", {
+    username,
+    ...(displayName?.trim() ? { displayName: displayName.trim() } : {})
+  });
+
+/** Start linking a provider to the currently signed-in member. */
+export const startOAuthLink = (provider: OAuthProvider, currentPassword?: string) =>
+  postJson<OAuthLinkStart>(`/api/account/oauth/${provider}/start`,
+    currentPassword === undefined ? {} : { currentPassword });
+
+/** Disconnect a provider from the currently signed-in member. */
+export const unlinkOAuth = (provider: OAuthProvider) =>
+  requestJson<{ success: true }>("DELETE", `/api/account/oauth/${provider}`);
+
+// Transitional compatibility: LoginModal and AccountPage still consume these
+// wrappers until their dedicated OAuth UI steps (13 and 14) are applied.
+// Remove this block together with those callers in the corresponding steps.
 /** What a code-by-email request answers: how long the code lives and where it went (masked). */
 export interface EmailCodeChallenge {
   expiresInMinutes: number;
@@ -102,5 +138,6 @@ export function mergeSessionUser(prev: User | null, next: User): User {
   const merged: User = { ...next };
   if ("email" in prev) merged.email = prev.email;
   if ("emailVerified" in prev) merged.emailVerified = prev.emailVerified;
+  if ("signInMethods" in prev && !("signInMethods" in next)) merged.signInMethods = prev.signInMethods;
   return merged;
 }

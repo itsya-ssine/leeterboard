@@ -5,6 +5,11 @@ import {
   AuthError,
   mergeSessionUser,
   postJson,
+  startOAuthSignIn as startOAuthSignInRequest,
+  fetchPendingOAuthSignup as fetchPendingOAuthSignupRequest,
+  completeOAuthSignup as completeOAuthSignupRequest,
+  startOAuthLink as startOAuthLinkRequest,
+  unlinkOAuth as unlinkOAuthRequest,
   requestEmailCode,
   requestJson,
   requestResetCode,
@@ -14,7 +19,9 @@ import {
   submitSignupCode,
   type EmailCodeChallenge,
   type EmailVerifiedResult,
-  type PasswordResetChallenge
+  type PasswordResetChallenge,
+  type OAuthProvider,
+  type PendingOAuthSignup
 } from "./authApi.js";
 
 // The error every auth call throws; defined in authApi.ts, re-exported here for
@@ -49,24 +56,28 @@ interface AuthContextValue {
   // out elsewhere, password changed on another device) until the member signs
   // in again; the sign-in screen explains it. A normal log out doesn't set it.
   sessionEnded: boolean;
+  oauthProviders: OAuthProvider[];
+  email: string | null;
+  emailVerified: boolean;
+  signInMethods: { password: boolean; providers: OAuthProvider[] };
+  startOAuthSignIn: (provider: OAuthProvider) => void;
+  fetchPendingOAuthSignup: () => Promise<PendingOAuthSignup>;
+  completeOAuthSignup: (username: string, displayName?: string) => Promise<User>;
+  startOAuthLink: (provider: OAuthProvider, currentPassword?: string) => Promise<string>;
+  unlinkOAuth: (provider: OAuthProvider) => Promise<void>;
   // Sign in with the login name. Members who signed up with LeetCode before
   // login names existed use their LeetCode username (the same name, lowercase).
   login: (username: string, password: string) => Promise<User>;
-  // Create an account: step 1 sends a 6-digit code to the address (the server
-  // answers 409 when the username is taken, and says nothing about whether the
-  // address is already registered); step 2 takes the code, creates the account
-  // and signs in. The pending sign-up lives in an httpOnly cookie, so the code
-  // is all that step 2 sends. No LeetCode is needed.
+  // Transitional legacy UI contract; removed when LoginModal is migrated in
+  // Step 13. The OAuth sign-up contract is exposed above.
   startRegistration: (username: string, password: string, email: string, displayName?: string) => Promise<EmailCodeChallenge>;
   verifyRegistration: (code: string) => Promise<User>;
   logout: () => Promise<void>;
-  // Forgot password: step 1 (address + the new password) always answers the
-  // same, account or not; step 2 takes the code, sets the password and signs in.
+  // Transitional legacy UI contract; removed in Step 13.
   startPasswordReset: (email: string, newPassword: string) => Promise<PasswordResetChallenge>;
   verifyPasswordReset: (code: string) => Promise<User>;
-  // Add or change the member's own address (needs the current password): step 1
-  // sends a code to the new address, step 2 takes it. A successful step 2
-  // re-reads the session, so user.email and user.emailVerified are current.
+  // Transitional legacy UI contract; removed when AccountPage is migrated in
+  // Step 14.
   startEmailChange: (email: string, currentPassword: string) => Promise<EmailCodeChallenge>;
   verifyEmailChange: (code: string) => Promise<EmailVerifiedResult>;
   refreshSession: () => Promise<void>;
@@ -94,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
 
   // Bumped on every sign-in and sign-out. A 401 that belongs to an older
   // session (a poll that was still in flight when the member logged out and
@@ -127,6 +139,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/auth/session");
       const data = await res.json();
+      setOAuthProviders(Array.isArray(data.oauthProviders) ? data.oauthProviders : []);
       if (data.status === "authenticated") {
         setUser((prev) => mergeSessionUser(prev, data.user));
         setSessionEnded(false);
@@ -145,13 +158,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshSession();
   }, [refreshSession]);
 
+  const startOAuthSignIn = useCallback((provider: OAuthProvider) => {
+    startOAuthSignInRequest(provider);
+  }, []);
+
+  const fetchPendingOAuthSignup = useCallback(() => fetchPendingOAuthSignupRequest(), []);
+
+  const completeOAuthSignup = useCallback(async (username: string, displayName?: string) => {
+    const data = await completeOAuthSignupRequest(username, displayName);
+    setUser(data);
+    setSessionEnded(false);
+    setStatus("authenticated");
+    await refreshSession();
+    return data;
+  }, [refreshSession]);
+
+  const startOAuthLink = useCallback(async (provider: OAuthProvider, currentPassword?: string) => {
+    const { url } = await startOAuthLinkRequest(provider, currentPassword);
+    return url;
+  }, []);
+
+  const unlinkOAuth = useCallback(async (provider: OAuthProvider) => {
+    await unlinkOAuthRequest(provider);
+    await refreshSession();
+  }, [refreshSession]);
+
   const login = useCallback(async (username: string, password: string) => {
     const data = await postJson<User>("/api/auth/login", { username, password });
     setUser(data);
     setSessionEnded(false);
     setStatus("authenticated");
+    await refreshSession();
     return data;
-  }, []);
+  }, [refreshSession]);
 
   const startRegistration = useCallback(
     (username: string, password: string, email: string, displayName?: string) =>
@@ -292,6 +331,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         status,
         user,
         sessionEnded,
+        oauthProviders,
+        email: user?.email ?? null,
+        emailVerified: Boolean(user?.emailVerified),
+        signInMethods: user?.signInMethods ?? { password: false, providers: [] },
+        startOAuthSignIn,
+        fetchPendingOAuthSignup,
+        completeOAuthSignup,
+        startOAuthLink,
+        unlinkOAuth,
         login,
         startRegistration,
         verifyRegistration,

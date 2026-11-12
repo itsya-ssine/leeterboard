@@ -306,8 +306,9 @@ describe("AuthContext", () => {
 
   it("keeps the member's own address across every account update", () => {
     const direct = ctx.match(/setUser\(data\)/g)?.length ?? 0;
-    // Only the three fresh sign-ins (login, verified sign-up, verified reset) replace the user outright.
-    assert.equal(direct, 3);
+    // The four fresh sign-ins (login, OAuth sign-up, verified legacy sign-up,
+    // and verified reset) replace the user outright. Account updates merge.
+    assert.equal(direct, 4);
     assert.match(ctx, /mergeSessionUser\(prev, data\.user\)/);
   });
 
