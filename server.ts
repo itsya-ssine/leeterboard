@@ -87,6 +87,12 @@ import {
   getPendingOAuthSignup,
   consumePendingOAuthSignup,
   insertUserWithIdentity,
+  addOAuthIdentity,
+  removeOAuthIdentity,
+  removeOAuthIdentityKeepingOneMethod,
+  countSignInMethods,
+  listOAuthProviders,
+  OAuthIdentityConflictError,
   setPasswordHash,
   recordFailedLogin,
   clearFailedLogins,
@@ -1834,9 +1840,11 @@ const oauthCookieOptions = {
 // and the cookie must reach exactly those routes.
 const oauthSignupCookieOptions = { ...oauthCookieOptions, path: "/api/auth" };
 
-function oauthFail(res: express.Response, code: OAuthErrorCode): void {
+// `target` is one of two fixed pages: the login page, or (for a signed-in member
+// connecting a provider) their account page.
+function oauthFail(res: express.Response, code: OAuthErrorCode, target: "/#/login" | "/#/account" = "/#/login"): void {
   res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
-  res.redirect(302, `/#/login?oauth_error=${code}`);
+  res.redirect(302, `${target}?oauth_error=${code}`);
 }
 
 app.get("/api/auth/oauth/:provider/start", oauthLimiter, async (req, res) => {
@@ -1875,6 +1883,9 @@ app.get("/api/auth/oauth/:provider/start", oauthLimiter, async (req, res) => {
 
 app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => {
   const provider = req.params.provider;
+  // Where a failure goes: the login page, until the state row says a signed-in
+  // member was connecting a provider, then their account page.
+  let failTarget: "/#/login" | "/#/account" = "/#/login";
   const refuse = (code: OAuthErrorCode, reason: string, fields: Record<string, unknown> = {}) => {
     logSecurityEvent("oauth_failed", {
       ip: req.ip,
@@ -1882,7 +1893,7 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
       reason,
       ...fields
     });
-    oauthFail(res, code);
+    oauthFail(res, code, failTarget);
   };
   try {
     if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
@@ -1903,14 +1914,19 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     const state = await consumeOAuthState(stateId as string, new Date().toISOString());
     if (!state) return refuse("expired", "state_unknown_or_expired");
     if (state.provider !== provider) return refuse("failed", "state_provider_mismatch");
+    if (state.intent === "link") failTarget = "/#/account";
 
     // 3. The member said no (or the provider refused). Never echo its text.
     if (req.query.error !== undefined) {
-      return req.query.error === "access_denied" ? (oauthFail(res, "cancelled"), undefined) : refuse("failed", "provider_error");
+      return req.query.error === "access_denied" ? (oauthFail(res, "cancelled", failTarget), undefined) : refuse("failed", "provider_error");
     }
 
-    // Connecting a provider to a signed-in member arrives in a later step.
-    if (state.intent !== "signin") return refuse("failed", "intent_not_supported");
+    // Connecting a provider: the browser must STILL be signed in as the member who
+    // started it. Someone else's session (or none) never gets an identity attached.
+    if (state.intent === "link") {
+      const session = await resolveSession(req);
+      if (!session || session.user.id !== state.userId) return refuse("failed", "link_session_mismatch");
+    }
 
     const code = req.query.code;
     if (typeof code !== "string") return refuse("failed", "missing_code");
@@ -1932,6 +1948,34 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
 
     // 5. Who is this? Only the provider's own user id counts, never the e-mail.
     const userId = await getUserIdByOAuthIdentity(provider, profile.providerUserId);
+
+    if (state.intent === "link") {
+      const memberId = state.userId!; // createOAuthState guarantees it for a link
+      // An identity can belong to exactly one member. Already this member's: nothing to do.
+      if (userId !== null && userId !== memberId) return refuse("already_linked", "identity_owned_by_another");
+      if (userId === null) {
+        // One account per provider per member (a second GitHub account is refused).
+        if ((await listOAuthProviders(memberId)).includes(provider)) return refuse("already_linked", "provider_already_connected");
+        // The provider's verified address is stored only when the member has none, and
+        // never over an address another member uses. An existing address is kept as is.
+        const storeEmail = (await getUserEmail(memberId)) === null;
+        if (storeEmail && (await emailTaken(profile.email))) return refuse("email_in_use", "email_in_use");
+        try {
+          await addOAuthIdentity(memberId, provider, profile.providerUserId);
+        } catch (error) {
+          if (error instanceof OAuthIdentityConflictError) return refuse("already_linked", error.reason);
+          throw error;
+        }
+        if (storeEmail && !(await setUserEmail(memberId, profile.email))) {
+          // Lost a race for the address: undo the connection so nothing half-done stays.
+          await removeOAuthIdentity(memberId, provider);
+          return refuse("email_in_use", "email_in_use_race");
+        }
+        logSecurityEvent("oauth_linked", { ip: req.ip, userId: memberId, provider, storedEmail: storeEmail }, "info");
+      }
+      res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+      return res.redirect(302, `/#/account?connected=${provider}`);
+    }
     if (userId === null) {
       // A new identity. Nothing is created here: the member first chooses a public
       // username (POST /api/auth/oauth/complete). The address is checked now so
@@ -1965,6 +2009,80 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
   } catch (error: any) {
     console.error(`[OAuth] callback failed: ${error.message}`);
     refuse("failed", "server_error");
+  }
+});
+
+// POST — a signed-in member starts connecting Google or GitHub. A member who has a
+// password must give it again (a stolen session alone must not be able to attach
+// someone else's provider account); a member without one has nothing to check.
+// Answers { url }: the page then does location.assign(url).
+app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const provider = req.params.provider;
+    if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
+      if (oauthConfig.enabled.length === 0) logSecurityEvent("oauth_unconfigured", { ip: req.ip, route: "link" });
+      return res.status(503).json({ error: "That sign-in method isn't available right now." });
+    }
+
+    const methods = await countSignInMethods(id);
+    if (methods.providers.includes(provider)) {
+      return res.status(409).json({ error: "You have already connected an account from that provider." });
+    }
+    if (methods.password) {
+      const check = await checkCurrentPassword(id, req.body?.currentPassword, "oauth_link", req.ip);
+      if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
+    }
+
+    const now = Date.now();
+    await deleteExpiredOAuthRows(new Date(now).toISOString());
+    const { verifier, challenge } = generatePkce();
+    const stateId = newStateId();
+    await createOAuthState({
+      id: stateId,
+      provider,
+      intent: "link",
+      userId: id,
+      codeVerifier: verifier,
+      expiresAt: new Date(now + OAUTH_STATE_TTL_MS).toISOString()
+    });
+    res.cookie(OAUTH_STATE_COOKIE, stateId, { ...oauthCookieOptions, maxAge: OAUTH_STATE_TTL_MS });
+    logSecurityEvent("oauth_started", { ip: req.ip, userId: id, provider, intent: "link" }, "info");
+    res.json({
+      url: buildAuthorizeUrl(provider, {
+        state: stateId,
+        challenge,
+        redirectUri: oauthConfig.redirectUri(provider)!,
+        clientId: oauthConfig.providers[provider]!.clientId
+      })
+    });
+  } catch (error: any) {
+    console.error(`[OAuth] link start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// DELETE — disconnect a provider, unless it is the member's last way to sign in.
+app.delete("/api/account/oauth/:provider", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const provider = req.params.provider;
+    if (!isOAuthProvider(provider)) return res.status(404).json({ error: "That sign-in method doesn't exist." });
+
+    const methods = await countSignInMethods(id);
+    if (!methods.providers.includes(provider)) {
+      return res.status(404).json({ error: "That account isn't connected." });
+    }
+    const LAST_METHOD = { error: "That is your only way to sign in. Connect another account first." };
+    if (methods.count <= 1) return res.status(409).json(LAST_METHOD);
+
+    // The count above is for the message; the DELETE re-checks the same rule itself.
+    if (!(await removeOAuthIdentityKeepingOneMethod(id, provider))) return res.status(409).json(LAST_METHOD);
+    logSecurityEvent("oauth_unlinked", { ip: req.ip, userId: id, provider }, "info");
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error(`[OAuth] unlink failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
 
@@ -2139,7 +2257,7 @@ app.get("/api/auth/session", async (req, res) => {
 async function checkCurrentPassword(
   userId: string,
   password: unknown,
-  action: "password_change" | "account_delete" | "email_change",
+  action: "password_change" | "account_delete" | "email_change" | "oauth_link",
   ip: string | undefined
 ): Promise<{ record: UserWithAuth | null; status: number; error: string; code?: string }> {
   const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });

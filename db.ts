@@ -2686,6 +2686,23 @@ export async function removeOAuthIdentity(userId: string, provider: OAuthProvide
   return (res.rowsAffected ?? 0) > 0;
 }
 
+// Removes a connection ONLY if the member keeps at least one other way to sign
+// in (a password, or another provider). The rule is part of the DELETE itself,
+// so two requests removing a member's last two providers at once cannot both
+// win. True when a connection was removed.
+export async function removeOAuthIdentityKeepingOneMethod(userId: string, provider: OAuthProvider): Promise<boolean> {
+  const res = await client.execute({
+    sql: `DELETE FROM oauth_identities
+          WHERE user_id = ? AND provider = ?
+            AND (
+              (SELECT CASE WHEN password_hash LIKE 'scrypt$%' THEN 1 ELSE 0 END FROM users WHERE id = ?)
+              + (SELECT count(*) FROM oauth_identities WHERE user_id = ?)
+            ) > 1`,
+    args: [userId, provider, userId, userId]
+  });
+  return (res.rowsAffected ?? 0) > 0;
+}
+
 export interface SignInMethods {
   /** A real password hash is stored (the same test as auth.ts isPasswordHash). */
   password: boolean;
