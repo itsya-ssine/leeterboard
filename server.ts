@@ -11,7 +11,16 @@ import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
 import { assertMailConfigAtBoot, getMailer, MailError } from "./mailer.js";
-import { assertOAuthDevAtBoot } from "./oauthProviders.js";
+import { assertOAuthDevAtBoot, exchangeAndFetchProfile, OAuthError } from "./oauthProviders.js";
+import {
+  buildAuthorizeUrl,
+  generatePkce,
+  isOAuthProvider,
+  newStateId,
+  readOAuthConfig,
+  stateMatches,
+  type OAuthErrorCode
+} from "./oauth.js";
 import { checkEmail, maskEmail, parseAllowedDomains } from "./emails.js";
 import { EMAIL_RATE_LIMITED_MESSAGE, refundEmailQuota, takeEmailQuota } from "./emailLimit.js";
 import {
@@ -69,6 +78,10 @@ import {
   updateProfileDetails,
   type ProfileDetailsUpdate,
   getUserAuthById,
+  createOAuthState,
+  consumeOAuthState,
+  deleteExpiredOAuthRows,
+  getUserIdByOAuthIdentity,
   setPasswordHash,
   recordFailedLogin,
   clearFailedLogins,
@@ -119,7 +132,7 @@ import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
-import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
+import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter, oauthLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -190,7 +203,12 @@ app.use("/api", apiLimiter);
 assertMailConfigAtBoot();
 // Stop if the development-only OAUTH_DEV_PROVIDER_URL is set in production (sign-in with
 // Google / GitHub would then send the client secret to that address).
-assertOAuthDevAtBoot();
+const oauthDev = assertOAuthDevAtBoot();
+// Which providers are usable (id AND secret set, PUBLIC_URL valid). A bad setting
+// switches sign-in with that provider off instead of stopping the server, so
+// password login keeps working. Problems name variables, never values.
+const oauthConfig = readOAuthConfig(process.env);
+for (const problem of oauthConfig.problems) console.warn(`[OAuth] ${problem}`);
 
 const dbReady = initDb();
 app.use((req, res, next) => {
@@ -1770,6 +1788,150 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
   } catch (error: any) {
     console.error(`[Auth] login failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Sign in with Google / GitHub (Authorization Code flow with PKCE).
+//
+//   GET /api/auth/oauth/:provider/start      sends the browser to the provider
+//   GET /api/auth/oauth/:provider/callback   the provider sends it back here
+//
+// Both are full-page navigations, so they answer with redirects, never JSON.
+// A failure always goes to /#/login?oauth_error=<code> with a code from the fixed
+// list in oauth.ts (the page maps it to a message); nothing from the request or
+// from the provider is ever put in a redirect. A member is identified ONLY by
+// (provider, provider user id): the e-mail address is never used to find, sign in
+// or link anyone.
+// ---------------------------------------------------------------------------
+const OAUTH_STATE_COOKIE = "oauth_state";
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const OAUTH_COOKIE_PATH = "/api/auth/oauth";
+
+// SameSite=Lax is what lets the cookie come back on the provider's top-level
+// redirect to the callback; Strict would drop it.
+const oauthCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: OAUTH_COOKIE_PATH
+};
+
+// Clears the state cookie and sends the browser back to the login page with a
+// code from the allow-list. The type makes a free-form value a compile error.
+function oauthFail(res: express.Response, code: OAuthErrorCode): void {
+  res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+  res.redirect(302, `/#/login?oauth_error=${code}`);
+}
+
+app.get("/api/auth/oauth/:provider/start", oauthLimiter, async (req, res) => {
+  const provider = req.params.provider;
+  try {
+    if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
+      if (oauthConfig.enabled.length === 0) logSecurityEvent("oauth_unconfigured", { ip: req.ip, route: "start" });
+      return oauthFail(res, "unavailable");
+    }
+    const config = oauthConfig.providers[provider]!;
+    const redirectUri = oauthConfig.redirectUri(provider)!; // enabled implies a valid PUBLIC_URL
+
+    const now = Date.now();
+    await deleteExpiredOAuthRows(new Date(now).toISOString());
+
+    const { verifier, challenge } = generatePkce();
+    const stateId = newStateId();
+    await createOAuthState({
+      id: stateId,
+      provider,
+      intent: "signin",
+      userId: null,
+      codeVerifier: verifier,
+      expiresAt: new Date(now + OAUTH_STATE_TTL_MS).toISOString()
+    });
+
+    res.cookie(OAUTH_STATE_COOKIE, stateId, { ...oauthCookieOptions, maxAge: OAUTH_STATE_TTL_MS });
+    logSecurityEvent("oauth_started", { ip: req.ip, provider, intent: "signin" }, "info");
+    res.redirect(302, buildAuthorizeUrl(provider, { state: stateId, challenge, redirectUri, clientId: config.clientId }));
+  } catch (error: any) {
+    console.error(`[OAuth] start failed: ${error.message}`);
+    logSecurityEvent("oauth_failed", { ip: req.ip, provider: isOAuthProvider(provider) ? provider : "unknown", reason: "server_error" });
+    oauthFail(res, "failed");
+  }
+});
+
+app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => {
+  const provider = req.params.provider;
+  const refuse = (code: OAuthErrorCode, reason: string, fields: Record<string, unknown> = {}) => {
+    logSecurityEvent("oauth_failed", {
+      ip: req.ip,
+      provider: isOAuthProvider(provider) ? provider : "unknown",
+      reason,
+      ...fields
+    });
+    oauthFail(res, code);
+  };
+  try {
+    if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
+      if (oauthConfig.enabled.length === 0) logSecurityEvent("oauth_unconfigured", { ip: req.ip, route: "callback" });
+      return oauthFail(res, "unavailable");
+    }
+
+    // 1. The browser must be the one that started this attempt: the cookie holds
+    //    the state id and it has to equal the `state` the provider sent back.
+    //    Constant-time, and a missing, repeated or malformed value is just false.
+    const stateId = req.query.state;
+    if (!stateMatches(req.cookies?.[OAUTH_STATE_COOKIE], stateId)) {
+      return refuse("failed", "state_mismatch");
+    }
+
+    // 2. One use: the row is deleted as it is read, so a replayed or raced
+    //    callback finds nothing. Expired rows are not returned either.
+    const state = await consumeOAuthState(stateId as string, new Date().toISOString());
+    if (!state) return refuse("expired", "state_unknown_or_expired");
+    if (state.provider !== provider) return refuse("failed", "state_provider_mismatch");
+
+    // 3. The member said no (or the provider refused). Never echo its text.
+    if (req.query.error !== undefined) {
+      return req.query.error === "access_denied" ? (oauthFail(res, "cancelled"), undefined) : refuse("failed", "provider_error");
+    }
+
+    // Connecting a provider to a signed-in member arrives in a later step.
+    if (state.intent !== "signin") return refuse("failed", "intent_not_supported");
+
+    const code = req.query.code;
+    if (typeof code !== "string") return refuse("failed", "missing_code");
+
+    // 4. Server to server: the code (with the PKCE verifier) for a verified
+    //    profile. The token inside is used once and thrown away.
+    let profile;
+    try {
+      profile = await exchangeAndFetchProfile(provider, code, state.codeVerifier, {
+        clientId: oauthConfig.providers[provider]!.clientId,
+        clientSecret: oauthConfig.providers[provider]!.clientSecret,
+        redirectUri: oauthConfig.redirectUri(provider)!,
+        devBaseUrl: oauthDev.devBaseUrl
+      });
+    } catch (error) {
+      const kind = error instanceof OAuthError ? error.kind : "failed";
+      return refuse(kind, `exchange_${kind}`);
+    }
+
+    // 5. Who is this? Only the provider's own user id counts, never the e-mail.
+    const userId = await getUserIdByOAuthIdentity(provider, profile.providerUserId);
+    if (userId === null) {
+      // A new identity becomes a new member in the next step (pending sign-up and
+      // the username screen). Until then it is refused, creating nothing.
+      return refuse("unavailable", "unknown_identity");
+    }
+    const record = await getUserAuthById(userId);
+    if (!record) return refuse("failed", "identity_without_member");
+
+    setSessionCookie(res, record.user, record.auth.passwordHash);
+    res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+    logSecurityEvent("oauth_login", { ip: req.ip, userId: record.user.id, provider }, "info");
+    res.redirect(302, "/#/");
+  } catch (error: any) {
+    console.error(`[OAuth] callback failed: ${error.message}`);
+    refuse("failed", "server_error");
   }
 });
 

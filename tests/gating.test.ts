@@ -147,6 +147,8 @@ const PUBLIC_ROUTES = new Set([
   "POST /api/auth/register/start",
   "POST /api/auth/register/verify",
   "POST /api/auth/login",
+  "GET /api/auth/oauth/:provider/start",
+  "GET /api/auth/oauth/:provider/callback",
   "POST /api/auth/reset/email/start",
   "POST /api/auth/reset/email/verify",
   "POST /api/auth/reset/start",

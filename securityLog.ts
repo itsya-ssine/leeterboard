@@ -18,7 +18,8 @@
 //   signup_code_sent, signup_notice_sent, signup_code_failed, signup_code_locked,
 //   email_rate_limited, email_code_sent, email_notice_sent, email_code_failed,
 //   email_code_locked, email_verified, reset_email_blocked, password_reset_via_email,
-//   mail_unconfigured, mail_send_failed
+//   mail_unconfigured, mail_send_failed,
+//   oauth_started, oauth_login, oauth_failed, oauth_unconfigured
 
 export type SecurityEvent =
   | "login_failed"
@@ -57,7 +58,11 @@ export type SecurityEvent =
   | "reset_email_blocked"
   | "password_reset_via_email"
   | "mail_unconfigured"
-  | "mail_send_failed";
+  | "mail_send_failed"
+  | "oauth_started"
+  | "oauth_login"
+  | "oauth_failed"
+  | "oauth_unconfigured";
 
 // A field named exactly "email" is redacted too (anchored, so "maskedEmail" -
 // the form that is safe to log - is not caught by it).
