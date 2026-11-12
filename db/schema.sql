@@ -14,7 +14,10 @@
 --          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
 --          ├─< pending_links     (1 member : open "prove you own this account" requests)
 --          ├─< pending_resets    (1 member : open "forgot password" requests)
---          └─< pending_email_codes (0..1 member : open e-mail codes; NULL user for a sign-up)
+--          ├─< pending_email_codes (0..1 member : open e-mail codes; NULL user for a sign-up)
+--          ├─< oauth_identities  (1 member : 0..2 Google / GitHub accounts they can sign in with)
+--          └─< oauth_states      (0..1 member : sign-in attempts in flight; NULL user for a sign-in)
+--   pending_oauth_signups        (standalone; a verified Google / GitHub identity waiting for a username)
 --   pending_registrations        (standalone; UNUSED, kept empty for rollback; see below)
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
@@ -284,3 +287,48 @@ CREATE TABLE pending_email_codes (
 );
 CREATE UNIQUE INDEX idx_pending_email_codes_open    ON pending_email_codes(purpose, email);
 CREATE INDEX idx_pending_email_codes_expires ON pending_email_codes(expires_at);
+
+-- Which Google / GitHub account a member can sign in with (migration 18). The
+-- key is the provider's own stable user id, NEVER the e-mail address: a member
+-- is never found, signed in or linked because an e-mail matches. A provider
+-- account belongs to at most one member, and a member has at most one account
+-- per provider. No tokens are stored.
+CREATE TABLE oauth_identities (
+  provider          TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+  provider_user_id  TEXT NOT NULL,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at        TEXT NOT NULL,
+  PRIMARY KEY (provider, provider_user_id)
+);
+CREATE UNIQUE INDEX idx_oauth_identities_user_provider ON oauth_identities(user_id, provider);
+
+-- One Google / GitHub sign-in attempt in flight (migration 18). The browser only
+-- holds `id`, in an HttpOnly cookie. `code_verifier` is the PKCE secret and
+-- never leaves the server. Single use, expires after 10 minutes. user_id is
+-- set only when a signed-in member is connecting a provider (intent 'link').
+CREATE TABLE oauth_states (
+  id             TEXT PRIMARY KEY,                 -- random, 128 bits
+  provider       TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+  intent         TEXT NOT NULL CHECK (intent IN ('signin', 'link')),
+  user_id        TEXT REFERENCES users(id) ON DELETE CASCADE,  -- link only
+  code_verifier  TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL
+);
+CREATE INDEX idx_oauth_states_expires ON oauth_states(expires_at);
+
+-- A provider-verified identity waiting for the new member to choose a username
+-- (migration 18). The member does not exist yet. `email` is the address the
+-- provider marked verified; it goes into users.email when the sign-up is
+-- completed. Single use, expires after 15 minutes. The browser only holds `id`.
+CREATE TABLE pending_oauth_signups (
+  id                TEXT PRIMARY KEY,              -- random, 128 bits
+  provider          TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+  provider_user_id  TEXT NOT NULL,
+  email             TEXT NOT NULL,                 -- lowercase, provider-verified; goes away with the row
+  display_name      TEXT,                          -- suggestion from the provider
+  created_at        TEXT NOT NULL,
+  expires_at        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_pending_oauth_signups_identity ON pending_oauth_signups(provider, provider_user_id);
+CREATE INDEX idx_pending_oauth_signups_expires ON pending_oauth_signups(expires_at);

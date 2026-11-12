@@ -142,4 +142,17 @@ describe("db/schema.sql matches initDb() and the migrations", () => {
       assert.equal(t.length, 1);
     }
   });
+
+  it("includes the OAuth tables and their unique indexes", async () => {
+    for (const db of [fromInit, fromSchema]) {
+      for (const name of ["oauth_identities", "oauth_states", "pending_oauth_signups"]) {
+        const t = await rowsOf(db, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = '${name}'`);
+        assert.equal(t.length, 1, `${name} is missing`);
+      }
+      for (const name of ["idx_oauth_identities_user_provider", "idx_pending_oauth_signups_identity"]) {
+        const idx = await rowsOf(db, `SELECT sql FROM sqlite_master WHERE name = '${name}'`);
+        assert.match(normalize(String(idx[0]?.sql)), /^create unique index/);
+      }
+    }
+  });
 });

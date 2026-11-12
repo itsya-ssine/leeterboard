@@ -59,6 +59,9 @@ async function columnExists(table: string, column: string): Promise<boolean> {
  *   users ──< history          one daily snapshot per member per UTC day
  *   users ──  sync_status      latest sync attempt per member (admin dashboard)
  *   users ──< pending_email_codes  open e-mail verification codes (sign-up, add e-mail, reset)
+ *   users ──< oauth_identities     the Google / GitHub accounts a member can sign in with
+ *   users ──< oauth_states         Google / GitHub sign-in attempts in flight (PKCE + state)
+ *   pending_oauth_signups      a verified Google / GitHub identity waiting for a username
  *   pending_registrations      unused since the username sign-up; kept (empty) for rollback
  *   meta                       small key/value store (e.g. weekly winners archive)
  *   schema_migrations          which migrations have been applied
@@ -230,6 +233,46 @@ const EMAIL_CODES_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_pending_email_codes_expires ON pending_email_codes(expires_at)`
 ];
 
+/* ---------- Sign in with Google / GitHub ----------
+ * Shared by initDb (fresh databases) and migration 18 (existing ones).
+ * `oauth_identities` is the only thing that identifies a member to a provider:
+ * the provider's own stable user id, never the e-mail address. `oauth_states`
+ * holds one sign-in attempt in flight (the PKCE secret stays here, the browser
+ * only gets the random id in a cookie). `pending_oauth_signups` holds a
+ * provider-verified identity until the new member has chosen a username.
+ */
+const OAUTH_DDL = [
+  `CREATE TABLE IF NOT EXISTS oauth_identities (
+    provider TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+    provider_user_id TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (provider, provider_user_id)
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_identities_user_provider ON oauth_identities(user_id, provider)`,
+  `CREATE TABLE IF NOT EXISTS oauth_states (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+    intent TEXT NOT NULL CHECK (intent IN ('signin', 'link')),
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    code_verifier TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)`,
+  `CREATE TABLE IF NOT EXISTS pending_oauth_signups (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+    provider_user_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    display_name TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_oauth_signups_identity ON pending_oauth_signups(provider, provider_user_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_pending_oauth_signups_expires ON pending_oauth_signups(expires_at)`
+];
+
 export async function initDb(): Promise<void> {
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
@@ -336,7 +379,8 @@ export async function initDb(): Promise<void> {
       ...PLATFORM_DDL,
       ...RATE_LIMIT_DDL,
       ...FEEDBACK_DDL,
-      ...EMAIL_CODES_DDL
+      ...EMAIL_CODES_DDL,
+      ...OAUTH_DDL
     ],
     "write"
   );
@@ -373,7 +417,8 @@ const MIGRATIONS: Migration[] = [
   { version: 14, name: "optional_leetcode_columns", up: migrateOptionalLeetcode },
   { version: 15, name: "clear_pending_registrations", up: migrateClearPendingRegistrations },
   { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze },
-  { version: 17, name: "email_verification", up: migrateEmailVerification }
+  { version: 17, name: "email_verification", up: migrateEmailVerification },
+  { version: 18, name: "oauth_sign_in", up: migrateOAuthSignIn }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -605,6 +650,15 @@ async function migrateEmailVerification(): Promise<void> {
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(lower(email)) WHERE email IS NOT NULL"
   );
   await client.batch(EMAIL_CODES_DDL, "write");
+}
+
+// v18 — sign in with Google / GitHub. Three new tables (provider identities,
+// sign-in attempts in flight, verified identities waiting for a username).
+// Additive only, so the previous release keeps working while this runs, and
+// existing members are untouched. Safe to run twice, or from two serverless
+// instances at once (every statement is IF NOT EXISTS).
+async function migrateOAuthSignIn(): Promise<void> {
+  await client.batch(OAUTH_DDL, "write");
 }
 
 // v16 — the same sticky "this handle stopped resolving" marker LeetCode has
@@ -1235,6 +1289,8 @@ export async function deleteUserById(id: string): Promise<boolean> {
       { sql: "DELETE FROM platform_history WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM pending_links WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM pending_email_codes WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM oauth_identities WHERE user_id = ?", args: [id] },
+      { sql: "DELETE FROM oauth_states WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM notifications WHERE user_id = ?", args: [id] },
       { sql: "DELETE FROM user_awards WHERE user_id = ?", args: [id] },
       // Feedback is kept for the admins but no longer tied to the person.
