@@ -330,6 +330,25 @@ describe("insertUserWithIdentity", () => {
     assert.equal(await count("SELECT COUNT(*) AS n FROM oauth_states"), 0);
     assert.equal(await db.getUserEmail("u1"), null);
   });
+
+  // deleteUserById also deletes these rows by hand, because SQLite only enforces
+  // foreign keys on connections that turn them on. This checks the schema's own
+  // ON DELETE CASCADE, the safety net behind that list, with enforcement on.
+  it("is also covered by ON DELETE CASCADE alone", async () => {
+    await db.insertUserWithIdentity(oauthUser("u1", "newbie"), opts());
+    await db.createOAuthState(state({ intent: "link", userId: "u1", provider: "google" }));
+    await db.createOAuthState(state({ id: "someone-elses" })); // a sign-in state belongs to nobody and stays
+    const was = (await db.client.execute("PRAGMA foreign_keys")).rows[0].foreign_keys;
+    await db.client.execute("PRAGMA foreign_keys = ON");
+    try {
+      await db.client.execute("DELETE FROM users WHERE id = 'u1'");
+    } finally {
+      await db.client.execute(`PRAGMA foreign_keys = ${Number(was) === 1 ? "ON" : "OFF"}`);
+    }
+    assert.equal(await count("SELECT COUNT(*) AS n FROM oauth_identities"), 0);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM oauth_states WHERE user_id = 'u1'"), 0);
+    assert.equal(await count("SELECT COUNT(*) AS n FROM oauth_states WHERE id = 'someone-elses'"), 1);
+  });
 });
 
 describe("insertUser still works as before", () => {

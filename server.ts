@@ -2272,27 +2272,32 @@ app.get("/api/auth/session", async (req, res) => {
 
 /* ---------- Account settings (signed-in members) ---------- */
 
+type ReauthResult = { record: UserWithAuth | null; status: number; error: string; code?: string };
+
+// Answer for a member who has no password (they sign in with Google or GitHub,
+// or the account is older than passwords). There is nothing to check, so the
+// password-only actions say so instead of asking for one. The UI hides those
+// actions for them; this is the server-side answer when a request arrives anyway.
+const NO_PASSWORD_CODE = "no_password";
+const NO_PASSWORD_ERROR = "This account doesn't use a password.";
+
 // Re-checks the member's current password for sensitive actions (changing
 // the password, deleting the account), so a stolen session alone isn't
 // enough. Wrong guesses count toward the same lockout as the login form.
+// A member with no password gets a 409 `no_password` before anything is
+// compared, so this never records a failed attempt against them.
 async function checkCurrentPassword(
   userId: string,
   password: unknown,
   action: "password_change" | "account_delete" | "email_change" | "oauth_link",
   ip: string | undefined
-): Promise<{ record: UserWithAuth | null; status: number; error: string; code?: string }> {
+): Promise<ReauthResult> {
   const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
 
-  if (typeof password !== "string" || !password) return fail(400, "Enter your current password.");
   const record = await getUserAuthById(userId);
   if (!record) return fail(401, SESSION_REQUIRED_BODY.error, SESSION_REQUIRED_CODE);
-
-  if (!isPasswordHash(record.auth.passwordHash)) {
-    return fail(
-      409,
-      "This account has no password yet. Log out, then use \"Forgot password\" to set one by verifying a linked account."
-    );
-  }
+  if (!isPasswordHash(record.auth.passwordHash)) return fail(409, NO_PASSWORD_ERROR, NO_PASSWORD_CODE);
+  if (typeof password !== "string" || !password) return fail(400, "Enter your current password.");
 
   let failuresBefore = record.auth.failedLogins;
   if (record.auth.lockedUntil) {
@@ -2326,6 +2331,30 @@ async function checkCurrentPassword(
   }
 
   if (record.auth.failedLogins > 0) await clearFailedLogins(userId);
+  return { record, status: 200, error: "" };
+}
+
+// Confirms an account deletion. A member with a password proves it with the
+// password, exactly as before. A member without one (D4) types their own login
+// name instead (case and surrounding spaces don't matter, as at sign-up): there is no secret to check, so this guards against a stray
+// click rather than a stolen session, which is why admin accounts are held to
+// the password. A wrong name is a plain 400: it counts toward no lockout, since
+// the name is public and there is nothing to guess.
+async function checkAccountDeletion(userId: string, body: any, ip: string | undefined): Promise<ReauthResult> {
+  const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
+
+  const record = await getUserAuthById(userId);
+  if (!record) return fail(401, SESSION_REQUIRED_BODY.error, SESSION_REQUIRED_CODE);
+  if (isPasswordHash(record.auth.passwordHash)) return checkCurrentPassword(userId, body?.password, "account_delete", ip);
+
+  if (isAdminUser(record.user)) return fail(403, "Admin accounts need a password to be removed.", NO_PASSWORD_CODE);
+  const typed = body?.confirmUsername;
+  if (typeof typed !== "string" || !typed) return fail(400, "Type your username to confirm.");
+  // Login names are stored trimmed and lowercase and are unique in any case, so
+  // "Alice" and " alice " are the same name; anything else is not.
+  if (typed.trim().toLowerCase() !== record.user.loginUsername.toLowerCase()) {
+    return fail(400, "That isn't your username. Check the spelling and try again.");
+  }
   return { record, status: 200, error: "" };
 }
 
@@ -2939,17 +2968,23 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
   }
 });
 
-// POST — delete the member's own account for good (stats and history
-// included). Needs the password. POST rather than DELETE so the body always
-// survives proxies.
+// POST — delete the member's own account for good (stats, history, e-mail and
+// connected Google/GitHub accounts included). Needs the password, or for a
+// member with no password their own username as `confirmUsername`. POST rather
+// than DELETE so the body always survives proxies.
 app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) => {
   try {
     const { id } = (req as any).user as { id: string };
-    const check = await checkCurrentPassword(id, req.body?.password, "account_delete", req.ip);
+    const check = await checkAccountDeletion(id, req.body, req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
+    const confirmedWith = isPasswordHash(check.record.auth.passwordHash) ? "password" : "username";
     await deleteUserById(id);
-    logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.loginUsername }, "info");
+    logSecurityEvent(
+      "account_deleted",
+      { ip: req.ip, userId: id, username: check.record.user.loginUsername, confirmedWith },
+      "info"
+    );
     clearSessionCookie(res);
     res.json({ success: true });
   } catch (error: any) {

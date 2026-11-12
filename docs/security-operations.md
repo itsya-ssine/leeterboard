@@ -49,7 +49,7 @@ history if you want to look back further than that.
 | `email_rate_limited` | warn | One address hit the 3-codes-an-hour limit (`purpose`) |
 | `mail_unconfigured` | warn | No working mail provider is configured (`route`), so sign-up, add-email or reset answered 503 |
 | `mail_send_failed` | warn | The provider refused or didn't answer (`route`, `provider`). Sign-up starts that fail this way leave no pending sign-up behind |
-| `account_deleted` | info | A member deleted their own account |
+| `account_deleted` | info | A member deleted their own account (`confirmedWith`: `password`, or `username` for a member who has no password) |
 | `admin_user_removed` | info | An admin removed a member (`admin`, `target`) |
 | `admin_refresh` | info | An admin triggered a sync (`scope`: `member` or `all`) |
 | `admin_message_sent` | info | An admin sent notifications (`to`, `recipients`) |
@@ -103,6 +103,7 @@ it as leaked.
 
 - **Everyone:** rotate `JWT_SECRET` (above).
 - **One member:** a password change or reset invalidates their sessions. Deleting the account does too.
+- **A member with no password** (created through Google or GitHub): their sessions are tied to the password hash, and they have none, so there is nothing to change that would sign them out. Their session ends by expiry (7 days), by deleting the account, or when everyone is signed out by rotating `JWT_SECRET`. This is a known limitation. If it ever matters, the fix is a per-member `session_version` column checked on every request; it is not built yet.
 
 ### Review recent administrator activity
 
