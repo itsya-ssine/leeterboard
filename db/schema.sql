@@ -19,7 +19,8 @@
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
 
--- One row per member. A member signs up with a username and a password; every
+-- One row per member. A member signs up with a username, a password and a
+-- verified e-mail (the e-mail is optional for members who joined before it); every
 -- LeetCode column below stays empty until they link a LeetCode account (see
 -- leetcode_username), and only members who linked it are on the LeetCode board.
 CREATE TABLE users (

@@ -1,6 +1,6 @@
 # Leeterboard
 
-A competitive-programming leaderboard for a group of friends, a class or a club. Members sign up with a username and a password, then link any of their **LeetCode**, **Codeforces** and **CodinGame** accounts (all optional). Everything is for signed-in members only. The app tracks solved counts, weekly and monthly progress, streaks, contest ratings and badges, and ranks everyone on live boards with a podium, weekly winners, profiles and head-to-head comparisons.
+A competitive-programming leaderboard for a group of friends, a class or a club. Members sign up with a username, a password and an email address (verified with a 6-digit code), then link any of their **LeetCode**, **Codeforces** and **CodinGame** accounts (all optional). Everything is for signed-in members only. The app tracks solved counts, weekly and monthly progress, streaks, contest ratings and badges, and ranks everyone on live boards with a podium, weekly winners, profiles and head-to-head comparisons.
 
 ## Contents
 
@@ -62,7 +62,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 
 **Accounts and administration**
 
-- **Sign-up with just a username and a password**, and a **members-only** site: without a session the app shows only the sign-in screen, and the API refuses every data request (see [Security](#security))
+- **Sign-up with a username, a password and a verified email** (no LeetCode needed), and a **members-only** site: without a session the app shows only the sign-in screen, and the API refuses every data request (see [Security](#security))
 - **Account settings page** (`#/account`) for display name, school, bio, links, linked platforms, password and account deletion
 - **Privacy controls**: hide a linked platform from other members, or hide LeetCode stats on your profile (you still appear on the board)
 - **Admin tools** to sync everyone at once, remove members, watch sync health, and send messages with a record of how many members have read each
@@ -94,7 +94,7 @@ The leaderboard also keeps its view in the query string (`?sort=weekly|allTime|r
 
 ## Platforms
 
-A member signs up with a username and a password, so no platform is required. LeetCode, Codeforces and CodinGame are all optional links, added after signing up, in any combination.
+A member signs up with a username, a password and a verified email, so no platform is required. LeetCode, Codeforces and CodinGame are all optional links, added after signing up, in any combination.
 
 | | LeetCode | Codeforces | CodinGame |
 | --- | --- | --- | --- |
@@ -138,6 +138,8 @@ npm run dev
 
 The app runs at http://localhost:3000. With no database configured, data is stored in a local `local.db` file.
 
+Sign-up needs to send a code by email. For local development, set `EMAIL_PROVIDER=outbox` and `EMAIL_OUTBOX_DIR=./outbox` in `.env`: every mail is then written to a file in that folder instead of being sent, and the 6-digit code is in the file. Without a mail provider, sign-up answers `503`.
+
 To try the app with some members already on the boards, seed two fake members into the local database (they have LeetCode data without linking a real account):
 
 ```bash
@@ -158,6 +160,11 @@ The seed script only writes to a local SQLite file. It refuses to run if `TURSO_
 | `TURSO_DATABASE_URL` | No | Turso database URL. Leave empty to use the local `local.db` file. |
 | `TURSO_AUTH_TOKEN` | Yes, with a remote database | Auth token for the Turso database. Server-side only: never put it (or any secret) in a `VITE_` variable, which would ship it to the browser. |
 | `TRUST_PROXY_HOPS` | No | How many reverse proxies sit in front of the app, used to read the real client IP for rate limiting. Defaults to `1` in production (Vercel, Render, Railway, Fly) and `0` in development. Raise it only if you add another proxy or CDN; too high lets clients spoof their IP. |
+| `EMAIL_PROVIDER` | Yes in production | `resend`. `outbox` writes mails (with their codes) to a folder, for development and tests only: the server refuses to start with it in production. |
+| `EMAIL_API_KEY` | Yes with `resend` | The provider's API key. Server-side only, never a `VITE_` variable. |
+| `EMAIL_FROM` | Yes | Sender on a domain you control and have verified with the provider (SPF and DKIM), for example `Leeterboard <no-reply@yourdomain.com>`. |
+| `EMAIL_OUTBOX_DIR` | With `outbox` | Folder the `outbox` provider writes mails to. |
+| `ALLOWED_EMAIL_DOMAINS` | No | Comma-separated domains whose addresses may sign up, for example a school's. Exact match (`school.edu` does not allow `mail.school.edu`), any letter case. Empty means any domain. It applies to sign-up and to adding an email, not to addresses already verified. |
 | `PORT` | No | Server port. Defaults to `3000`. |
 | `SYNC_BUDGET_MS` | No | Time budget in milliseconds for one visit-triggered sync. Defaults to `8000`. |
 
@@ -171,15 +178,23 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 Nothing on the site is public. A visitor sees only the sign-in screen, and every data endpoint answers `401` without a session.
 
-**Signing up** needs a username, a password and, optionally, a display name. No LeetCode (or any other) account is needed, and the new member is signed in straight away and taken to **Account settings** to link their accounts.
+**Signing up** needs a username, a password and an email address. The email is verified with a 6-digit code before the account exists, and the new member is then signed in and taken to **Account settings** to link their accounts. No LeetCode (or any other) account is needed. The display name is optional.
+
+1. The member enters the username, password, email and optional display name. The site mails a 6-digit code to the address. Nothing is created yet: the username, display name and the already-hashed password wait on the server, and the browser only holds a random id.
+2. The member enters the code. It is valid for 10 minutes, works once, and is deleted after 5 wrong attempts. On success the account is created and the member is signed in.
 
 - The **username** is what members sign in with. It is 3 to 30 characters from `A-Z`, `a-z`, `0-9` and `_`, stored in lowercase, and unique in any letter case. Names that could pass for the site or its staff (`admin`, `root`, `support`, ...) are refused.
 - The **password** is chosen for this site (never a LeetCode, Codeforces or CodinGame password, which the app never asks for) and is 8 to 128 characters. It can't be the username.
-- A name that is taken answers `409`, and bad input answers `400` with the reason.
+- The **email** is trimmed and lowercased, at most 254 characters, and unique in any letter case. `+tags` and dots are kept as typed. It is private: it is never shown to other members, never in `/api/users`, never in logs (logs hold a masked form such as `a***@example.com`). If `ALLOWED_EMAIL_DOMAINS` is set, only those domains can sign up.
+- A taken **username** answers `409` (usernames are public on profiles). Bad input answers `400` with the reason. An email that already has an account gets **exactly the same answer** as a new one, so nobody can use the form to find out who is registered: that address receives a mail saying it is already registered, with no code.
+- Codes are only ever sent by mail, never shown by the API. Emails carry a code and never a link or a password.
+- Asking for codes is limited per IP and **per email address** (3 an hour, plus a 60-second wait before a resend, which makes the older code stop working), so the form can't be used to flood someone's inbox. If the site has no working mail provider, sign-up answers `503` instead of accepting accounts it can't verify.
 
-**Signing in** uses the username and the password. Members who joined before usernames existed keep working: their old LeetCode username, in lowercase, became their username, and their LeetCode account stays linked.
+**Signing in** uses the username and the password. Email is not a login name. Members who joined before usernames existed keep working: their old LeetCode username, in lowercase, became their username, and their LeetCode account stays linked.
 
-**A forgotten password** can be reset by proving ownership of an account the member linked (LeetCode, Codeforces or CodinGame): `POST /api/auth/reset/start` hands out a one-time code, the member puts it in that profile, and `POST /api/auth/reset/verify` reads it back, sets the new password and signs everyone else out. The sign-in screen has no form for this yet, so for now it is reachable through the API only. A member with nothing linked can't use it. An admin can set a password with `npm run admin -- set-password <username>`. See [Security and operations](docs/security-operations.md).
+**Existing members** are never required to add an email. They can add one in **Account settings** (a code is sent to it and must be entered), and change it the same way. A member without a verified email can't use email password reset.
+
+**A forgotten password** is reset from the sign-in screen with **Forgot password?**: the member enters their email and a new password, receives a 6-digit code, and enters it. This sets the password, signs the member in and signs every other session out, and a "your password was changed" mail goes to the address. The site always answers the same ("If that address has an account, we sent a code.") whether or not the address belongs to someone, and a code is only sent for a verified email of a non-admin member. Admin accounts can't be reset online. Members who never added an email can still use the older proof-of-ownership reset through the API (`POST /api/auth/reset/start` hands out a one-time code, the member puts it in a linked LeetCode, Codeforces or CodinGame profile, and `POST /api/auth/reset/verify` reads it back), or ask an admin, who can set a password with `npm run admin -- set-password <username>`. See [Security and operations](docs/security-operations.md).
 
 Sessions last 7 days. When one ends (it expired, the member logged out elsewhere, or the password was changed on another device) the app returns to the sign-in screen and says so.
 
@@ -188,6 +203,7 @@ Sessions last 7 days. When one ends (it expired, the member logged out elsewhere
 Logged-in members click their name in the header and choose **Account settings** (`#/account`; the same menu also links to their profile) to:
 
 - **Change their display name, school, bio and links.** School is shown as a tag on the leaderboard. Bio and the GitHub, LinkedIn and website links are shown on the profile page. The server validates each link and limits lengths. The avatar is not editable: a member gets a generated letter avatar, replaced by their LeetCode profile picture once they link LeetCode (it then refreshes automatically).
+- **Add or change their email.** The card shows the address masked (`a***@example.com`) and whether it is verified. Adding or changing it needs the current password, then sends a 6-digit code to the new address, and nothing changes until the code is entered. An email is what lets a member reset a forgotten password; members without one can still use everything else.
 - **Manage linked accounts** (see below).
 - **Hide LeetCode stats on their profile.** They still count on the board and in the group stats.
 - **Change their password.** This needs the current password, keeps the current device signed in, and signs out every other device.
@@ -196,7 +212,7 @@ Logged-in members click their name in the header and choose **Account settings**
 
 ## Linked accounts
 
-Signing up needs only a username and a password. Everything else is optional: from **Account settings**, a member can link any of **LeetCode**, **Codeforces** and **CodinGame**, in any combination (none, one, or all three), and remove them again.
+Signing up needs only a username, a password and a verified email. Linking is optional: from **Account settings**, a member can link any of **LeetCode**, **Codeforces** and **CodinGame**, in any combination (none, one, or all three), and remove them again.
 
 1. Choose the platform and enter the handle.
 2. Copy the one-time code (valid for 30 minutes) and paste it where the page says: the Summary on LeetCode, the Organization field on Codeforces, the Tagline on CodinGame.
@@ -207,7 +223,7 @@ Each platform has its own row on the page with the same steps: link, prove with 
 
 A linked account can be unlinked at any time, or hidden on the member's profile. A hidden account still counts on the leaderboard and in the trends; other members' browsers receive it flagged as hidden and without the day-by-day series, and the profile page doesn't show it. The owner and admins see everything.
 
-A linked account is also how a forgotten password is recovered (see [Security and operations](docs/security-operations.md)): a member with none linked can only change their password by entering the old one, or ask an admin to remove the account.
+A linked account is also a way to recover a forgotten password when there is no verified email (see [Security and operations](docs/security-operations.md)): a member with neither can only change their password by entering the old one, or ask an admin.
 
 ## Badges and tiers
 
@@ -254,6 +270,10 @@ The theme is driven by CSS variables in `src/index.css`:
 
 - **Members only, enforced by the API.** Every route that returns member, board, trend or profile data requires a session and answers `401` (with the code `session_required`) without one; hiding the UI is only a convenience on top. The few public routes are the sign-in, sign-up and password-reset endpoints, the session check, logout and the feedback form. `tests/gating.test.ts` fails if any route is open to visitors without being on its short allow-list.
 - Passwords are hashed with scrypt and a unique salt per password.
+- **Email verification codes** are 6 digits from `crypto.randomInt`, valid for 10 minutes, single use, and locked after 5 wrong attempts. They are stored only as an HMAC (keyed from `JWT_SECRET`) and compared in constant time, and they are never returned by the API or written to logs. Emails contain a code and no link, so there is nothing to click and nothing to phish.
+- **Emails are private.** They are never part of the member payload (`/api/users`, boards, profiles, admin tables); a member sees only their own, masked, in their session and account settings. Sign-up, add-email and forgot-password answer identically whether or not an address is registered, so they can't be used to find out who has an account.
+- **No mail-bombing.** Besides the per-IP limits, each address can be sent at most 3 codes an hour per purpose (counted on a hash of the address, before anything is looked up or sent), with a 60-second wait between resends.
+- With no mail provider configured, sign-up answers `503` rather than accept accounts it can't verify, and `EMAIL_PROVIDER=outbox` (which writes codes to files) is refused in production.
 - An account locks for 15 minutes after 5 failed password attempts, whether at login or when confirming a password change or deletion. Attempts are also rate limited per IP.
 - Unknown usernames and wrong passwords return the same error.
 - Sessions are signed HTTP-only cookies. Resetting a password signs out all older sessions.
@@ -367,10 +387,13 @@ All endpoints live under `/api`.
 | GET | `/api/trends?platform=codingame` | Members | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
 | POST | `/api/users/:id/refresh` | Admin, rate limited | Refresh one member from LeetCode (a member without LeetCode only has their other accounts refreshed) |
 | POST | `/api/sync-if-stale` | Members, rate limited | Refresh stale members within a time budget (used by the page whenever a member opens the board) |
-| POST | `/api/auth/register` | Public | Sign up with a username and password (no LeetCode needed) |
+| POST | `/api/auth/register/start` | Public, rate limited | Sign up, step 1: username, password, email and optional display name. Mails a 6-digit code and creates nothing yet. Same answer whether or not the email is registered; a taken username is `409` |
+| POST | `/api/auth/register/verify` | Public, rate limited | Sign up, step 2: `{ code }`. Creates the member with a verified email and signs them in (`201`) |
 | POST | `/api/auth/login` | Public | Log in with `username` + `password` (the old `leetcodeUsername` field is still accepted) |
 | POST | `/api/auth/reset/start` | Public, rate limited | Forgot password, step 1: name the account to prove (LeetCode, Codeforces or CodinGame), choose the new password, get a one-time code |
 | POST | `/api/auth/reset/verify` | Public, rate limited | Forgot password, step 2: reads the profile, and if the code is there sets the password and signs the person in |
+| POST | `/api/auth/reset/email/start` | Public, rate limited | Forgot password by email, step 1: `{ email, newPassword }`. Always answers the same; mails a code only for a verified email of a non-admin member |
+| POST | `/api/auth/reset/email/verify` | Public, rate limited | Forgot password by email, step 2: `{ code }`. Sets the password, signs the person in and signs every other session out |
 | POST | `/api/logout` | Public | Log out |
 | GET | `/api/auth/session` | Public | Current session state |
 | PATCH | `/api/account/profile` | Member | Change display name, school, bio, links and/or the hide-LeetCode-stats setting |
@@ -381,6 +404,8 @@ All endpoints live under `/api`.
 | POST | `/api/account/platforms/:platform/verify` | Member, rate limited | Verify the proof code and finish linking |
 | PATCH | `/api/account/platforms/:platform` | Member | Show or hide a linked account. Body `{ "hidden": boolean }` |
 | DELETE | `/api/account/platforms/:platform` | Member | Unlink an account |
+| POST | `/api/account/email/start` | Member, rate limited | Add or change the email: needs the current password, then mails a code to the new address (same answer if another member already has it) |
+| POST | `/api/account/email/verify` | Member, rate limited | Enter the code to save and verify the email |
 | POST | `/api/account/password` | Member | Change the password (needs the current one) |
 | POST | `/api/account/delete` | Member | Delete the account (needs the password) |
 | GET | `/api/notifications` and related | Member | See [Notification API](#notification-api) |
@@ -401,9 +426,11 @@ Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh
 | --- | --- |
 | All `/api` requests | 300 per 15 minutes |
 | Login | 20 per 15 minutes |
-| Sign-up | 10 per hour |
-| Verification (linking accounts, password reset) | 20 per 15 minutes |
+| Starting a sign-up | 10 per hour |
+| Verification (sign-up and email codes, linking accounts, password reset) | 20 per 15 minutes |
 | Starting a password reset | 10 per hour |
+| Codes sent to one email address (per purpose: sign-up, add email, reset) | 3 per hour, counted per address (not per IP) |
+| Resending a code to the same address | once per 60 seconds |
 | Single-member refresh and sync-if-stale | 6 per minute |
 | Account actions and admin messages | 20 per 15 minutes |
 | Feedback form | 10 per hour |
@@ -452,6 +479,10 @@ leeterboard/
 ├── server.ts               Express app: auth, account, sync and trend routes
 ├── auth.ts                 sessions, password hashing, admin check
 ├── usernames.ts            rules for choosing a username
+├── emails.ts               rules for an email address (format, allowed domains, masking)
+├── emailCodes.ts           6-digit codes (generate, HMAC hash, constant-time compare) and the mail texts
+├── emailLimit.ts           per-address limit on codes sent (3 an hour)
+├── mailer.ts               mail provider interface: Resend over HTTPS, and the dev-only outbox
 ├── db.ts                   database access and MIGRATIONS
 ├── platformSync.ts         sync for linked platform accounts
 ├── platformTrends.ts       group trend for a linked platform
@@ -480,6 +511,7 @@ leeterboard/
 - Never run `npm run dev` (or `tsx server.ts`) on a server: it starts the Vite dev server. On a recognised hosting platform (Render, Railway, Fly, Heroku, Cloud Run, Kubernetes, ...) the app refuses to start that way unless `NODE_ENV` is set on purpose.
 - Only `dist/client/` is served. The server bundle lives in `server-dist/` and must stay out of any folder you serve statically (the app also refuses to start if it finds server code in `dist/client/`).
 - Upgrading from an older version? Run `npm run clean` once, so the old `dist/server.cjs` and its sourcemap are removed from disk, then rebuild.
+- Set up mail before the first deploy: create an account with the provider (Resend), verify the sending domain (SPF and DKIM), set `EMAIL_PROVIDER`, `EMAIL_API_KEY` and `EMAIL_FROM` in the matching environment (preview and production separately), and send yourself a test sign-up. The email columns are an additive migration, so the old code keeps working while it runs.
 - After deploying, check it from outside, see [Verify a self-hosted deployment](docs/security-operations.md#verify-a-self-hosted-deployment).
 
 **Vercel:** import the repository and set the environment variables in the project settings. A Turso database is required, because Vercel has no persistent disk for a local SQLite file. `vercel.json` routes `/api/*` to the Express app and serves the built frontend for everything else. There is no background job on Vercel; the board syncs when visitors open it (see [Data syncing](#data-syncing)).
