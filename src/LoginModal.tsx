@@ -75,7 +75,7 @@ export default function LoginModal({
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [pending, setPending] = useState<PendingOAuthSignup | null>(null);
-  const [pendingLoading, setPendingLoading] = useState(usernameStep);
+  const [pendingLoading, setPendingLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +109,8 @@ export default function LoginModal({
   useEffect(() => {
     if (!open || !usernameStep) return;
     let active = true;
+    // Starts false and is switched on here, so nothing the URL says is ever
+    // copied into the state that decides what is rendered.
     setPendingLoading(true);
     fetchPendingOAuthSignup()
       .then((data) => {
