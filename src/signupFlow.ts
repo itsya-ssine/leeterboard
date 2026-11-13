@@ -1,7 +1,7 @@
-// The decisions of the code-entry step shared by the e-mail sign-up form (and,
-// later, the forgot-password and add-e-mail forms), as plain functions so they
-// can be tested without a browser: what to do with an error from a "verify"
-// call, how many seconds of the resend wait are left, and what the step says.
+// The decisions behind the Account settings e-mail change code step, as plain
+// functions so they can be tested without a browser: what to do with an error
+// from a "verify" call, how many seconds of the resend wait are left, and what
+// the step says.
 import { AuthError } from "./authApi.js";
 import { EMAIL_CODE_LENGTH, RESEND_WAIT_SECONDS } from "./signup.js";
 
@@ -10,8 +10,8 @@ import { EMAIL_CODE_LENGTH, RESEND_WAIT_SECONDS } from "./signup.js";
  *  - "retry":   the request is still open (a wrong code, a lost connection): stay
  *               on the code step, show the message, let the person type again.
  *  - "restart": the request is gone (expired, locked after too many wrong codes,
- *               already used) or can't be completed (the username was taken in
- *               the meantime): go back to the first step with the message.
+ *               already used) or can't be completed (a conflict occurred): go
+ *               back to the first step with the message.
  */
 export interface CodeFailure {
   message: string;
@@ -23,8 +23,7 @@ export function classifyCodeError(err: unknown): CodeFailure {
     return { message: "Something went wrong. Please try again.", action: "retry" };
   }
   // `expired` is set by the server for an expired, used or locked request; a 409
-  // here is the username having been taken between the two steps (the request
-  // is consumed either way).
+  // here is a conflict that consumes the request either way.
   if (err.expired || err.status === 409) return { message: err.message, action: "restart" };
   return { message: err.message, action: "retry" };
 }
@@ -38,17 +37,6 @@ export function secondsLeft(sentAtMs: number, nowMs: number, waitSeconds: number
 /** The line that tells the person where the code went. `maskedEmail` is the server's masked form. */
 export function codeSentMessage(maskedEmail: string): string {
   return `We sent a ${EMAIL_CODE_LENGTH}-digit code to ${maskedEmail}.`;
-}
-
-/**
- * The line on the code step of "forgot password". Unlike sign-up it does not
- * claim a code was sent: the server answers the same whether or not the address
- * has an account, so the form says "if". `maskedEmail` is the address the
- * person just typed, masked in the browser (maskEmail in emails.ts), never
- * anything the server said about it.
- */
-export function resetSentMessage(maskedEmail: string): string {
-  return `If ${maskedEmail} has an account, we sent a ${EMAIL_CODE_LENGTH}-digit code to it.`;
 }
 
 /** What the Resend button says: the countdown while it is disabled. */

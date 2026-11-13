@@ -12,14 +12,9 @@ import {
   unlinkOAuth as unlinkOAuthRequest,
   requestEmailCode,
   requestJson,
-  requestResetCode,
-  requestSignupCode,
   submitEmailCode,
-  submitResetCode,
-  submitSignupCode,
   type EmailCodeChallenge,
   type EmailVerifiedResult,
-  type PasswordResetChallenge,
   type OAuthProvider,
   type PendingOAuthSignup
 } from "./authApi.js";
@@ -27,7 +22,7 @@ import {
 // The error every auth call throws; defined in authApi.ts, re-exported here for
 // the components that already import it from this file.
 export { AuthError };
-export type { EmailCodeChallenge, EmailVerifiedResult, PasswordResetChallenge };
+export type { EmailCodeChallenge, EmailVerifiedResult };
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
 
@@ -68,14 +63,7 @@ interface AuthContextValue {
   // Sign in with the login name. Members who signed up with LeetCode before
   // login names existed use their LeetCode username (the same name, lowercase).
   login: (username: string, password: string) => Promise<User>;
-  // Transitional legacy UI contract; removed when LoginModal is migrated in
-  // Step 13. The OAuth sign-up contract is exposed above.
-  startRegistration: (username: string, password: string, email: string, displayName?: string) => Promise<EmailCodeChallenge>;
-  verifyRegistration: (code: string) => Promise<User>;
   logout: () => Promise<void>;
-  // Transitional legacy UI contract; removed in Step 13.
-  startPasswordReset: (email: string, newPassword: string) => Promise<PasswordResetChallenge>;
-  verifyPasswordReset: (code: string) => Promise<User>;
   // Transitional legacy UI contract; removed when AccountPage is migrated in
   // Step 14.
   startEmailChange: (email: string, currentPassword: string) => Promise<EmailCodeChallenge>;
@@ -191,30 +179,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshSession();
     return data;
   }, [refreshSession]);
-
-  const startRegistration = useCallback(
-    (username: string, password: string, email: string, displayName?: string) =>
-      requestSignupCode(username, password, email, displayName),
-    []
-  );
-
-  const verifyRegistration = useCallback(async (code: string) => {
-    const data = await submitSignupCode(code);
-    setUser(data);
-    setSessionEnded(false);
-    setStatus("authenticated");
-    return data;
-  }, []);
-
-  const startPasswordReset = useCallback((email: string, newPassword: string) => requestResetCode(email, newPassword), []);
-
-  const verifyPasswordReset = useCallback(async (code: string) => {
-    const data = await submitResetCode(code);
-    setUser(data);
-    setSessionEnded(false);
-    setStatus("authenticated");
-    return data;
-  }, []);
 
   const startEmailChange = useCallback((email: string, currentPassword: string) => requestEmailCode(email, currentPassword), []);
 
@@ -341,11 +305,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         startOAuthLink,
         unlinkOAuth,
         login,
-        startRegistration,
-        verifyRegistration,
         logout,
-        startPasswordReset,
-        verifyPasswordReset,
         startEmailChange,
         verifyEmailChange,
         refreshSession,

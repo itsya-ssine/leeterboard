@@ -34,7 +34,7 @@ export default function CodeEntry({
   onResend,
   onBack
 }: {
-  // The line that says where the code went (codeSentMessage or resetSentMessage).
+  // The line that says where the code went.
   message: string;
   expiresInMinutes: number;
   // When the code on its way was requested (Date.now()), for the resend countdown.

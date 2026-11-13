@@ -80,22 +80,11 @@ export const startOAuthLink = (provider: OAuthProvider, currentPassword?: string
 export const unlinkOAuth = (provider: OAuthProvider) =>
   requestJson<{ success: true }>("DELETE", `/api/account/oauth/${provider}`);
 
-// Transitional compatibility: LoginModal and AccountPage still consume these
-// wrappers until their dedicated OAuth UI steps (13 and 14) are applied.
-// Remove this block together with those callers in the corresponding steps.
+// Account settings still use the verified-email flow until Step 14 replaces it.
 /** What a code-by-email request answers: how long the code lives and where it went (masked). */
 export interface EmailCodeChallenge {
   expiresInMinutes: number;
   maskedEmail: string;
-}
-
-/**
- * The answer to "forgot password": the same for every address, so it carries
- * no masked address and says nothing about whether the address has an account.
- */
-export interface PasswordResetChallenge {
-  message: string;
-  expiresInMinutes: number;
 }
 
 /** What a verified e-mail change answers. */
@@ -105,23 +94,10 @@ export interface EmailVerifiedResult {
   emailVerified: true;
 }
 
-// Sign-up: step 1 sends the code (the server keeps the username and the hashed
-// password until it is entered), step 2 creates the account and signs in. The
-// pending id travels in an httpOnly cookie, so the code is all the body holds.
-export const requestSignupCode = (username: string, password: string, email: string, displayName?: string) =>
-  postJson<EmailCodeChallenge>("/api/auth/register/start", { username, password, email, displayName });
-export const submitSignupCode = (code: string) => postJson<User>("/api/auth/register/verify", { code });
-
 // A signed-in member adds or changes their address. Needs the current password.
 export const requestEmailCode = (email: string, currentPassword: string) =>
   postJson<EmailCodeChallenge>("/api/account/email/start", { email, currentPassword });
 export const submitEmailCode = (code: string) => postJson<EmailVerifiedResult>("/api/account/email/verify", { code });
-
-// Forgot password. Step 1 always answers the same; step 2 sets the new
-// password and signs in.
-export const requestResetCode = (email: string, newPassword: string) =>
-  postJson<PasswordResetChallenge>("/api/auth/reset/email/start", { email, newPassword });
-export const submitResetCode = (code: string) => postJson<User>("/api/auth/reset/email/verify", { code });
 
 /**
  * The member record to keep after an answer that doesn't carry the member's own

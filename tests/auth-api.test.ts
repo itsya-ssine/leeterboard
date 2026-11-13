@@ -1,5 +1,5 @@
 /**
- * The browser side of e-mail sign-up (email sign-up step 12): the requests
+ * The browser-side account email settings and shared session helpers: the requests
  * src/authApi.ts sends, how it reads the server's answers, the form checks in
  * src/signup.ts, and how AuthContext keeps the member's own address. No DOM and
  * no React: fetch is stubbed, and the form checks are plain functions.
@@ -13,20 +13,13 @@ import {
   AuthError,
   mergeSessionUser,
   requestEmailCode,
-  requestResetCode,
-  requestSignupCode,
-  submitEmailCode,
-  submitResetCode,
-  submitSignupCode
+  submitEmailCode
 } from "../src/authApi.js";
 import {
   checkCode,
   checkEmailInput,
-  checkNewPassword,
-  checkSignup,
   EMAIL_CODE_LENGTH,
-  normalizeCode,
-  RESEND_WAIT_SECONDS
+  normalizeCode
 } from "../src/signup.js";
 import type { User } from "../src/types.js";
 
@@ -61,30 +54,6 @@ afterEach(() => {
 });
 
 describe("the requests", () => {
-  it("sign-up step 1 posts the username, password, address and display name to /register/start", async () => {
-    reply = () => Response.json({ expiresInMinutes: 10, maskedEmail: "a***@example.com" });
-    const res = await requestSignupCode("alice_1", "correct-horse-9", "a@example.com", "Alice");
-    assert.deepEqual(res, { expiresInMinutes: 10, maskedEmail: "a***@example.com" });
-    assert.deepEqual(calls, [
-      {
-        url: "/api/auth/register/start",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: { username: "alice_1", password: "correct-horse-9", email: "a@example.com", displayName: "Alice" }
-      }
-    ]);
-  });
-
-  it("leaves the display name out when there is none", async () => {
-    await requestSignupCode("alice_1", "correct-horse-9", "a@example.com");
-    assert.equal("displayName" in (calls[0].body as object), false);
-  });
-
-  it("sign-up step 2 posts only the code to /register/verify", async () => {
-    await submitSignupCode("123456");
-    assert.deepEqual(calls.map((c) => [c.method, c.url, c.body]), [["POST", "/api/auth/register/verify", { code: "123456" }]]);
-  });
-
   it("the e-mail change posts { email, currentPassword } and then { code }", async () => {
     await requestEmailCode("new@example.com", "my-password-1");
     await submitEmailCode("654321");
@@ -94,24 +63,9 @@ describe("the requests", () => {
     ]);
   });
 
-  it("forgot password posts { email, newPassword } and then { code }", async () => {
-    reply = () => Response.json({ message: "If that address has an account, we sent a code.", expiresInMinutes: 10 });
-    const res = await requestResetCode("a@example.com", "a-new-password-42");
-    assert.equal(res.message, "If that address has an account, we sent a code.");
-    await submitResetCode("111222");
-    assert.deepEqual(calls.map((c) => [c.method, c.url, c.body]), [
-      ["POST", "/api/auth/reset/email/start", { email: "a@example.com", newPassword: "a-new-password-42" }],
-      ["POST", "/api/auth/reset/email/verify", { code: "111222" }]
-    ]);
-  });
-
   it("never puts the code, the password or the address in a URL", async () => {
-    await requestSignupCode("alice_1", "correct-horse-9", "a@example.com");
-    await submitSignupCode("123456");
     await requestEmailCode("a@example.com", "my-password-1");
     await submitEmailCode("123456");
-    await requestResetCode("a@example.com", "a-new-password-42");
-    await submitResetCode("123456");
     for (const call of calls) assert.doesNotMatch(call.url, /\?|123456|password|example\.com/, call.url);
   });
 });
@@ -132,7 +86,7 @@ describe("the errors", () => {
 
   it("a refusal carries the server's message, its status, and expired false", async () => {
     fail(409, { error: "That username is taken." });
-    const err = await caught(() => requestSignupCode("alice_1", "correct-horse-9", "a@example.com"));
+    const err = await caught(() => requestEmailCode("a@example.com", "my-password-1"));
     assert.equal(err.message, "That username is taken.");
     assert.equal(err.status, 409);
     assert.equal(err.expired, false);
@@ -140,23 +94,23 @@ describe("the errors", () => {
 
   it("a wrong code is a 400 that is not expired, so the form lets the person try again", async () => {
     fail(400, { error: "That code isn't right. Check it and try again." });
-    const err = await caught(() => submitSignupCode("000000"));
+    const err = await caught(() => submitEmailCode("000000"));
     assert.equal(err.expired, false);
     assert.equal(err.status, 400);
   });
 
-  it("an expired or locked request is `expired`, so the form goes back to the first step", async () => {
+  it("an expired or locked e-mail change is marked `expired`", async () => {
     fail(400, { error: "This sign-up has expired. Please start again.", expired: true });
-    assert.equal((await caught(() => submitSignupCode("000000"))).expired, true);
+    assert.equal((await caught(() => submitEmailCode("000000"))).expired, true);
     fail(429, { error: "Too many wrong codes. Please start again.", expired: true });
-    const locked = await caught(() => submitResetCode("000000"));
+    const locked = await caught(() => submitEmailCode("000000"));
     assert.equal(locked.expired, true);
     assert.equal(locked.status, 429);
   });
 
-  it("the resend wait is a 429 that is NOT expired (the sign-up is still open)", async () => {
+  it("a 429 rate limit is not treated as an expired e-mail change", async () => {
     fail(429, { error: "Wait a minute before asking for another code." });
-    const err = await caught(() => requestSignupCode("alice_1", "correct-horse-9", "a@example.com"));
+    const err = await caught(() => requestEmailCode("a@example.com", "my-password-1"));
     assert.equal(err.status, 429);
     assert.equal(err.expired, false);
   });
@@ -172,7 +126,7 @@ describe("the errors", () => {
     globalThis.fetch = (async () => {
       throw new TypeError("network down");
     }) as typeof fetch;
-    const err = await caught(() => submitSignupCode("123456"));
+    const err = await caught(() => submitEmailCode("123456"));
     assert.equal(err.status, 0);
     assert.match(err.message, /reach the server/);
   });
@@ -244,21 +198,7 @@ describe("e-mail checks in the form", () => {
     assert.equal(checkEmailInput("someone@gmail.com"), null);
   });
 
-  it("checkSignup checks the address when it is given, and still checks the rest", () => {
-    assert.equal(checkSignup("jsmith_99", "correct-horse-9", "j@example.com"), null);
-    assert.match(checkSignup("jsmith_99", "correct-horse-9", "nope")!, /valid email/i);
-    assert.match(checkSignup("jsmith_99", "correct-horse-9", "")!, /required/i);
-    assert.match(checkSignup("ab", "correct-horse-9", "j@example.com")!, /3 to 30/, "the username is checked first");
-    assert.match(checkSignup("jsmith_99", "short", "j@example.com")!, /at least 8/);
-    assert.equal(checkSignup("jsmith_99", "correct-horse-9"), null, "no address given: the old two-argument call still works");
-  });
 
-  it("checkNewPassword has the server's length limits and no username to compare to", () => {
-    assert.equal(checkNewPassword("a-brand-new-password-42"), null);
-    assert.match(checkNewPassword("short")!, /at least 8/);
-    assert.match(checkNewPassword("x".repeat(129))!, /at most 128/);
-    assert.equal(checkNewPassword("x".repeat(128)), null);
-  });
 });
 
 describe("code checks in the form", () => {
@@ -282,33 +222,20 @@ describe("code checks in the form", () => {
 describe("AuthContext", () => {
   const ctx = read("src/AuthContext.tsx");
 
-  it("exposes the six new calls and builds them from authApi", () => {
-    for (const name of ["startRegistration", "verifyRegistration", "startEmailChange", "verifyEmailChange", "startPasswordReset", "verifyPasswordReset"]) {
-      assert.match(ctx, new RegExp(`\\b${name}\\b`), name);
-    }
+  it("keeps the account email-change calls until the Account settings UI is migrated", () => {
+    for (const name of ["startEmailChange", "verifyEmailChange"]) assert.match(ctx, new RegExp(`\\b${name}\\b`), name);
+    assert.doesNotMatch(ctx, /startRegistration|verifyRegistration|startPasswordReset|verifyPasswordReset/);
     assert.match(ctx, /from "\.\/authApi\.js"/);
   });
 
-  it("signs in after a verified sign-up and after a verified reset, and re-reads the session after an e-mail change", () => {
-    assert.match(ctx, /verifyRegistration = useCallback\(async \(code: string\) => \{\s*const data = await submitSignupCode\(code\);\s*setUser\(data\);[\s\S]*?setStatus\("authenticated"\)/);
-    assert.match(ctx, /verifyPasswordReset = useCallback\(async \(code: string\) => \{\s*const data = await submitResetCode\(code\);\s*setUser\(data\);[\s\S]*?setStatus\("authenticated"\)/);
+  it("re-reads the session after an e-mail change", () => {
     assert.match(ctx, /verifyEmailChange[\s\S]*?await refreshSession\(\)/);
-  });
-
-  it("does not sign anyone in when a start step succeeds", () => {
-    for (const name of ["startRegistration", "startPasswordReset", "startEmailChange"]) {
-      const from = ctx.indexOf(`const ${name} = useCallback(`);
-      assert.ok(from >= 0, name);
-      const body = ctx.slice(from, ctx.indexOf("\n\n  const ", from));
-      assert.doesNotMatch(body, /setStatus|setUser/, name);
-    }
   });
 
   it("keeps the member's own address across every account update", () => {
     const direct = ctx.match(/setUser\(data\)/g)?.length ?? 0;
-    // The four fresh sign-ins (login, OAuth sign-up, verified legacy sign-up,
-    // and verified reset) replace the user outright. Account updates merge.
-    assert.equal(direct, 4);
+    // Login and OAuth sign-up replace the user outright. Account updates merge.
+    assert.equal(direct, 2);
     assert.match(ctx, /mergeSessionUser\(prev, data\.user\)/);
   });
 

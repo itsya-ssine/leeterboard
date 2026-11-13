@@ -1,20 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, KeyRound, LogIn, RefreshCw, UserPlus } from "lucide-react";
+import { AlertTriangle, GitBranch, KeyRound, LogIn, RefreshCw, UserPlus } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
-import CodeEntry from "./CodeEntry.js";
+import { AuthError } from "./authApi.js";
 import Modal from "./Modal.js";
 import { useToast } from "./Toast.js";
-import { maskEmail } from "../emails.js";
-import {
-  AFTER_SIGNUP_PROMPT,
-  checkEmailInput,
-  checkNewPassword,
-  checkSignup,
-  PASSWORD_MAX_LENGTH,
-  PASSWORD_MIN_LENGTH
-} from "./signup.js";
-import { classifyCodeError, codeSentMessage, resetSentMessage } from "./signupFlow.js";
+import { AFTER_SIGNUP_PROMPT, checkSignupUsername, oauthErrorMessage } from "./signup.js";
+import type { OAuthProvider, PendingOAuthSignup } from "./authApi.js";
 
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
@@ -23,17 +15,10 @@ const inputCls =
   "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
 
 const btnPrimary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-teal-400 text-sm font-medium text-ink-950 transition-colors hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSecondary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 const linkBtn = `cursor-pointer font-medium text-teal-300 underline-offset-2 hover:underline ${focusRing} rounded`;
 
 type Tab = "login" | "signup";
-// Sign-up and "forgot password" both have two steps: the details, then the code
-// that was e-mailed.
-type SignupStep = "details" | "code";
-// The code step: the line saying where the code went, and how long it lives.
-interface CodeStepInfo {
-  message: string;
-  expiresInMinutes: number;
-}
 
 function ErrorBox({ message }: { message: string }) {
   return (
@@ -45,6 +30,25 @@ function ErrorBox({ message }: { message: string }) {
       <span>{message}</span>
     </div>
   );
+}
+
+function ProviderButton({
+  provider,
+  onClick
+}: {
+  provider: OAuthProvider;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} className={btnSecondary}>
+      {provider === "github" && <GitBranch className="size-4" aria-hidden="true" />}
+      Continue with {provider === "github" ? "GitHub" : "Google"}
+    </button>
+  );
+}
+
+function clearOAuthErrorFromUrl() {
+  window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/login`);
 }
 
 export default function LoginModal({
@@ -61,50 +65,77 @@ export default function LoginModal({
   // A message shown above the form, e.g. that the session ended.
   notice?: string;
 }) {
-  const { login, startRegistration, verifyRegistration, startPasswordReset, verifyPasswordReset } = useAuth();
+  const { login, oauthProviders, startOAuthSignIn, fetchPendingOAuthSignup, completeOAuthSignup } = useAuth();
   const { toast } = useToast();
 
-  const [tab, setTab] = useState<Tab>("login");
+  const usernameStep = window.location.hash.split("?")[0] === "#/signup/username";
+  const hasOAuthError = new URLSearchParams(window.location.hash.split("?")[1] ?? "").has("oauth_error");
+  const [tab, setTab] = useState<Tab>(usernameStep ? "signup" : "login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
-  const [step, setStep] = useState<SignupStep>("details");
-  // "Forgot password?" is a view of the log-in tab: e-mail + new password, then
-  // the code. It reuses the e-mail and password fields and the code step below.
-  const [forgot, setForgot] = useState(false);
-  // Step 2: where the code went, when it was requested (for the resend
-  // countdown), and a confirmation after a resend.
-  const [challenge, setChallenge] = useState<CodeStepInfo | null>(null);
-  const [sentAt, setSentAt] = useState(0);
-  const [notice2, setNotice2] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingOAuthSignup | null>(null);
+  const [pendingLoading, setPendingLoading] = useState(usernameStep);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Read only the fixed error codes returned by the OAuth callback. Never show
+  // a query value directly, and remove it so a refresh doesn't repeat the error.
+  useEffect(() => {
+    if (!open) return;
+    const query = window.location.hash.split("?")[1] ?? "";
+    const code = new URLSearchParams(query).get("oauth_error");
+    if (!code) return;
+    setTab("login");
+    setError(oauthErrorMessage(code));
+    clearOAuthErrorFromUrl();
+  }, [open]);
 
   // Start from a clean form each time the dialog is opened, so a password
   // typed earlier is never still sitting in state.
   useEffect(() => {
-    if (open) {
-      setTab("login");
-      setUsername("");
-      setPassword("");
-      setDisplayName("");
-      setEmail("");
-      setForgot(false);
-      setStep("details");
-      setChallenge(null);
-      setNotice2(null);
-      setBusy(false);
-      setError(null);
-    }
+    if (!open) return;
+    setTab(usernameStep ? "signup" : "login");
+    setUsername("");
+    setPassword("");
+    setDisplayName("");
+    setPending(null);
+    setBusy(false);
+    if (!usernameStep && !hasOAuthError) setError(null);
   }, [open]);
+
+  // The provider callback leaves a short-lived pending sign-up in an HttpOnly
+  // cookie. The username page only receives the masked address and suggestion.
+  useEffect(() => {
+    if (!open || !usernameStep) return;
+    let active = true;
+    setPendingLoading(true);
+    fetchPendingOAuthSignup()
+      .then((data) => {
+        if (!active) return;
+        setPending(data);
+        setDisplayName(data.suggestedDisplayName ?? "");
+      })
+      .catch((err) => {
+        if (!active) return;
+        window.location.hash = "#/login";
+        setTab("signup");
+        setError(
+          err instanceof AuthError && err.status === 400
+            ? "This sign-up has expired. Please start again."
+            : "Couldn't load your sign-up. Please try again."
+        );
+      })
+      .finally(() => {
+        if (active) setPendingLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, usernameStep, fetchPendingOAuthSignup]);
 
   const switchTab = (next: Tab) => {
     setTab(next);
-    setForgot(false);
-    setStep("details");
-    setChallenge(null);
-    setNotice2(null);
     setError(null);
   };
 
@@ -132,170 +163,31 @@ export default function LoginModal({
     }
   };
 
-  // Step 1 of 2: the server checks the details and e-mails a 6-digit code. No
-  // account exists yet. Asking again for an address that is already registered
-  // looks exactly the same, so this step says nothing about who has an account.
-  const requestCode = async (): Promise<CodeStepInfo | null> => {
-    const problem = checkSignup(username, password, email);
-    if (problem) {
-      setError(problem);
-      return null;
-    }
-    setBusy(true);
-    try {
-      const sent = await startRegistration(username.trim(), password, email.trim(), displayName.trim() || undefined);
-      setSentAt(Date.now());
-      return { message: codeSentMessage(sent.maskedEmail), expiresInMinutes: sent.expiresInMinutes };
-    } catch (err: any) {
-      setError(err.message || "Couldn't send the code.");
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleDetails = async (e: React.FormEvent) => {
+  const handleCompleteSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setNotice2(null);
-    const sent = await requestCode();
-    if (sent) {
-      setChallenge(sent);
-      setStep("code");
+    const problem = checkSignupUsername(username);
+    if (problem) {
+      setError(problem);
+      return;
     }
-  };
-
-  const handleResend = async () => {
-    setError(null);
-    setNotice2(null);
-    const sent = await requestCode();
-    if (sent) {
-      setChallenge(sent);
-      setNotice2("A new code was sent. The earlier one no longer works.");
-    }
-  };
-
-  // Step 2 of 2: the right code creates the account and signs in. The new
-  // member lands on their account page to link LeetCode, Codeforces or
-  // CodinGame; until they do they are on no leaderboard.
-  const handleVerify = async (code: string) => {
-    setError(null);
-    setNotice2(null);
     setBusy(true);
     try {
-      await verifyRegistration(code);
+      await completeOAuthSignup(username.trim(), displayName.trim() || undefined);
       window.location.hash = "#/account";
       toast("success", `Account created. ${AFTER_SIGNUP_PROMPT}`);
       finish();
-    } catch (err) {
-      const failure = classifyCodeError(err);
-      if (failure.action === "restart") {
-        // Expired, locked or the name was taken meanwhile: back to the details
-        // (kept, so nothing has to be retyped) with the reason.
-        setStep("details");
-        setChallenge(null);
-      }
-      setError(failure.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const useDifferentEmail = () => {
-    setStep("details");
-    setChallenge(null);
-    setNotice2(null);
-    setError(null);
-  };
-
-  // ---------- Forgot password ----------
-  // Step 1 of 2: the address and the NEW password. The server answers the same
-  // whether or not the address belongs to an account (and sends a code only if
-  // it does), so this form says "if" and never what it found. The password is
-  // chosen now and held, hashed, by the server until the right code arrives.
-  const openForgot = () => {
-    setForgot(true);
-    setEmail(""); // not a leftover from the sign-up form
-    setStep("details");
-    setChallenge(null);
-    setNotice2(null);
-    setError(null);
-    setPassword(""); // whatever was typed in the log-in form is not a new password
-  };
-
-  const closeForgot = () => {
-    setForgot(false);
-    setStep("details");
-    setChallenge(null);
-    setNotice2(null);
-    setError(null);
-    setPassword("");
-  };
-
-  const requestResetCode = async (): Promise<CodeStepInfo | null> => {
-    const problem = checkEmailInput(email) ?? checkNewPassword(password);
-    if (problem) {
-      setError(problem);
-      return null;
-    }
-    setBusy(true);
-    try {
-      const sent = await startPasswordReset(email.trim(), password);
-      setSentAt(Date.now());
-      return {
-        message: resetSentMessage(maskEmail(email.trim().toLowerCase())),
-        expiresInMinutes: sent.expiresInMinutes
-      };
     } catch (err: any) {
-      setError(err.message || "Couldn't start the password reset.");
-      return null;
+      setError(err.message || "Couldn't create your account. Please try again.");
     } finally {
       setBusy(false);
     }
   };
 
-  const handleForgotDetails = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setNotice2(null);
-    const sent = await requestResetCode();
-    if (sent) {
-      setChallenge(sent);
-      setStep("code");
-    }
-  };
-
-  const handleForgotResend = async () => {
-    setError(null);
-    setNotice2(null);
-    const sent = await requestResetCode();
-    if (sent) {
-      setChallenge(sent);
-      setNotice2("If that address has an account, a new code was sent. The earlier one no longer works.");
-    }
-  };
-
-  // Step 2 of 2: the right code sets the new password, signs this device in
-  // (every other session is signed out by the server) and closes the dialog.
-  const handleForgotVerify = async (code: string) => {
-    setError(null);
-    setNotice2(null);
-    setBusy(true);
-    try {
-      await verifyPasswordReset(code);
-      toast("success", "Password changed. You're signed in.");
-      finish();
-    } catch (err) {
-      const failure = classifyCodeError(err);
-      if (failure.action === "restart") {
-        setStep("details");
-        setChallenge(null);
-      }
-      setError(failure.message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  const providerButtons = (providers: OAuthProvider[]) =>
+    providers.map((provider) => (
+      <ProviderButton key={provider} provider={provider} onClick={() => startOAuthSignIn(provider)} />
+    ));
 
   return (
     <AnimatePresence>
@@ -303,310 +195,203 @@ export default function LoginModal({
         <Modal
           onClose={onClose}
           dismissible={dismissible}
-          label={tab === "signup" ? "Sign up" : forgot ? "Reset password" : "Log in"}
+          label={usernameStep ? "Choose a username" : tab === "signup" ? "Sign up" : "Log in"}
           maxWidth="max-w-sm"
           id="auth-modal"
         >
-          {/* ---------- Tabs ---------- */}
-          <div
-            role="tablist"
-            aria-label="Account"
-            className="mr-8 inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line"
-          >
-            {(
-              [
-                { key: "login", label: "Log in" },
-                { key: "signup", label: "Sign up" }
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                role="tab"
-                aria-selected={tab === t.key}
-                onClick={() => switchTab(t.key)}
-                className={`h-8 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors ${focusRing} ${
-                  tab === t.key ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
-                }`}
+          {usernameStep ? (
+            <>
+              <div className="mt-1">
+                <h2 className="text-lg font-semibold text-strong">Choose your username</h2>
+                {pendingLoading ? (
+                  <p role="status" className="mt-2 text-sm text-mist-400">Checking your sign-up…</p>
+                ) : pending ? (
+                  <p className="mt-2 text-sm leading-relaxed text-mist-400">
+                    Signed in with {pending.provider === "github" ? "GitHub" : "Google"} as {pending.maskedEmail}.
+                    Your email is verified and will stay private.
+                  </p>
+                ) : null}
+              </div>
+
+              {pending && (
+                <form onSubmit={handleCompleteSignup} className="mt-5 flex flex-col gap-4" noValidate>
+                  <div>
+                    <label htmlFor="signup-username" className="mb-1.5 block text-sm font-medium text-mist-400">
+                      Username <span className="font-normal text-mist-500">(letters, numbers, underscores)</span>
+                    </label>
+                    <input
+                      id="signup-username"
+                      type="text"
+                      autoFocus
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      maxLength={30}
+                      placeholder="jsmith"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className={inputCls}
+                      disabled={busy}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="signup-display" className="mb-1.5 block text-sm font-medium text-mist-400">
+                      Display name <span className="font-normal text-mist-500">(optional)</span>
+                    </label>
+                    <input
+                      id="signup-display"
+                      type="text"
+                      autoComplete="nickname"
+                      maxLength={40}
+                      placeholder="Your display name"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      className={inputCls}
+                      disabled={busy}
+                    />
+                  </div>
+
+                  {error && <ErrorBox message={error} />}
+
+                  <button type="submit" disabled={busy || pendingLoading} className={btnPrimary}>
+                    {busy ? <RefreshCw className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+                    {busy ? "Creating account…" : "Create account"}
+                  </button>
+                </form>
+              )}
+            </>
+          ) : (
+            <>
+              {/* ---------- Tabs ---------- */}
+              <div
+                role="tablist"
+                aria-label="Account"
+                className="mr-8 inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line"
               >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {notice && (
-            <p role="status" className="mt-4 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 ring-1 ring-amber-400/20">
-              {notice}
-            </p>
-          )}
-
-          {/* ---------- Log in ---------- */}
-          {tab === "login" && !forgot && (
-            <form onSubmit={handleLogin} className="mt-5 flex flex-col gap-4">
-              <p className="text-sm leading-relaxed text-mist-400">
-                Log in with your username and password. If you joined before accounts were separate from LeetCode, your username is your LeetCode username.
-              </p>
-
-              <div>
-                <label htmlFor="login-username" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  Username
-                </label>
-                <input
-                  id="login-username"
-                  type="text"
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                  required
-                />
+                {(
+                  [
+                    { key: "login", label: "Log in" },
+                    { key: "signup", label: "Sign up" }
+                  ] as const
+                ).map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === t.key}
+                    onClick={() => switchTab(t.key)}
+                    className={`h-8 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors ${focusRing} ${
+                      tab === t.key ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
 
-              <div>
-                <label htmlFor="login-password" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  Password
-                </label>
-                <input
-                  id="login-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                  required
-                />
-              </div>
-              <p className="-mt-2 text-right text-sm">
-                <button type="button" onClick={openForgot} className={linkBtn}>
-                  Forgot password?
-                </button>
-              </p>
+              {notice && (
+                <p role="status" className="mt-4 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 ring-1 ring-amber-400/20">
+                  {notice}
+                </p>
+              )}
 
-              {error && <ErrorBox message={error} />}
+              {/* ---------- Log in ---------- */}
+              {tab === "login" && (
+                <form onSubmit={handleLogin} className="mt-5 flex flex-col gap-4">
+                  <p className="text-sm leading-relaxed text-mist-400">
+                    Log in with your username and password. If you joined before accounts were separate from LeetCode, your username is your LeetCode username.
+                  </p>
 
-              <button type="submit" disabled={busy} className={btnPrimary}>
-                {busy ? <RefreshCw className="size-4 animate-spin" /> : <LogIn className="size-4" />}
-                {busy ? "Logging in…" : "Log in"}
-              </button>
+                  <div>
+                    <label htmlFor="login-username" className="mb-1.5 block text-sm font-medium text-mist-400">
+                      Username
+                    </label>
+                    <input
+                      id="login-username"
+                      type="text"
+                      autoFocus
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className={inputCls}
+                      disabled={busy}
+                      required
+                    />
+                  </div>
 
-              <p className="text-center text-sm text-mist-500">
-                New here?{" "}
-                <button type="button" onClick={() => switchTab("signup")} className={linkBtn}>
-                  Sign up
-                </button>
-              </p>
-            </form>
-          )}
+                  <div>
+                    <label htmlFor="login-password" className="mb-1.5 block text-sm font-medium text-mist-400">
+                      Password
+                    </label>
+                    <input
+                      id="login-password"
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={inputCls}
+                      disabled={busy}
+                      required
+                    />
+                  </div>
 
-          {/* ---------- Forgot password, step 2: the code ---------- */}
-          {tab === "login" && forgot && step === "code" && challenge && (
-            <CodeEntry
-              message={challenge.message}
-              expiresInMinutes={challenge.expiresInMinutes}
-              sentAt={sentAt}
-              busy={busy}
-              error={error}
-              notice={notice2}
-              submitLabel="Verify and set new password"
-              busyLabel="Setting password…"
-              backLabel="Use a different email"
-              onSubmit={handleForgotVerify}
-              onResend={handleForgotResend}
-              onBack={() => {
-                setStep("details");
-                setChallenge(null);
-                setNotice2(null);
-                setError(null);
-              }}
-            />
-          )}
+                  <p className="-mt-2 text-sm text-mist-500">
+                    Forgot your password? If you connected GitHub or Google, use that button. Otherwise ask an admin.
+                  </p>
 
-          {/* ---------- Forgot password, step 1: the address and the new password ---------- */}
-          {tab === "login" && forgot && step === "details" && (
-            <form onSubmit={handleForgotDetails} className="mt-5 flex flex-col gap-4" noValidate>
-              <p className="text-sm leading-relaxed text-mist-400">
-                Enter the email address on your account and choose a new password. We send a 6-digit code there to
-                confirm it is you. If you never added an email address to your account, this can't work for you: ask
-                an admin to reset your password.
-              </p>
+                  {error && <ErrorBox message={error} />}
 
-              <div>
-                <label htmlFor="forgot-email" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  Email
-                </label>
-                <input
-                  id="forgot-email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  maxLength={254}
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                  required
-                />
-              </div>
+                  <button type="submit" disabled={busy} className={btnPrimary}>
+                    {busy ? <RefreshCw className="size-4 animate-spin" /> : <LogIn className="size-4" />}
+                    {busy ? "Logging in…" : "Log in"}
+                  </button>
 
-              <div>
-                <label htmlFor="forgot-password" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  New password <span className="font-normal text-mist-500">({PASSWORD_MIN_LENGTH}+ characters)</span>
-                </label>
-                <input
-                  id="forgot-password"
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                  required
-                />
-              </div>
+                  {oauthProviders.length > 0 && (
+                    <>
+                      <div className="relative my-1">
+                        <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-line" /></div>
+                        <div className="relative flex justify-center"><span className="bg-ink-900 px-2 text-xs text-mist-500">or</span></div>
+                      </div>
+                      {providerButtons(oauthProviders)}
+                    </>
+                  )}
 
-              {error && <ErrorBox message={error} />}
+                  <p className="text-center text-sm text-mist-500">
+                    New here?{" "}
+                    <button type="button" onClick={() => switchTab("signup")} className={linkBtn}>
+                      Sign up
+                    </button>
+                  </p>
+                </form>
+              )}
 
-              <button type="submit" disabled={busy} className={btnPrimary}>
-                {busy ? <RefreshCw className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-                {busy ? "Sending code…" : "Send me a code"}
-              </button>
-
-              <p className="text-center text-sm text-mist-500">
-                Remembered it?{" "}
-                <button type="button" onClick={closeForgot} className={linkBtn}>
-                  Back to log in
-                </button>
-              </p>
-            </form>
-          )}
-
-          {/* ---------- Sign up, step 2: the code ---------- */}
-          {tab === "signup" && step === "code" && challenge && (
-            <CodeEntry
-              message={challenge.message}
-              expiresInMinutes={challenge.expiresInMinutes}
-              sentAt={sentAt}
-              busy={busy}
-              error={error}
-              notice={notice2}
-              submitLabel="Verify and create account"
-              busyLabel="Creating account…"
-              backLabel="Use a different email"
-              onSubmit={handleVerify}
-              onResend={handleResend}
-              onBack={useDifferentEmail}
-            />
-          )}
-
-          {/* ---------- Sign up, step 1: the details ---------- */}
-          {tab === "signup" && step === "details" && (
-            <form onSubmit={handleDetails} className="mt-5 flex flex-col gap-4" noValidate>
-              <p className="text-sm leading-relaxed text-mist-400">
-                Pick a username and a password for this site, and give an email address. We send a 6-digit code there to
-                confirm it, and it is what you use if you forget your password. Your email is never shown to other
-                members. You can link your LeetCode, Codeforces and CodinGame accounts afterwards from your account
-                settings.
-              </p>
-
-              <div>
-                <label htmlFor="signup-username" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  Username <span className="font-normal text-mist-500">(letters, numbers, underscores)</span>
-                </label>
-                <input
-                  id="signup-username"
-                  type="text"
-                  autoComplete="username"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  maxLength={30}
-                  placeholder="jsmith"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="signup-email" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  Email
-                </label>
-                <input
-                  id="signup-email"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  maxLength={254}
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="signup-password" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  Password <span className="font-normal text-mist-500">({PASSWORD_MIN_LENGTH}+ characters)</span>
-                </label>
-                <input
-                  id="signup-password"
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={PASSWORD_MIN_LENGTH}
-                  maxLength={PASSWORD_MAX_LENGTH}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="signup-display" className="mb-1.5 block text-sm font-medium text-mist-400">
-                  Display name <span className="font-normal text-mist-500">(optional)</span>
-                </label>
-                <input
-                  id="signup-display"
-                  type="text"
-                  autoComplete="nickname"
-                  maxLength={40}
-                  placeholder="CodeSlayer"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  className={inputCls}
-                  disabled={busy}
-                />
-              </div>
-
-              {error && <ErrorBox message={error} />}
-
-              <button type="submit" disabled={busy} className={btnPrimary}>
-                {busy ? <RefreshCw className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
-                {busy ? "Sending code…" : "Send me a code"}
-              </button>
-
-              <p className="text-center text-sm text-mist-500">
-                Already have an account?{" "}
-                <button type="button" onClick={() => switchTab("login")} className={linkBtn}>
-                  Log in
-                </button>
-              </p>
-            </form>
+              {/* ---------- Sign up ---------- */}
+              {tab === "signup" && (
+                <div className="mt-5 flex flex-col gap-4">
+                  <p className="text-sm leading-relaxed text-mist-400">
+                    We use Google or GitHub to confirm your email. We never see your password for them. Your email stays private.
+                  </p>
+                  {error && <ErrorBox message={error} />}
+                  {oauthProviders.length > 0 ? (
+                    providerButtons(oauthProviders)
+                  ) : (
+                    <p role="status" className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 ring-1 ring-amber-400/20">
+                      Sign-up is temporarily unavailable.
+                    </p>
+                  )}
+                  <p className="text-center text-sm text-mist-500">
+                    Already have an account?{" "}
+                    <button type="button" onClick={() => switchTab("login")} className={linkBtn}>
+                      Log in
+                    </button>
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </Modal>
       )}
