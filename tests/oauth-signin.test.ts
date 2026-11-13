@@ -131,6 +131,20 @@ describe("/start", () => {
     assert.equal(res.status, 302);
     assert.equal(res.location, "/#/login?oauth_error=unavailable");
   });
+
+  it("never includes user-supplied return URLs or open-redirect parameters", async () => {
+    for (const param of ["next=https://evil.example", "returnUrl=https://evil.example", "redirect_uri=https://evil.example"]) {
+      const res = await hit(`/api/auth/oauth/github/start?${param}`);
+      assert.equal(res.status, 302);
+      assert.match(res.location, /^https:\/\/github\.com\/login\/oauth\/authorize\?/);
+      assert.equal(res.location.includes("evil.example"), false);
+
+      const cb = await hit(`/api/auth/oauth/github/callback?${param}`);
+      assert.equal(cb.status, 302);
+      assert.equal(cb.location.includes("evil.example"), false);
+      assert.match(cb.location, /^\/#\/login\?oauth_error=/);
+    }
+  });
 });
 
 describe("/callback", () => {

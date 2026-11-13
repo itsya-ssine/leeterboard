@@ -180,7 +180,7 @@ describe("what other members, an admin and a visitor can read", () => {
 });
 
 describe("the logs", () => {
-  it("hold no address, no part of one, no provider code and no client secret", () => {
+  it("hold no address, no part of one, no provider code, no token and no client secret", () => {
     const logs = server.logs();
     assert.ok(logs.length > 0, "the server logged something");
     for (const address of [...ADDRESSES, VIEWER, ADMIN]) {
@@ -189,7 +189,13 @@ describe("the logs", () => {
     }
     for (const secret of SECRETS) assert.equal(logs.includes(secret), false, "a client secret is in the logs");
     assert.ok(issued.length >= 5, "the flows used several provider codes");
-    for (const code of issued) assert.equal(logs.includes(code), false, `provider code ${code} is in the logs`);
+    for (const code of issued) {
+      assert.equal(logs.includes(code), false, `provider code ${code} is in the logs`);
+      assert.equal(logs.includes(`fake-github-token-${code}`), false, `github token for ${code} in logs`);
+      assert.equal(logs.includes(`fake-google-token-${code}`), false, `google token for ${code} in logs`);
+    }
+    assert.equal(logs.includes("fake-github-token"), false, "github token in logs");
+    assert.equal(logs.includes("fake-google-token"), false, "google token in logs");
   });
 
   it("do say what happened, with the masked address only", () => {
@@ -208,8 +214,14 @@ describe("what is stored", () => {
 
   it("keeps no authorization code or token in the state or pending tables", async () => {
     const stored = JSON.stringify([...(await query("SELECT * FROM oauth_states")), ...(await query("SELECT * FROM pending_oauth_signups"))]);
-    for (const code of issued) assert.equal(stored.includes(code), false, `code ${code} stored`);
+    for (const code of issued) {
+      assert.equal(stored.includes(code), false, `code ${code} stored`);
+      assert.equal(stored.includes(`fake-github-token-${code}`), false, `github token for ${code} stored`);
+      assert.equal(stored.includes(`fake-google-token-${code}`), false, `google token for ${code} stored`);
+    }
     for (const secret of SECRETS) assert.equal(stored.includes(secret), false, "a client secret is stored");
+    assert.equal(stored.includes("fake-github-token"), false, "github token stored");
+    assert.equal(stored.includes("fake-google-token"), false, "google token stored");
   });
 
   it("keeps no address or local part in the rate-limit counters", async () => {
