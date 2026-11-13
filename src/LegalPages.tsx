@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
-import LegalLinks from "./LegalLinks.js";
+import SiteFooter from "./SiteFooter.js";
 import { LEGAL, RETENTION, type LegalPageId } from "./legal.js";
 
 // The text below describes what the code does today (see db/schema.sql, the
@@ -48,7 +48,7 @@ const PRIVACY: SectionDef[] = [
       <>
         <p>
           {LEGAL.serviceName} is run by <B>{LEGAL.operatorName}</B> ("we", "us"). We decide why and how your personal data is
-          used, which makes us the "controller" under laws such as the GDPR.
+          used, which makes us the "controller" under laws such as the GDPR and Morocco's Law 09-08.
         </p>
         <p>
           Questions or requests about your data: <Mail />.
@@ -92,7 +92,7 @@ const PRIVACY: SectionDef[] = [
           </li>
           <li>
             <B>Technical data.</B> Your IP address and basic request details. We use them to limit abuse (rate limits and
-            lockouts) and to write security logs. A session cookie keeps you signed in (see "Cookies and browser storage").
+            lockouts) and to write security logs, which can also name the account involved. A session cookie keeps you signed in (see "Cookies and browser storage").
           </li>
         </Ul>
         <p>
@@ -188,6 +188,11 @@ const PRIVACY: SectionDef[] = [
             herokuapp.com). They receive the handle and our server's IP address, not your name or email.
           </li>
           <li>
+            <B>Avatar images.</B> A member's avatar is an image hosted by LeetCode or Codeforces. When a page shows it, your
+            browser requests it directly from that platform's image server, which therefore receives your IP address and
+            browser details.
+          </li>
+          <li>
             <B>Google Fonts.</B> Pages load their typefaces from Google Fonts. Your browser requests them directly from
             Google, so Google receives your IP address and browser details when a page loads.
           </li>
@@ -255,7 +260,8 @@ const PRIVACY: SectionDef[] = [
             <B>Daily stat snapshots:</B> the newest {RETENTION.historyDays} days.
           </li>
           <li>
-            <B>Notifications:</B> removed after {RETENTION.notificationDays} days.
+            <B>Notifications:</B> removed after {RETENTION.notificationDays} days. Dismissing one only hides it from you until
+            then.
           </li>
           <li>
             <B>Sign-in, linking and recovery requests:</B> expire within 30 minutes.
@@ -298,7 +304,8 @@ const PRIVACY: SectionDef[] = [
             stats, history, notifications, linked platform accounts and sign-in connections.
           </li>
           <li>
-            <B>Unlink a platform</B> (Codeforces or CodinGame) at any time from Account settings.
+            <B>Unlink a platform</B> (LeetCode, Codeforces or CodinGame) at any time from Account settings. This removes that
+            platform's stats and history; the rest of your account stays.
           </li>
           <li>
             <B>Get a copy of your data.</B> There is no self-service download yet. Email <Mail /> and we will send you a copy
@@ -312,7 +319,7 @@ const PRIVACY: SectionDef[] = [
           Depending on where you live (for example the EU, EEA or UK), you may also have the right to restrict or object to
           processing, to data portability, and to withdraw consent you gave. To use any right, email <Mail />. We may ask you
           to write from the address on your account or to sign in so we know it is you. If you are unhappy with our answer,
-          you can complain to your local data-protection authority.
+          you can complain to your local data-protection authority, such as the CNDP in Morocco.
         </p>
       </>
     )
@@ -456,7 +463,8 @@ const TERMS: SectionDef[] = [
     title: "Third-party data and accuracy",
     body: (
       <p>
-        Statistics come from third-party platforms and are refreshed about every 30 minutes, sometimes later. They can be
+        Statistics come from third-party platforms. They are refreshed when members use the site and the data is more than
+        about 30 minutes old, so there is no fixed schedule and a quiet period can leave numbers older than that. They can be
         delayed, incomplete or wrong, and a platform may change or block access at any time. Rankings, badges and winners are
         for fun and motivation, not an official record, and should not be relied on for grading, hiring or similar decisions.
       </p>
@@ -618,12 +626,7 @@ export default function LegalPage({ page }: { page: LegalPageId }) {
           ))}
         </article>
 
-        <footer className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5 text-sm text-mist-500">
-          <LegalLinks linkClassName={`transition hover:text-strong ${focusRing}`} />
-          <a href="/" className={`transition hover:text-strong ${focusRing}`}>
-            {LEGAL.serviceName}
-          </a>
-        </footer>
+        <SiteFooter className="mt-14" />
       </div>
     </main>
   );
