@@ -1,0 +1,23 @@
+name: scheduled-sync
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: scheduled-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger scheduled sync
+        run: |
+          APP_URL="${{ secrets.APP_URL || 'https://leaderboard-leet.vercel.app' }}"
+          curl -fsS -X POST "${APP_URL%/}/api/cron/sync" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

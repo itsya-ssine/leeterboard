@@ -153,7 +153,8 @@ const PUBLIC_ROUTES = new Set([
   "POST /api/auth/reset/verify",
   "POST /api/logout",
   "GET /api/auth/session",
-  "POST /api/feedback"
+  "POST /api/feedback",
+  "POST /api/cron/sync"
 ]);
 
 interface RouteDef {

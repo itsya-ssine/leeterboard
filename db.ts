@@ -276,6 +276,18 @@ const OAUTH_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_pending_oauth_signups_expires ON pending_oauth_signups(expires_at)`
 ];
 
+/* ---------- Distributed leases ----------
+ * Holds short-lived leases in the database stopping concurrent tasks across
+ * serverless instances.
+ */
+const LEASE_DDL = [
+  `CREATE TABLE IF NOT EXISTS leases (
+    name TEXT PRIMARY KEY,
+    holder TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  ) WITHOUT ROWID`
+];
+
 export async function initDb(): Promise<void> {
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
@@ -382,7 +394,8 @@ export async function initDb(): Promise<void> {
       ...PLATFORM_DDL,
       ...RATE_LIMIT_DDL,
       ...FEEDBACK_DDL,
-      ...OAUTH_DDL
+      ...OAUTH_DDL,
+      ...LEASE_DDL
     ],
     "write"
   );
@@ -421,7 +434,8 @@ const MIGRATIONS: Migration[] = [
   { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze },
   { version: 17, name: "email_verification", up: migrateEmailVerification },
   { version: 18, name: "oauth_sign_in", up: migrateOAuthSignIn },
-  { version: 19, name: "drop_pending_email_codes", up: migrateDropPendingEmailCodes }
+  { version: 19, name: "drop_pending_email_codes", up: migrateDropPendingEmailCodes },
+  { version: 20, name: "leases", up: migrateLeases }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -672,6 +686,11 @@ async function migrateOAuthSignIn(): Promise<void> {
 // once (IF EXISTS).
 async function migrateDropPendingEmailCodes(): Promise<void> {
   await client.execute("DROP TABLE IF EXISTS pending_email_codes");
+}
+
+// v20 — distributed leases for background and scheduled sync tasks.
+async function migrateLeases(): Promise<void> {
+  await client.batch(LEASE_DDL, "write");
 }
 
 // v16 — the same sticky "this handle stopped resolving" marker LeetCode has
@@ -2250,6 +2269,39 @@ export async function setMeta(key: string, value: string): Promise<void> {
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     args: [key, value]
   });
+}
+
+/* ---------- Distributed leases ----------
+ * Short-lived leases in the database stopping concurrent tasks (e.g. background
+ * or scheduled syncs) across serverless instances or processes.
+ */
+export async function acquireLease(name: string, ttlMs: number, holder: string = randomUUID()): Promise<string | null> {
+  const now = Date.now();
+  const expiresAt = now + ttlMs;
+  const res = await client.execute({
+    sql: `INSERT INTO leases (name, holder, expires_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT(name) DO UPDATE SET
+            holder = excluded.holder,
+            expires_at = excluded.expires_at
+          WHERE leases.expires_at < ?`,
+    args: [name, holder, expiresAt, now]
+  });
+  return (res.rowsAffected ?? 0) > 0 ? holder : null;
+}
+
+export async function releaseLease(name: string, holder?: string): Promise<void> {
+  if (holder) {
+    await client.execute({
+      sql: "DELETE FROM leases WHERE name = ? AND holder = ?",
+      args: [name, holder]
+    });
+  } else {
+    await client.execute({
+      sql: "DELETE FROM leases WHERE name = ?",
+      args: [name]
+    });
+  }
 }
 
 /* ---------- E-mail addresses ----------

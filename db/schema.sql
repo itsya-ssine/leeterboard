@@ -123,6 +123,13 @@ CREATE TABLE meta (
   value  TEXT
 );
 
+-- Distributed leases for background and scheduled operations.
+CREATE TABLE leases (
+  name        TEXT PRIMARY KEY,
+  holder      TEXT NOT NULL,
+  expires_at  INTEGER NOT NULL
+) WITHOUT ROWID;
+
 -- Which migrations have been applied (see MIGRATIONS in db.ts).
 CREATE TABLE schema_migrations (
   version     INTEGER PRIMARY KEY,

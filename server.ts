@@ -73,6 +73,8 @@ import {
   consumePendingLink,
   getMeta,
   setMeta,
+  acquireLease,
+  releaseLease,
   recordSyncResult,
   listSyncStatus,
   loadPlatformsByUser,
@@ -2737,8 +2739,8 @@ async function syncAllUsers(
 // board. This is what keeps the board fresh on Vercel, where there is no
 // background job. Any signed-in member may call it because it only ever does the
 // same real fetches a sync does, and only when the board is actually stale;
-// fresh boards return immediately. A short-lived lock in the database stops
-// simultaneous visitors (possibly on different serverless instances) from all
+// fresh boards return immediately. A short-lived distributed lease in the database
+// stops simultaneous visitors (possibly on different serverless instances) from all
 // scraping LeetCode at once.
 app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res, next) => {
   try {
@@ -2748,11 +2750,10 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res, ne
       return res.json({ synced: false, partial: false, busy: false, lastSyncAll });
     }
 
-    const lockUntil = Date.parse((await getMeta("autoSyncLockUntil")) || "");
-    if (Number.isFinite(lockUntil) && lockUntil > Date.now()) {
+    const leaseHolder = await acquireLease("sync", AUTO_SYNC_BUDGET_MS + 20_000);
+    if (!leaseHolder) {
       return res.json({ synced: false, partial: false, busy: true, lastSyncAll });
     }
-    await setMeta("autoSyncLockUntil", new Date(Date.now() + AUTO_SYNC_BUDGET_MS + 20_000).toISOString());
 
     try {
       const result = await syncAllUsers({
@@ -2766,7 +2767,56 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res, ne
         lastSyncAll: result.lastSyncAll
       });
     } finally {
-      await setMeta("autoSyncLockUntil", new Date(0).toISOString()).catch(() => {});
+      await releaseLease("sync", leaseHolder).catch(() => {});
+    }
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// POST /api/cron/sync — server-scheduled background sync endpoint (SEC-02).
+// Protected by CRON_SECRET using timingSafeEqual. Outside cookie session logic.
+// Triggered by GitHub Actions schedule or external cron services.
+app.post("/api/cron/sync", async (req, res, next) => {
+  try {
+    const authHeader = req.get("authorization") ?? "";
+    const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`;
+    const givenBuf = Buffer.from(authHeader);
+    const wantBuf = Buffer.from(expected);
+
+    if (
+      !process.env.CRON_SECRET ||
+      givenBuf.length === 0 ||
+      givenBuf.length !== wantBuf.length ||
+      !crypto.timingSafeEqual(givenBuf, wantBuf)
+    ) {
+      logSecurityEvent("cron_sync_unauthorized", { ip: req.ip }, "warn");
+      return res.status(401).json({ error: "Unauthorized." });
+    }
+
+    const leaseHolder = await acquireLease("sync", 5 * 60_000);
+    if (!leaseHolder) {
+      return res.status(202).json({ skipped: "already running" });
+    }
+
+    try {
+      const result = await syncAllUsers({
+        onlyStaleMs: AUTO_SYNC_STALE_MS,
+        budgetMs: AUTO_SYNC_BUDGET_MS
+      });
+      logSecurityEvent("cron_sync_completed", {
+        ip: req.ip,
+        partial: result.partial,
+        count: result.users.length
+      }, "info");
+      res.json({
+        ok: true,
+        synced: true,
+        partial: result.partial,
+        lastSyncAll: result.lastSyncAll
+      });
+    } finally {
+      await releaseLease("sync", leaseHolder).catch(() => {});
     }
   } catch (error: any) {
     next(error);

@@ -47,7 +47,9 @@ export type SecurityEvent =
   | "oauth_failed"
   | "oauth_unconfigured"
   | "oauth_linked"
-  | "oauth_unlinked";
+  | "oauth_unlinked"
+  | "cron_sync_unauthorized"
+  | "cron_sync_completed";
 
 // A field named exactly "email" is redacted too (anchored, so "maskedEmail" -
 // the form that is safe to log - is not caught by it).
