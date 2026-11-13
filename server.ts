@@ -160,6 +160,18 @@ class LeetCodeUnavailableError extends Error {
   }
 }
 
+// Attach a correlation ID to every request early so logs and responses agree.
+app.use((req, res, next) => {
+  const incoming = req.get("x-request-id");
+  const requestId =
+    incoming && typeof incoming === "string" && incoming.length <= 128
+      ? incoming
+      : crypto.randomUUID();
+  (req as any).id = requestId;
+  res.setHeader("x-request-id", requestId);
+  next();
+});
+
 // Security headers (CSP, HSTS, framing, MIME sniffing, permissions) and
 // no-store caching for every /api response — see securityHeaders.ts. The same
 // set is mirrored in vercel.json for the statically served frontend.
@@ -794,7 +806,7 @@ function withVisiblePlatforms<T extends { id: string; platforms?: Partial<Record
 
 // GET all users (with automatic ranking update). Members only: the board is
 // not public, so there is always a signed-in viewer here.
-app.get("/api/users", requireAuth, async (req, res) => {
+app.get("/api/users", requireAuth, async (req, res, next) => {
   try {
     const { id, isAdmin } = (req as any).user as { id: string; isAdmin: boolean };
     const viewer: Viewer = { id, isAdmin };
@@ -805,7 +817,7 @@ app.get("/api/users", requireAuth, async (req, res) => {
     const winners = await resolveWinners(users);
     res.json({ users, lastSyncAll, winners });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -2454,7 +2466,7 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 // POST refresh individual user — admin only. Each call triggers several
 // outbound scrapes, so it must not be an anonymous amplification point. The
 // only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
-app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res) => {
+app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res, next) => {
   const id = req.params.id as string;
   const admin = (req as any).user as { id: string; loginUsername: string };
   logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "member", targetId: id }, "info");
@@ -2568,7 +2580,7 @@ app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res
     res.vary("Cookie");
     res.json(withVisiblePlatforms(user, await viewerOf(req)));
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -2728,7 +2740,7 @@ async function syncAllUsers(
 // fresh boards return immediately. A short-lived lock in the database stops
 // simultaneous visitors (possibly on different serverless instances) from all
 // scraping LeetCode at once.
-app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) => {
+app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res, next) => {
   try {
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
     const age = Date.now() - Date.parse(lastSyncAll);
@@ -2757,7 +2769,7 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) =>
       await setMeta("autoSyncLockUntil", new Date(0).toISOString()).catch(() => {});
     }
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -2766,7 +2778,7 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) =>
 // last successful fetch (users.last_updated) with the outcome of the latest
 // attempt (sync_status), so a member whose LeetCode account was removed or
 // renamed shows up as "not_found" instead of just quietly going stale.
-app.get("/api/admin/sync-status", requireAdmin, async (_req, res) => {
+app.get("/api/admin/sync-status", requireAdmin, async (_req, res, next) => {
   try {
     const [users, statuses, lastSyncAll] = await Promise.all([
       listUsers(),
@@ -2798,7 +2810,7 @@ app.get("/api/admin/sync-status", requireAdmin, async (_req, res) => {
     };
     res.json(report);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -2810,19 +2822,19 @@ app.use("/api", notificationRoutes);
 app.use("/api", feedbackRoutes);
 
 // POST refresh all users — admin only
-app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
+app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res, next) => {
   const admin = (req as any).user as { id: string; loginUsername: string };
   logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "all" }, "info");
   try {
     const result = await syncAllUsers();
     res.json({ success: true, ...result });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 // GET aggregated monthly trend metrics (members only, like the board itself)
-app.get("/api/trends", requireAuth, async (req, res) => {
+app.get("/api/trends", requireAuth, async (req, res, next) => {
   try {
     const users = await listUsers();
 
@@ -2904,8 +2916,45 @@ app.get("/api/trends", requireAuth, async (req, res) => {
       totalSolved: board.reduce((acc, u) => acc + u.allTimeSolved, 0)
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
+});
+
+// Central error handler: never leak raw driver / internal error messages to clients.
+app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const reqId = (req as any).id || crypto.randomUUID();
+  const rawStatus = (err as any)?.status ?? (err as any)?.statusCode;
+  const status = typeof rawStatus === "number" && rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
+
+  if (res.headersSent) return;
+
+  if (status >= 500) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({
+        level: "error",
+        requestId: reqId,
+        method: req.method,
+        path: req.path,
+        message
+      })
+    );
+    return res.status(500).json({
+      error: "Something went wrong. Please try again.",
+      requestId: reqId
+    });
+  }
+
+  const clientMessage =
+    status === 413
+      ? "Payload too large."
+      : status === 400
+      ? "Invalid request payload."
+      : "Bad request.";
+  res.status(status).json({
+    error: clientMessage,
+    requestId: reqId
+  });
 });
 
 // Serve frontend assets in production and Vite dev server in development

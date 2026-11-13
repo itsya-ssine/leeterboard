@@ -45,16 +45,16 @@ const router = Router();
 
 /* ---------- Members: their own notifications ---------- */
 
-router.get("/notifications", requireAuth, async (req, res) => {
+router.get("/notifications", requireAuth, async (req, res, next) => {
   try {
     const { id } = (req as any).user;
     res.json(await listNotifications(id));
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-router.post("/notifications/read", requireAuth, async (req, res) => {
+router.post("/notifications/read", requireAuth, async (req, res, next) => {
   try {
     const { id } = (req as any).user;
     const { ids, all } = req.body ?? {};
@@ -72,42 +72,42 @@ router.post("/notifications/read", requireAuth, async (req, res) => {
     }
     res.json(await listNotifications(id));
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-router.post("/notifications/clear-read", requireAuth, async (req, res) => {
+router.post("/notifications/clear-read", requireAuth, async (req, res, next) => {
   try {
     const { id } = (req as any).user;
     await dismissReadNotifications(id);
     res.json(await listNotifications(id));
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-router.delete("/notifications/:notificationId", requireAuth, async (req, res) => {
+router.delete("/notifications/:notificationId", requireAuth, async (req, res, next) => {
   try {
     const { id } = (req as any).user;
     const removed = await dismissNotification(id, req.params.notificationId as string);
     if (!removed) return res.status(404).json({ error: "Notification not found." });
     res.json(await listNotifications(id));
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 /* ---------- Admins: send messages ---------- */
 
-router.get("/admin/notifications", requireAdmin, async (_req, res) => {
+router.get("/admin/notifications", requireAdmin, async (_req, res, next) => {
   try {
     res.json({ messages: await listSentMessages(20) });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-router.post("/admin/notifications", accountLimiter, requireAdmin, async (req, res) => {
+router.post("/admin/notifications", accountLimiter, requireAdmin, async (req, res, next) => {
   try {
     const sender = (req as any).user;
     const { to, title, message } = req.body ?? {};
@@ -142,7 +142,7 @@ router.post("/admin/notifications", accountLimiter, requireAdmin, async (req, re
     );
     res.status(201).json({ sent });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
