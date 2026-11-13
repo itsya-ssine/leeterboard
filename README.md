@@ -491,12 +491,12 @@ Limits are per IP. The sensitive limiters (login, OAuth, verification, refresh, 
 | `npm run clean` | Delete `dist/` and `server-dist/` |
 | `npm run lint` | Type-check the project |
 | `npm run db:migrate` | Back up the local database, then apply any pending schema migrations (a remote database also needs `-- --confirm-remote`) |
+| `npm run admin` | Manage admin member IDs and passwords (`-- show-id <username>`, `-- set-password <username>`) |
 | `npm test` | Run the security regression tests against the real server (throwaway database) |
 | `npm run db:verify-backup` | Check that a restored copy of the database is complete and readable (`-- --url <copy>`) |
 | `npm run security:check` | Verify the CSP script hashes, that `vercel.json` sends the same security headers as `securityHeaders.ts`, and that the build scripts keep the server bundle out of the served folder |
 | `npm run legal:check` | Fail while `src/legal.ts` still holds `REPLACE_ME` placeholders (run before releasing) |
 | `npm run audit:prod` | Fail on known high-severity vulnerabilities in production dependencies |
-| `npm run clean` | Remove build output |
 | `npx tsx scripts/seed-dev-users.ts` | Development only: add two fake members to the local database (`--reset` re-creates them) |
 | `npx tsx scripts/probe-codingame.ts <handle>` | Print what CodinGame returns for one handle, to check the field names the adapter reads |
 
@@ -505,6 +505,10 @@ Limits are per IP. The sensitive limiters (login, OAuth, verification, refresh, 
 ```
 leeterboard/
 ├── LICENSE                 MIT license for the source code
+├── SECURITY.md             security and vulnerability reporting policy
+├── CONTRIBUTING.md         contribution and development guidelines
+├── CODE_OF_CONDUCT.md      community standards and conduct
+├── CHANGELOG.md            release notes and change history
 ├── db/schema.sql           annotated current schema
 ├── platforms/              Codeforces and CodinGame adapters, shared types and the registry
 ├── scripts/                migrate, seed-dev-users, probe-codingame, check-security-config, verify-backup
