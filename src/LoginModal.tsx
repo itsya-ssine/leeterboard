@@ -134,6 +134,11 @@ export default function LoginModal({
     };
   }, [open, usernameStep, fetchPendingOAuthSignup]);
 
+  // The username screen is shown because the SERVER answered (or is still being
+  // asked) about a pending sign-up, never because of what the URL hash says.
+  // The hash only starts that request.
+  const showUsernameStep = pendingLoading || pending !== null;
+
   const switchTab = (next: Tab) => {
     setTab(next);
     setError(null);
@@ -195,11 +200,11 @@ export default function LoginModal({
         <Modal
           onClose={onClose}
           dismissible={dismissible}
-          label={usernameStep ? "Choose a username" : tab === "signup" ? "Sign up" : "Log in"}
+          label={showUsernameStep ? "Choose a username" : tab === "signup" ? "Sign up" : "Log in"}
           maxWidth="max-w-sm"
           id="auth-modal"
         >
-          {usernameStep ? (
+          {showUsernameStep ? (
             <>
               <div className="mt-1">
                 <h2 className="text-lg font-semibold text-strong">Choose your username</h2>
