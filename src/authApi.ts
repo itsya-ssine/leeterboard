@@ -4,10 +4,8 @@ import type { User } from "./types.js";
 
 /**
  * Thrown for any non-2xx response, and when the server can't be reached.
- *  - `expired`: the server says the request in progress is gone (expired,
- *    locked after too many wrong codes, or used), so it has to be started again.
- *  - `status`: the HTTP status, or 0 when the server wasn't reached. A 429 with
- *    `expired` false is a wait ("Wait a minute...") or a rate limit.
+ *  - `expired`: the server says a short-lived verification request is gone.
+ *  - `status`: the HTTP status, or 0 when the server wasn't reached.
  */
 export class AuthError extends Error {
   expired: boolean;
@@ -79,25 +77,6 @@ export const startOAuthLink = (provider: OAuthProvider, currentPassword?: string
 /** Disconnect a provider from the currently signed-in member. */
 export const unlinkOAuth = (provider: OAuthProvider) =>
   requestJson<{ success: true }>("DELETE", `/api/account/oauth/${provider}`);
-
-// Account settings still use the verified-email flow until Step 14 replaces it.
-/** What a code-by-email request answers: how long the code lives and where it went (masked). */
-export interface EmailCodeChallenge {
-  expiresInMinutes: number;
-  maskedEmail: string;
-}
-
-/** What a verified e-mail change answers. */
-export interface EmailVerifiedResult {
-  success: true;
-  maskedEmail: string;
-  emailVerified: true;
-}
-
-// A signed-in member adds or changes their address. Needs the current password.
-export const requestEmailCode = (email: string, currentPassword: string) =>
-  postJson<EmailCodeChallenge>("/api/account/email/start", { email, currentPassword });
-export const submitEmailCode = (code: string) => postJson<EmailVerifiedResult>("/api/account/email/verify", { code });
 
 /**
  * The member record to keep after an answer that doesn't carry the member's own

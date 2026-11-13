@@ -93,7 +93,7 @@ export interface User {
   // Empty object = none. Optional so records built by hand don't need it.
   platforms?: Partial<Record<PlatformId, PlatformAccount>>;
   // Present only on the currently-authenticated user's own record (see
-  // /api/auth/session, /api/auth/login and /api/auth/register/verify) —
+  // /api/auth/session and /api/auth/login) —
   // never trust a client-supplied value for this, it's always derived
   // server-side from the admin list in auth.ts.
   isAdmin?: boolean;

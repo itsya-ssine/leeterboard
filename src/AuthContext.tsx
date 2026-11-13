@@ -10,11 +10,7 @@ import {
   completeOAuthSignup as completeOAuthSignupRequest,
   startOAuthLink as startOAuthLinkRequest,
   unlinkOAuth as unlinkOAuthRequest,
-  requestEmailCode,
   requestJson,
-  submitEmailCode,
-  type EmailCodeChallenge,
-  type EmailVerifiedResult,
   type OAuthProvider,
   type PendingOAuthSignup
 } from "./authApi.js";
@@ -22,7 +18,6 @@ import {
 // The error every auth call throws; defined in authApi.ts, re-exported here for
 // the components that already import it from this file.
 export { AuthError };
-export type { EmailCodeChallenge, EmailVerifiedResult };
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
 
@@ -64,10 +59,6 @@ interface AuthContextValue {
   // login names existed use their LeetCode username (the same name, lowercase).
   login: (username: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
-  // Transitional legacy UI contract; removed when AccountPage is migrated in
-  // Step 14.
-  startEmailChange: (email: string, currentPassword: string) => Promise<EmailCodeChallenge>;
-  verifyEmailChange: (code: string) => Promise<EmailVerifiedResult>;
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
   updateSchool: (school: string) => Promise<User>;
@@ -179,17 +170,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await refreshSession();
     return data;
   }, [refreshSession]);
-
-  const startEmailChange = useCallback((email: string, currentPassword: string) => requestEmailCode(email, currentPassword), []);
-
-  const verifyEmailChange = useCallback(
-    async (code: string) => {
-      const result = await submitEmailCode(code);
-      await refreshSession(); // the session is where the member's own address comes from
-      return result;
-    },
-    [refreshSession]
-  );
 
   const updateDisplayName = useCallback(async (displayName: string) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", { displayName });
@@ -306,8 +286,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unlinkOAuth,
         login,
         logout,
-        startEmailChange,
-        verifyEmailChange,
         refreshSession,
         updateDisplayName,
         updateSchool,

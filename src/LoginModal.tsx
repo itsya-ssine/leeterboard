@@ -5,7 +5,7 @@ import { useAuth } from "./AuthContext.js";
 import { AuthError } from "./authApi.js";
 import Modal from "./Modal.js";
 import { useToast } from "./Toast.js";
-import { AFTER_SIGNUP_PROMPT, checkSignupUsername, oauthErrorMessage } from "./signup.js";
+import { AFTER_SIGNUP_PROMPT, checkSignupUsername, oauthErrorMessage, visibleOAuthProviders } from "./signup.js";
 import type { OAuthProvider, PendingOAuthSignup } from "./authApi.js";
 
 const focusRing =
@@ -356,7 +356,7 @@ export default function LoginModal({
                         <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-line" /></div>
                         <div className="relative flex justify-center"><span className="bg-ink-900 px-2 text-xs text-mist-500">or</span></div>
                       </div>
-                      {providerButtons(oauthProviders)}
+                      {providerButtons(visibleOAuthProviders(oauthProviders))}
                     </>
                   )}
 
@@ -377,7 +377,7 @@ export default function LoginModal({
                   </p>
                   {error && <ErrorBox message={error} />}
                   {oauthProviders.length > 0 ? (
-                    providerButtons(oauthProviders)
+                    providerButtons(visibleOAuthProviders(oauthProviders))
                   ) : (
                     <p role="status" className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-200 ring-1 ring-amber-400/20">
                       Sign-up is temporarily unavailable.

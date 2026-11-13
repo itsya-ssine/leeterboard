@@ -1,5 +1,5 @@
-import { checkEmail } from "../emails.js";
 import { checkUsername } from "../usernames.js";
+import type { OAuthProvider } from "./authApi.js";
 
 /** Validate the public username chosen after OAuth has verified the email. */
 export function checkSignupUsername(username: string): string | null {
@@ -25,37 +25,24 @@ export function oauthErrorMessage(code: string | null): string | null {
   return OAUTH_ERROR_MESSAGES[code];
 }
 
-/**
- * The e-mail rules the server applies (emails.ts is the very same file: length,
- * exactly one "@", no spaces or line breaks, a plausible domain), as a message
- * for the Account settings form or null. The list of allowed domains is a
- * server setting the browser doesn't know: when it refuses an address the form
- * simply shows the server's message.
- */
-export function checkEmailInput(email: string): string | null {
-  const checked = checkEmail(email);
-  return checked.ok ? null : checked.error;
+/** Providers are shown in a stable order. Linked providers remain visible even
+ * when they are no longer enabled for new sign-ins, so members can disconnect. */
+export function visibleOAuthProviders(
+  enabled: OAuthProvider[],
+  linked: OAuthProvider[] = []
+): OAuthProvider[] {
+  const available = new Set([...enabled, ...linked]);
+  return (["github", "google"] as const).filter((provider) => available.has(provider));
 }
 
-// The verification code for the Account settings e-mail change: 6 digits.
-export const EMAIL_CODE_LENGTH = 6;
-
-/** The code as the server will read it: whitespace and hyphens removed. */
-export function normalizeCode(input: string): string {
-  return input.replace(/[\s-]/g, "");
+/** A provider can be disconnected only when another sign-in method remains. */
+export function canDisconnectOAuthProvider(
+  methods: { password: boolean; providers: OAuthProvider[] },
+  provider: OAuthProvider
+): boolean {
+  return methods.providers.includes(provider) &&
+    (methods.password || methods.providers.some((connected) => connected !== provider));
 }
-
-/** A message to show next to the code field, or null when it looks right. */
-export function checkCode(input: string): string | null {
-  const code = normalizeCode(input);
-  if (code === "") return "Enter the 6-digit code from the email.";
-  if (!/^[0-9]+$/.test(code)) return "The code is made of digits only.";
-  if (code.length !== EMAIL_CODE_LENGTH) return `The code has ${EMAIL_CODE_LENGTH} digits.`;
-  return null;
-}
-
-/** The server's wait before another e-mail change code can be requested. */
-export const RESEND_WAIT_SECONDS = 60;
 
 // Shown once, right after sign-up, on the account page the new member lands on.
 export const AFTER_SIGNUP_PROMPT = "Link your accounts to appear on the leaderboards.";

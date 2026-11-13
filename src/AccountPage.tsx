@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
 import { maskEmail } from "../emails.js";
-import { oauthErrorMessage } from "./signup.js";
+import { canDisconnectOAuthProvider, oauthErrorMessage, visibleOAuthProviders } from "./signup.js";
 import type { OAuthProvider } from "./authApi.js";
 import type { PlatformId } from "./types.js";
 import { hasNothingLinked, rowAccountFor, type LinkId, type RowAccount } from "./linkedAccounts.js";
@@ -611,8 +611,6 @@ function LinkedAccountsCard({ onChanged }: { onChanged?: () => void }) {
 
 /* ---------- Sign-in methods ---------- */
 
-const OAUTH_PROVIDER_ORDER: OAuthProvider[] = ["github", "google"];
-
 function providerLabel(provider: OAuthProvider): string {
   return provider === "github" ? "GitHub" : "Google";
 }
@@ -643,11 +641,7 @@ function SignInMethodsCard() {
 
   if (!user) return null;
 
-  const providers = OAUTH_PROVIDER_ORDER.filter(
-    (provider) => oauthProviders.includes(provider) || signInMethods.providers.includes(provider)
-  );
-  const canDisconnect = (provider: OAuthProvider) =>
-    signInMethods.password || signInMethods.providers.filter((item) => item !== provider).length > 0;
+  const providers = visibleOAuthProviders(oauthProviders, signInMethods.providers);
 
   const connect = async (provider: OAuthProvider) => {
     setNotice(null);
@@ -720,7 +714,7 @@ function SignInMethodsCard() {
         ) : (
           providers.map((provider) => {
             const connected = signInMethods.providers.includes(provider);
-            const lastMethod = connected && !canDisconnect(provider);
+            const lastMethod = connected && !canDisconnectOAuthProvider(signInMethods, provider);
             return (
               <div key={provider} className="rounded-lg bg-ink-950/60 p-3 ring-1 ring-line">
                 <div className="flex flex-wrap items-center justify-between gap-3">

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { checkSignupUsername, oauthErrorMessage } from "../src/signup.js";
+import { checkSignupUsername, oauthErrorMessage, visibleOAuthProviders } from "../src/signup.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const read = (f: string) => fs.readFileSync(path.join(root, f), "utf8");
@@ -17,6 +17,14 @@ describe("OAuth username checks", () => {
     assert.match(checkSignupUsername("")!, /required/i);
     assert.match(checkSignupUsername("ab")!, /3 to 30/);
     assert.match(checkSignupUsername("admin")!, /isn't available/);
+  });
+});
+
+describe("OAuth provider button visibility", () => {
+  it("shows only enabled providers in a predictable order", () => {
+    assert.deepEqual(visibleOAuthProviders(["google", "github"]), ["github", "google"]);
+    assert.deepEqual(visibleOAuthProviders(["google"]), ["google"]);
+    assert.deepEqual(visibleOAuthProviders([]), []);
   });
 });
 
@@ -44,7 +52,7 @@ describe("the OAuth auth form", () => {
   it("keeps username/password login and shows only configured provider buttons", () => {
     assert.match(modal, /login\(username\.trim\(\), password\)/);
     assert.match(modal, /oauthProviders\.length > 0/);
-    assert.match(modal, /providerButtons\(oauthProviders\)/);
+    assert.match(modal, /providerButtons\(visibleOAuthProviders\(oauthProviders\)\)/);
     assert.match(ctx, /oauthProviders: OAuthProvider\[\]/);
   });
 
