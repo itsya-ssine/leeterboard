@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
-import LegalLinks from "./LegalLinks.js";
+import SiteFooter from "./SiteFooter.js";
 import { LEGAL, RETENTION, type LegalPageId } from "./legal.js";
 
 // The text below describes what the code does today (see db/schema.sql, the
@@ -626,12 +626,7 @@ export default function LegalPage({ page }: { page: LegalPageId }) {
           ))}
         </article>
 
-        <footer className="mt-14 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5 text-sm text-mist-500">
-          <LegalLinks linkClassName={`transition hover:text-strong ${focusRing}`} />
-          <a href="/" className={`transition hover:text-strong ${focusRing}`}>
-            {LEGAL.serviceName}
-          </a>
-        </footer>
+        <SiteFooter className="mt-14" />
       </div>
     </main>
   );

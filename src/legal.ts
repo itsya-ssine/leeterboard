@@ -1,4 +1,5 @@
-// Settings and routing for the legal pages (Privacy Policy, Terms of Service).
+// Settings and routing for the legal pages (Privacy Policy, Terms of Service),
+// plus the site details the footer shares with them.
 //
 // Everything the owner must fill in lives in LEGAL below, in one place, so the
 // two pages never disagree about who to contact or when they changed. Values
@@ -21,6 +22,12 @@ export const LEGAL = {
   contactEmail: "elmajdoubiyassine5@gmail.com",
   /** Country (and, if you like, region) whose law governs the Terms, e.g. "Morocco". */
   governingLaw: "Morocco",
+
+  /**
+   * Public status page for the service (an uptime monitor's page, for example).
+   * Optional: while empty, the footer simply leaves the Status link out.
+   */
+  statusUrl: "",
 
   /** ISO date (YYYY-MM-DD). Bump it whenever either page changes in substance. */
   effectiveDate: "2026-11-13"

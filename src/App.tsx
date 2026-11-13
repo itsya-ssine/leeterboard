@@ -39,6 +39,7 @@ import Modal from "./Modal.js";
 import WinnerBanner from "./WinnerBanner.js";
 import AdminDashboard from "./AdminDashboard.js";
 import FeedbackWidget from "./FeedbackWidget.js";
+import SiteFooter from "./SiteFooter.js";
 import ComparePage from "./ComparePage.js";
 import type { WeeklyWinner } from "./winners.js";
 import ActivityHeatmap from "./ActivityHeatmap.js";
@@ -967,7 +968,7 @@ export default function App() {
     : stats;
 
   return (
-    <div className="relative min-h-screen bg-ink-950 text-mist-100">
+    <div className="relative flex min-h-screen flex-col bg-ink-950 text-mist-100">
       <div className="aurora-bg" aria-hidden="true" />
       {/* ---------- Top bar ---------- */}
       <header className="glass sticky top-0 z-30 border-b border-line">
@@ -1036,7 +1037,7 @@ export default function App() {
 
       {page === "leaderboard" && !loading && <SubmissionTicker users={users} />}
 
-      <main className="relative z-10 mx-auto max-w-6xl px-4 pb-16 pt-10 md:px-8 md:pt-14">
+      <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-10 md:px-8 md:pt-14">
         {/* ---------- Intro (the profile and account pages have their own header) ---------- */}
         {page !== "profile" && page !== "account" && (
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -1713,6 +1714,11 @@ export default function App() {
         </AnimatePresence>
 
       </main>
+
+      {/* The bottom padding keeps the links clear of the floating buttons below */}
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 md:px-8">
+        <SiteFooter newTab className="pb-24 sm:pb-20" />
+      </div>
 
       {/* Star on GitHub + send feedback, bottom right of every page */}
       <FeedbackWidget />

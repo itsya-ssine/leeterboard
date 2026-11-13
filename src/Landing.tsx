@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import { ArrowRight, Flame, Trophy, Users } from "lucide-react";
-import { FaGithub } from "react-icons/fa";
-import LegalLinks from "./LegalLinks.js";
+import SiteFooter from "./SiteFooter.js";
 
 // The landing page is always dark, whatever theme the app uses, so it uses
 // fixed colours instead of the theme tokens.
@@ -73,29 +72,23 @@ export default function Landing({ onEnter }: { onEnter: (animated: boolean) => v
           </div>
         </section>
 
-        <footer className="flex animate-rise flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5 text-sm text-[#a3acbb]" style={{ animationDelay: "400ms" }}>
-          <span>
-            Made by{" "}
-            <a
-              href="https://github.com/itsya-ssine"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`font-medium text-white underline decoration-white/30 underline-offset-4 transition hover:decoration-[#2dd4bf] ${focusRing}`}
-            >
-              itsya-ssine
-            </a>
-          </span>
-          <LegalLinks linkClassName={`transition hover:text-white ${focusRing}`} />
-          <a
-            href="https://github.com/itsya-ssine/leeterboard"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`inline-flex items-center gap-2 transition hover:text-white ${focusRing}`}
-          >
-            <FaGithub size={16} aria-hidden="true" />
-            View on GitHub
-          </a>
-        </footer>
+        <SiteFooter
+          tone="dark"
+          className="animate-rise"
+          lead={
+            <>
+              Made by{" "}
+              <a
+                href="https://github.com/itsya-ssine"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`font-medium text-white underline decoration-white/30 underline-offset-4 transition hover:decoration-[#2dd4bf] ${focusRing}`}
+              >
+                itsya-ssine
+              </a>
+            </>
+          }
+        />
       </div>
     </main>
   );

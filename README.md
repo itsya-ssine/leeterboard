@@ -505,7 +505,8 @@ leeterboard/
 │   ├── shareCard.ts, compareCard.ts   canvas-drawn PNG cards
 │   ├── theme.tsx, ThemeToggle.tsx, index.css
 │   ├── legal.ts            legal settings (owner fills in) and the /privacy, /terms route
-│   ├── LegalGate.tsx, LegalPages.tsx, LegalLinks.tsx   Privacy Policy and Terms pages
+│   ├── LegalGate.tsx, LegalPages.tsx   Privacy Policy and Terms pages
+│   ├── SiteFooter.tsx      the footer shared by the app, landing and legal pages
 │   └── NotificationBell.tsx, Toast.tsx, Modal.tsx, ...
 ├── server.ts               Express app: auth, account, sync and trend routes
 ├── auth.ts                 sessions, password hashing, admin check
