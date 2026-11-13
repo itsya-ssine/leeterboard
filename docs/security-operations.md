@@ -43,6 +43,7 @@ history if you want to look back further than that.
 | `oauth_failed` | warn | An OAuth callback or completion was refused or failed (`provider`, `reason`: `bad_state`, `expired_state`, `provider_error`, `email_missing`, `email_unverified`, `domain_refused`, `already_linked`, `email_in_use`, `admin_refused`, `timeout`, `server_error`, etc.) |
 | `oauth_unconfigured` | warn | A visitor or member attempted to use an OAuth provider that is not configured or missing credentials (`route`) |
 | `account_deleted` | info | A member deleted their own account (`confirmedWith`: `password`, or `username` for a member who has no password) |
+| `account_exported` | info | A member downloaded a copy of their data (Account settings). A burst of these from one account or IP is worth a look: it is the one route that returns a member's e-mail address and every stored detail in one response |
 | `admin_user_removed` | info | An admin removed a member (`admin`, `target`) |
 | `admin_refresh` | info | An admin triggered a sync (`scope`: `member` or `all`) |
 | `admin_message_sent` | info | An admin sent notifications (`to`, `recipients`) |

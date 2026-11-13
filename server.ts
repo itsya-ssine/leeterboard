@@ -116,6 +116,7 @@ import { csrfProtection } from "./csrf.js";
 import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
+import { buildAccountExport, exportFileName } from "./accountExport.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
 import { apiLimiter, pageLimiter, loginLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter, oauthLimiter } from "./rateLimit.js";
 
@@ -2364,6 +2365,28 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
     res.json({ success: true });
   } catch (error: any) {
     console.error(`[Account] password change failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// GET — download everything held about the signed-in member as one JSON file
+// (data portability). The id comes from the session, never from the request, so
+// a member can only ever export their own data. It is a GET with no side effects
+// (the log line aside), and a cross-site page can't read the response.
+app.get("/api/account/export", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id, loginUsername } = (req as any).user as { id: string; loginUsername: string };
+    const now = new Date();
+    const data = await buildAccountExport(id, now);
+    if (!data) return res.status(404).json({ error: "Account not found." });
+
+    logSecurityEvent("account_exported", { ip: req.ip, userId: id, username: loginUsername }, "info");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${exportFileName(loginUsername, now)}"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(JSON.stringify(data, null, 2));
+  } catch (error: any) {
+    console.error(`[Account] export failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
   }
 });
