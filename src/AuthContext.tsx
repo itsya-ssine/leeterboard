@@ -1,6 +1,23 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { User, PlatformId } from "./types.js";
 import { installSessionExpiryHandler } from "./api.js";
+import {
+  AuthError,
+  mergeSessionUser,
+  postJson,
+  startOAuthSignIn as startOAuthSignInRequest,
+  fetchPendingOAuthSignup as fetchPendingOAuthSignupRequest,
+  completeOAuthSignup as completeOAuthSignupRequest,
+  startOAuthLink as startOAuthLinkRequest,
+  unlinkOAuth as unlinkOAuthRequest,
+  requestJson,
+  type OAuthProvider,
+  type PendingOAuthSignup
+} from "./authApi.js";
+
+// The error every auth call throws; defined in authApi.ts, re-exported here for
+// the components that already import it from this file.
+export { AuthError };
 
 export type SessionStatus = "loading" | "guest" | "authenticated";
 
@@ -29,19 +46,25 @@ interface AuthContextValue {
   // out elsewhere, password changed on another device) until the member signs
   // in again; the sign-in screen explains it. A normal log out doesn't set it.
   sessionEnded: boolean;
+  oauthProviders: OAuthProvider[];
+  email: string | null;
+  emailVerified: boolean;
+  signInMethods: { password: boolean; providers: OAuthProvider[] };
+  startOAuthSignIn: (provider: OAuthProvider) => void;
+  fetchPendingOAuthSignup: () => Promise<PendingOAuthSignup>;
+  completeOAuthSignup: (username: string, displayName?: string) => Promise<User>;
+  startOAuthLink: (provider: OAuthProvider, currentPassword?: string) => Promise<string>;
+  unlinkOAuth: (provider: OAuthProvider) => Promise<void>;
   // Sign in with the login name. Members who signed up with LeetCode before
   // login names existed use their LeetCode username (the same name, lowercase).
   login: (username: string, password: string) => Promise<User>;
-  // Create an account with a username and password (no LeetCode needed) and
-  // sign in with it. The server answers 409 when the name is taken.
-  register: (username: string, password: string, displayName?: string) => Promise<User>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
   updateSchool: (school: string) => Promise<User>;
   updateProfileDetails: (details: ProfileDetails) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-  deleteAccount: (password: string) => Promise<void>;
+  deleteAccount: (confirmation: string, hasPassword: boolean) => Promise<void>;
   startPlatformLink: (platform: PlatformId, handle: string) => Promise<PlatformLinkChallenge>;
   verifyPlatformLink: (platform: PlatformId) => Promise<User>;
   unlinkPlatform: (platform: PlatformId) => Promise<User>;
@@ -55,48 +78,13 @@ interface AuthContextValue {
   unlinkLeetcode: () => Promise<User>;
 }
 
-// Thrown for any non-2xx response; `expired` is set when the server says the
-// sign-up in progress is gone and has to be started again.
-export class AuthError extends Error {
-  expired: boolean;
-  constructor(message: string, expired = false) {
-    super(message);
-    this.name = "AuthError";
-    this.expired = expired;
-  }
-}
-
-async function requestJson<T>(method: string, url: string, body: unknown = {}): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-  } catch {
-    throw new AuthError("Couldn't reach the server. Check your connection and try again.");
-  }
-  let data: any = null;
-  try {
-    data = await res.json();
-  } catch {
-    // Non-JSON body (e.g. a proxy error page) — fall through to the generic message.
-  }
-  if (!res.ok) {
-    throw new AuthError(data?.error || "Something went wrong. Please try again.", Boolean(data?.expired));
-  }
-  return data as T;
-}
-
-const postJson = <T,>(url: string, body: unknown = {}) => requestJson<T>("POST", url, body);
-
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
 
   // Bumped on every sign-in and sign-out. A 401 that belongs to an older
   // session (a poll that was still in flight when the member logged out and
@@ -130,8 +118,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/auth/session");
       const data = await res.json();
+      setOAuthProviders(Array.isArray(data.oauthProviders) ? data.oauthProviders : []);
       if (data.status === "authenticated") {
-        setUser(data.user);
+        setUser((prev) => mergeSessionUser(prev, data.user));
         setSessionEnded(false);
         setStatus("authenticated");
       } else {
@@ -148,32 +137,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshSession();
   }, [refreshSession]);
 
+  const startOAuthSignIn = useCallback((provider: OAuthProvider) => {
+    startOAuthSignInRequest(provider);
+  }, []);
+
+  const fetchPendingOAuthSignup = useCallback(() => fetchPendingOAuthSignupRequest(), []);
+
+  const completeOAuthSignup = useCallback(async (username: string, displayName?: string) => {
+    const data = await completeOAuthSignupRequest(username, displayName);
+    setUser(data);
+    setSessionEnded(false);
+    setStatus("authenticated");
+    await refreshSession();
+    return data;
+  }, [refreshSession]);
+
+  const startOAuthLink = useCallback(async (provider: OAuthProvider, currentPassword?: string) => {
+    const { url } = await startOAuthLinkRequest(provider, currentPassword);
+    return url;
+  }, []);
+
+  const unlinkOAuth = useCallback(async (provider: OAuthProvider) => {
+    await unlinkOAuthRequest(provider);
+    await refreshSession();
+  }, [refreshSession]);
+
   const login = useCallback(async (username: string, password: string) => {
     const data = await postJson<User>("/api/auth/login", { username, password });
     setUser(data);
     setSessionEnded(false);
     setStatus("authenticated");
+    await refreshSession();
     return data;
-  }, []);
-
-  const register = useCallback(async (username: string, password: string, displayName?: string) => {
-    const data = await postJson<User>("/api/auth/register", { username, password, displayName });
-    setUser(data);
-    setSessionEnded(false);
-    setStatus("authenticated");
-    return data;
-  }, []);
+  }, [refreshSession]);
 
   const updateDisplayName = useCallback(async (displayName: string) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", { displayName });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
   // An empty string clears the school.
   const updateSchool = useCallback(async (school: string) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", { school });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -181,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // with a specific message when one isn't acceptable.
   const updateProfileDetails = useCallback(async (details: ProfileDetails) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", details);
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -191,8 +198,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await postJson("/api/account/password", { currentPassword, newPassword });
   }, []);
 
-  const deleteAccount = useCallback(async (password: string) => {
-    await postJson("/api/account/delete", { password });
+  const deleteAccount = useCallback(async (confirmation: string, hasPassword: boolean) => {
+    await postJson("/api/account/delete", hasPassword ? { password: confirmation } : { confirmUsername: confirmation });
     setUser(null);
     setStatus("guest");
   }, []);
@@ -209,13 +216,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyPlatformLink = useCallback(async (platform: PlatformId) => {
     const data = await postJson<User>(`/api/account/platforms/${platform}/verify`);
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
   const unlinkPlatform = useCallback(async (platform: PlatformId) => {
     const data = await requestJson<User>("DELETE", `/api/account/platforms/${platform}`);
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -223,7 +230,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // the member themself always see it; the server enforces this.
   const setPlatformHidden = useCallback(async (platform: PlatformId, hidden: boolean) => {
     const data = await requestJson<User>("PATCH", `/api/account/platforms/${platform}`, { hidden });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -231,7 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // leaderboard and in the global stats.
   const setHideLeetcodeStats = useCallback(async (hidden: boolean) => {
     const data = await requestJson<User>("PATCH", "/api/account/profile", { hideLeetcodeStats: hidden });
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -243,13 +250,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyLeetcodeLink = useCallback(async () => {
     const data = await postJson<User>("/api/account/leetcode/verify");
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
   const unlinkLeetcode = useCallback(async () => {
     const data = await requestJson<User>("DELETE", "/api/account/leetcode");
-    setUser(data);
+    setUser((prev) => mergeSessionUser(prev, data));
     return data;
   }, []);
 
@@ -268,8 +275,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         status,
         user,
         sessionEnded,
+        oauthProviders,
+        email: user?.email ?? null,
+        emailVerified: Boolean(user?.emailVerified),
+        signInMethods: user?.signInMethods ?? { password: false, providers: [] },
+        startOAuthSignIn,
+        fetchPendingOAuthSignup,
+        completeOAuthSignup,
+        startOAuthLink,
+        unlinkOAuth,
         login,
-        register,
         logout,
         refreshSession,
         updateDisplayName,

@@ -13,12 +13,17 @@
 --          ├─< platform_sync_status (1 member : 1 latest sync result per linked platform)
 --          ├─< feedback          (0..1 member : many; NULL for visitors and deleted accounts)
 --          ├─< pending_links     (1 member : open "prove you own this account" requests)
---          └─< pending_resets    (1 member : open "forgot password" requests)
+--          ├─< pending_resets    (1 member : open "forgot password" requests)
+--          ├─< oauth_identities  (1 member : 0..2 Google / GitHub accounts they can sign in with)
+--          └─< oauth_states      (0..1 member : sign-in attempts in flight; NULL user for a sign-in)
+--   pending_oauth_signups        (standalone; a verified Google / GitHub identity waiting for a username)
 --   pending_registrations        (standalone; UNUSED, kept empty for rollback; see below)
 --   meta                         (standalone key/value)
 --   schema_migrations            (standalone; migration bookkeeping)
 
--- One row per member. A member signs up with a username and a password; every
+-- One row per member. A new member signs up with Google or GitHub and a chosen
+-- username, and the e-mail the provider verified is stored (members who joined
+-- before that have a password and may have no e-mail); every
 -- LeetCode column below stays empty until they link a LeetCode account (see
 -- leetcode_username), and only members who linked it are on the LeetCode board.
 CREATE TABLE users (
@@ -57,11 +62,19 @@ CREATE TABLE users (
   -- Credentials and brute-force protection. Never exposed through the API.
   password_hash      TEXT NOT NULL DEFAULT '',
   failed_logins      INTEGER NOT NULL DEFAULT 0,
-  locked_until       TEXT
+  locked_until       TEXT,
+
+  -- Private e-mail address (migration 17). Never part of the public member
+  -- payload: read it only through a dedicated query. It is the address Google or
+  -- GitHub verified. NULL for members who have not connected a provider; stored
+  -- lowercase and unique ignoring case when set.
+  email              TEXT,
+  email_verified_at  TEXT                          -- ISO timestamp the provider verified it; NULL = none
 );
 CREATE UNIQUE INDEX idx_users_leetcode       ON users(leetcode_username);
 CREATE UNIQUE INDEX idx_users_leetcode_lower ON users(lower(leetcode_username));
 CREATE UNIQUE INDEX idx_users_login_username ON users(login_username);
+CREATE UNIQUE INDEX idx_users_email          ON users(lower(email)) WHERE email IS NOT NULL;
 
 -- One cumulative snapshot per member per UTC day: the totals as of that day's
 -- last sync. The app keeps the newest 60 days per member.
@@ -251,3 +264,48 @@ CREATE TABLE feedback (
   read_at     TEXT                                 -- NULL = unread
 );
 CREATE INDEX idx_feedback_created ON feedback(created_at DESC);
+
+-- Which Google / GitHub account a member can sign in with (migration 18). The
+-- key is the provider's own stable user id, NEVER the e-mail address: a member
+-- is never found, signed in or linked because an e-mail matches. A provider
+-- account belongs to at most one member, and a member has at most one account
+-- per provider. No tokens are stored.
+CREATE TABLE oauth_identities (
+  provider          TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+  provider_user_id  TEXT NOT NULL,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at        TEXT NOT NULL,
+  PRIMARY KEY (provider, provider_user_id)
+);
+CREATE UNIQUE INDEX idx_oauth_identities_user_provider ON oauth_identities(user_id, provider);
+
+-- One Google / GitHub sign-in attempt in flight (migration 18). The browser only
+-- holds `id`, in an HttpOnly cookie. `code_verifier` is the PKCE secret and
+-- never leaves the server. Single use, expires after 10 minutes. user_id is
+-- set only when a signed-in member is connecting a provider (intent 'link').
+CREATE TABLE oauth_states (
+  id             TEXT PRIMARY KEY,                 -- random, 128 bits
+  provider       TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+  intent         TEXT NOT NULL CHECK (intent IN ('signin', 'link')),
+  user_id        TEXT REFERENCES users(id) ON DELETE CASCADE,  -- link only
+  code_verifier  TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL
+);
+CREATE INDEX idx_oauth_states_expires ON oauth_states(expires_at);
+
+-- A provider-verified identity waiting for the new member to choose a username
+-- (migration 18). The member does not exist yet. `email` is the address the
+-- provider marked verified; it goes into users.email when the sign-up is
+-- completed. Single use, expires after 15 minutes. The browser only holds `id`.
+CREATE TABLE pending_oauth_signups (
+  id                TEXT PRIMARY KEY,              -- random, 128 bits
+  provider          TEXT NOT NULL CHECK (provider IN ('github', 'google')),
+  provider_user_id  TEXT NOT NULL,
+  email             TEXT NOT NULL,                 -- lowercase, provider-verified; goes away with the row
+  display_name      TEXT,                          -- suggestion from the provider
+  created_at        TEXT NOT NULL,
+  expires_at        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_pending_oauth_signups_identity ON pending_oauth_signups(provider, provider_user_id);
+CREATE INDEX idx_pending_oauth_signups_expires ON pending_oauth_signups(expires_at);

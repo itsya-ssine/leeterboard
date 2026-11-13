@@ -144,8 +144,11 @@ describe("members", () => {
 // requireAuth or requireAdmin. Adding a route here is a decision to make it
 // public; review it as one.
 const PUBLIC_ROUTES = new Set([
-  "POST /api/auth/register",
   "POST /api/auth/login",
+  "GET /api/auth/oauth/:provider/start",
+  "GET /api/auth/oauth/:provider/callback",
+  "GET /api/auth/oauth/pending",
+  "POST /api/auth/oauth/complete",
   "POST /api/auth/reset/start",
   "POST /api/auth/reset/verify",
   "POST /api/logout",
@@ -194,6 +197,25 @@ describe("route inventory", () => {
     const byKey = new Map(all.flatMap((f) => f.routes).map((r) => [r.key, r]));
     for (const key of ["GET /api/users", "GET /api/trends", "POST /api/sync-if-stale"]) {
       assert.match(byKey.get(key)?.middleware ?? "", /\brequireAuth\b/, key);
+    }
+  });
+
+  it("attaches the expected rate limiters to all authentication and OAuth routes", () => {
+    const byKey = new Map(all.flatMap((f) => f.routes).map((r) => [r.key, r]));
+    const expectedLimiters: Record<string, RegExp> = {
+      "GET /api/auth/oauth/:provider/start": /\boauthLimiter\b/,
+      "GET /api/auth/oauth/:provider/callback": /\boauthLimiter\b/,
+      "GET /api/auth/oauth/pending": /\boauthLimiter\b/,
+      "POST /api/auth/oauth/complete": /\boauthLimiter\b/,
+      "POST /api/account/oauth/:provider/start": /\baccountLimiter\b/,
+      "DELETE /api/account/oauth/:provider": /\baccountLimiter\b/,
+      "POST /api/auth/login": /\bloginLimiter\b/,
+      "POST /api/auth/reset/start": /\bresetLimiter\b/,
+      "POST /api/auth/reset/verify": /\bverifyLimiter\b/
+    };
+    for (const [routeKey, pattern] of Object.entries(expectedLimiters)) {
+      const mw = byKey.get(routeKey)?.middleware ?? "";
+      assert.match(mw, pattern, `Expected ${routeKey} to carry rate limiter matching ${pattern}`);
     }
   });
 });

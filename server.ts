@@ -10,6 +10,18 @@ import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount,
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
+import { assertOAuthDevAtBoot, exchangeAndFetchProfile, OAuthError } from "./oauthProviders.js";
+import {
+  buildAuthorizeUrl,
+  checkEmailDomain,
+  generatePkce,
+  isOAuthProvider,
+  newStateId,
+  readOAuthConfig,
+  stateMatches,
+  type OAuthErrorCode
+} from "./oauth.js";
+import { maskEmail, parseAllowedDomains } from "./emails.js";
 import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
 import {
@@ -31,7 +43,9 @@ import {
   consumePendingReset,
   deletePendingResetsFor,
   purgeExpiredPendingResets,
-  insertUser,
+  getUserEmail,
+  setUserEmail,
+  emailTaken,
   updateUser,
   deleteUserById,
   updateDisplayName,
@@ -39,6 +53,20 @@ import {
   updateProfileDetails,
   type ProfileDetailsUpdate,
   getUserAuthById,
+  createOAuthState,
+  consumeOAuthState,
+  deleteExpiredOAuthRows,
+  getUserIdByOAuthIdentity,
+  createPendingOAuthSignup,
+  getPendingOAuthSignup,
+  consumePendingOAuthSignup,
+  insertUserWithIdentity,
+  addOAuthIdentity,
+  removeOAuthIdentity,
+  removeOAuthIdentityKeepingOneMethod,
+  countSignInMethods,
+  listOAuthProviders,
+  OAuthIdentityConflictError,
   setPasswordHash,
   recordFailedLogin,
   clearFailedLogins,
@@ -89,7 +117,7 @@ import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
-import { apiLimiter, pageLimiter, loginLimiter, registerLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter } from "./rateLimit.js";
+import { apiLimiter, pageLimiter, loginLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter, oauthLimiter } from "./rateLimit.js";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -155,8 +183,17 @@ app.use("/api", apiLimiter);
 // reused for every invocation handled by that instance, so this still only
 // runs once per instance rather than once per request. Registered before
 // any routes below so it actually applies to all of them.
+// Stop if the development-only OAUTH_DEV_PROVIDER_URL is set in production (sign-in with
+// Google / GitHub would then send the client secret to that address).
+const oauthDev = assertOAuthDevAtBoot();
+// Which providers are usable (id AND secret set, PUBLIC_URL valid). A bad setting
+// switches sign-in with that provider off instead of stopping the server, so
+// password login keeps working. Problems name variables, never values.
+const oauthConfig = readOAuthConfig(process.env);
+for (const problem of oauthConfig.problems) console.warn(`[OAuth] ${problem}`);
+
 const dbReady = initDb();
-app.use((req, res, next) => {
+app.use((_req, _res, next) => {
   dbReady.then(() => next()).catch(next);
 });
 
@@ -965,75 +1002,11 @@ async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
 const LEETCODE_UNAVAILABLE_MESSAGE =
   "Couldn't reach LeetCode right now. Please try again in a moment.";
 
-// POST — sign up. One step: pick a username and a password and you are in.
-// Nothing here needs a LeetCode account; a member links LeetCode (and the other
-// platforms) afterwards from their account settings.
-app.post("/api/auth/register", registerLimiter, async (req, res) => {
-  try {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-
-    const check = checkUsername(body.username);
-    if (!check.ok) {
-      return res.status(400).json({ error: check.error });
-    }
-    const username = check.username;
-
-    const passwordError = validatePassword(body.password, username);
-    if (passwordError) {
-      return res.status(400).json({ error: passwordError });
-    }
-
-    // Look before hashing, so a taken name costs nothing. The unique index on
-    // login_username is what actually decides; see the catch below.
-    if (await getUserAuthByLoginUsername(username)) {
-      return res.status(409).json({ error: "That username is taken." });
-    }
-
-    const passwordHash = await hashPassword(body.password as string);
-    // A new member has no LeetCode data: no solved counts, no history, no
-    // baseline. All of that starts when they link LeetCode.
-    const user: User = {
-      id: `user-${crypto.randomUUID()}`,
-      displayName: cleanDisplayName(body.displayName, username),
-      loginUsername: username,
-      leetcodeLinked: false,
-      leetcodeUsername: "",
-      avatarUrl: defaultAvatar(username),
-      school: "",
-      bio: "",
-      githubUrl: "",
-      linkedinUrl: "",
-      websiteUrl: "",
-      allTimeSolved: 0,
-      easySolved: 0,
-      mediumSolved: 0,
-      hardSolved: 0,
-      contestRating: null,
-      contestsAttended: 0,
-      currentStreak: null,
-      longestStreak: null,
-      weeklyProgress: 0,
-      monthlyProgress: 0,
-      rank: 0,
-      lastUpdated: null,
-      trackingStart: "",
-      baselineSolved: 0,
-      history: []
-    };
-    await insertUser(user, passwordHash, { loginUsername: username });
-
-    logSecurityEvent("account_created", { ip: req.ip, userId: user.id, username }, "info");
-    setSessionCookie(res, user, passwordHash);
-    res.status(201).json({ ...user, isAdmin: isAdminUser(user) });
-  } catch (error: any) {
-    if (String(error?.message).includes("UNIQUE")) {
-      // Two sign-ups for the same name raced each other and the other one won.
-      return res.status(409).json({ error: "That username is taken." });
-    }
-    console.error(`[Auth] sign-up failed: ${error.message}`);
-    res.status(500).json({ error: "Something went wrong. Please try again." });
-  }
-});
+// Optional: only addresses at these domains may sign up. Empty = any domain.
+const ALLOWED_EMAIL_DOMAINS = parseAllowedDomains(process.env.ALLOWED_EMAIL_DOMAINS);
+if (ALLOWED_EMAIL_DOMAINS.length > 0) {
+  console.info(`[Config] Sign-up is limited to email addresses at: ${ALLOWED_EMAIL_DOMAINS.join(", ")}`);
+}
 
 // POST — forgot password, step 1. Someone who can't sign in can still prove they
 // own an account the member linked (LeetCode, Codeforces or CodinGame) by putting
@@ -1356,8 +1329,450 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Sign in with Google / GitHub (Authorization Code flow with PKCE).
+//
+//   GET /api/auth/oauth/:provider/start      sends the browser to the provider
+//   GET /api/auth/oauth/:provider/callback   the provider sends it back here
+//
+// Both are full-page navigations, so they answer with redirects, never JSON.
+// A failure always goes to /#/login?oauth_error=<code> with a code from the fixed
+// list in oauth.ts (the page maps it to a message); nothing from the request or
+// from the provider is ever put in a redirect. A member is identified ONLY by
+// (provider, provider user id): the e-mail address is never used to find, sign in
+// or link anyone.
+// ---------------------------------------------------------------------------
+const OAUTH_STATE_COOKIE = "oauth_state";
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const OAUTH_COOKIE_PATH = "/api/auth/oauth";
+// The verified identity waiting for a username (a pending_oauth_signups row).
+const OAUTH_SIGNUP_COOKIE = "oauth_signup";
+const OAUTH_SIGNUP_TTL_MS = 15 * 60 * 1000;
+const OAUTH_SIGNUP_EXPIRED_MESSAGE = "This sign-up has expired. Please start again.";
+const OAUTH_EMAIL_IN_USE_MESSAGE =
+  "An account already uses this email. Sign in the way you did before, then connect this provider in Account settings.";
+
+// SameSite=Lax is what lets the cookie come back on the provider's top-level
+// redirect to the callback; Strict would drop it.
+const oauthCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: OAUTH_COOKIE_PATH
+};
+
+// Clears the state cookie and sends the browser back to the login page with a
+// code from the allow-list. The type makes a free-form value a compile error.
+// Wider path than the state cookie: the username screen talks to /api/auth/oauth/*,
+// and the cookie must reach exactly those routes.
+const PROVIDER_ERROR_CODES: Record<string, OAuthErrorCode> = Object.assign(Object.create(null), { access_denied: "cancelled" });
+const oauthSignupCookieOptions = { ...oauthCookieOptions, path: "/api/auth" };
+
+// Every OAuth cookie is set here with literal options (HttpOnly, Secure in
+// production, SameSite=Lax). Spreading a shared options object works at runtime
+// but static analysis (CodeQL) cannot see through it and reports the flags as missing.
+function setOAuthCookie(res: express.Response, name: string, value: string, path: string, maxAge: number): void {
+  res.cookie(name, value, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path,
+    maxAge
+  });
+}
+
+// `target` is one of two fixed pages: the login page, or (for a signed-in member
+// connecting a provider) their account page.
+function oauthFail(res: express.Response, code: OAuthErrorCode, target: "/#/login" | "/#/account" = "/#/login"): void {
+  res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+  res.redirect(302, `${target}?oauth_error=${code}`);
+}
+
+app.get("/api/auth/oauth/:provider/start", oauthLimiter, async (req, res) => {
+  const provider = req.params.provider;
+  try {
+    if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
+      if (oauthConfig.enabled.length === 0) logSecurityEvent("oauth_unconfigured", { ip: req.ip, route: "start" });
+      return oauthFail(res, "unavailable");
+    }
+    const config = oauthConfig.providers[provider]!;
+    const redirectUri = oauthConfig.redirectUri(provider)!; // enabled implies a valid PUBLIC_URL
+
+    const now = Date.now();
+    await deleteExpiredOAuthRows(new Date(now).toISOString());
+
+    const { verifier, challenge } = generatePkce();
+    const stateId = newStateId();
+    await createOAuthState({
+      id: stateId,
+      provider,
+      intent: "signin",
+      userId: null,
+      codeVerifier: verifier,
+      expiresAt: new Date(now + OAUTH_STATE_TTL_MS).toISOString()
+    });
+
+    setOAuthCookie(res, OAUTH_STATE_COOKIE, stateId, OAUTH_COOKIE_PATH, OAUTH_STATE_TTL_MS);
+    logSecurityEvent("oauth_started", { ip: req.ip, provider, intent: "signin" }, "info");
+    res.redirect(302, buildAuthorizeUrl(provider, { state: stateId, challenge, redirectUri, clientId: config.clientId }));
+  } catch (error: any) {
+    console.error(`[OAuth] start failed: ${error.message}`);
+    logSecurityEvent("oauth_failed", { ip: req.ip, provider: isOAuthProvider(provider) ? provider : "unknown", reason: "server_error" });
+    oauthFail(res, "failed");
+  }
+});
+
+app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => {
+  const provider = req.params.provider;
+  // Where a failure goes: the login page, until the state row says a signed-in
+  // member was connecting a provider, then their account page.
+  let failTarget: "/#/login" | "/#/account" = "/#/login";
+  const refuse = (code: OAuthErrorCode, reason: string, fields: Record<string, unknown> = {}) => {
+    logSecurityEvent("oauth_failed", {
+      ip: req.ip,
+      provider: isOAuthProvider(provider) ? provider : "unknown",
+      reason,
+      ...fields
+    });
+    oauthFail(res, code, failTarget);
+  };
+  try {
+    if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
+      if (oauthConfig.enabled.length === 0) logSecurityEvent("oauth_unconfigured", { ip: req.ip, route: "callback" });
+      return oauthFail(res, "unavailable");
+    }
+
+    // 1. The browser must be the one that started this attempt: the cookie holds
+    //    the state id and it has to equal the `state` the provider sent back.
+    //    Constant-time, and a missing, repeated or malformed value is just false.
+    const stateId = req.query.state;
+    if (!stateMatches(req.cookies?.[OAUTH_STATE_COOKIE], stateId)) {
+      return refuse("failed", "state_mismatch");
+    }
+
+    // 2. One use: the row is deleted as it is read, so a replayed or raced
+    //    callback finds nothing. Expired rows are not returned either.
+    const state = await consumeOAuthState(stateId as string, new Date().toISOString());
+    if (!state) return refuse("expired", "state_unknown_or_expired");
+    if (state.provider !== provider) return refuse("failed", "state_provider_mismatch");
+    if (state.intent === "link") failTarget = "/#/account";
+
+
+    // Connecting a provider: the browser must STILL be signed in as the member who
+    // started it. Someone else's session (or none) never gets an identity attached.
+    if (state.intent === "link") {
+      const session = await resolveSession(req);
+      if (!session || session.user.id !== state.userId) return refuse("failed", "link_session_mismatch");
+      if (session.isAdmin) return refuse("admin_refused", "admin_refused", { userId: session.user.id });
+    }
+
+    // 3. No code means the provider refused or the member said no. The `error`
+    //    value is only looked up in a fixed table (never echoed, never a gate:
+    //    a request that adds or removes it cannot reach anything sensitive,
+    //    because the code exchange below is what proves the sign-in).
+    const code = req.query.code;
+    if (typeof code !== "string") {
+      return refuse(PROVIDER_ERROR_CODES[String(req.query.error)] ?? "failed", "no_code");
+    }
+
+    // 4. Server to server: the code (with the PKCE verifier) for a verified
+    //    profile. The token inside is used once and thrown away.
+    let profile;
+    try {
+      profile = await exchangeAndFetchProfile(provider, code, state.codeVerifier, {
+        clientId: oauthConfig.providers[provider]!.clientId,
+        clientSecret: oauthConfig.providers[provider]!.clientSecret,
+        redirectUri: oauthConfig.redirectUri(provider)!,
+        devBaseUrl: oauthDev.devBaseUrl
+      });
+    } catch (error) {
+      const kind = error instanceof OAuthError ? error.kind : "failed";
+      return refuse(kind, `exchange_${kind}`);
+    }
+
+    // 5. Who is this? Only the provider's own user id counts, never the e-mail.
+    const userId = await getUserIdByOAuthIdentity(provider, profile.providerUserId);
+
+    if (state.intent === "link") {
+      const memberId = state.userId!; // createOAuthState guarantees it for a link
+      // An identity can belong to exactly one member. Already this member's: nothing to do.
+      if (userId !== null && userId !== memberId) return refuse("already_linked", "identity_owned_by_another");
+      if (userId === null) {
+        // One account per provider per member (a second GitHub account is refused).
+        if ((await listOAuthProviders(memberId)).includes(provider)) return refuse("already_linked", "provider_already_connected");
+        // The provider's verified address is stored only when the member has none, and
+        // never over an address another member uses. An existing address is kept as is.
+        const storeEmail = (await getUserEmail(memberId)) === null;
+        if (storeEmail && (await emailTaken(profile.email))) return refuse("email_in_use", "email_in_use");
+        try {
+          await addOAuthIdentity(memberId, provider, profile.providerUserId);
+        } catch (error) {
+          if (error instanceof OAuthIdentityConflictError) return refuse("already_linked", error.reason);
+          throw error;
+        }
+        if (storeEmail && !(await setUserEmail(memberId, profile.email))) {
+          // Lost a race for the address: undo the connection so nothing half-done stays.
+          await removeOAuthIdentity(memberId, provider);
+          return refuse("email_in_use", "email_in_use_race");
+        }
+        logSecurityEvent("oauth_linked", { ip: req.ip, userId: memberId, provider, storedEmail: storeEmail }, "info");
+      }
+      res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+      return res.redirect(302, `/#/account?connected=${provider}`);
+    }
+    if (userId === null) {
+      // A new identity. Nothing is created here: the member first chooses a public
+      // username (POST /api/auth/oauth/complete). The address is checked now so
+      // nobody walks through the username screen only to be refused at the end.
+      if (!checkEmailDomain(profile.email, ALLOWED_EMAIL_DOMAINS)) return refuse("domain_not_allowed", "domain_not_allowed");
+      // The visitor just proved they own this address, so saying it is taken
+      // reveals nothing to a stranger. It is NOT a reason to sign them in.
+      if (await emailTaken(profile.email)) return refuse("email_in_use", "email_in_use");
+
+      const now = Date.now();
+      const pendingId = newStateId();
+      await createPendingOAuthSignup({
+        id: pendingId,
+        provider,
+        providerUserId: profile.providerUserId,
+        email: profile.email,
+        displayName: profile.displayName,
+        expiresAt: new Date(now + OAUTH_SIGNUP_TTL_MS).toISOString()
+      });
+      res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+      setOAuthCookie(res, OAUTH_SIGNUP_COOKIE, pendingId, "/api/auth", OAUTH_SIGNUP_TTL_MS);
+      return res.redirect(302, "/#/signup/username");
+    }
+    const record = await getUserAuthById(userId);
+    if (!record) return refuse("failed", "identity_without_member");
+    // Admin accounts sign in with their password only (an identity connected
+    // before the account became an admin must not be a way around that).
+    if (isAdminUser(record.user)) return refuse("admin_refused", "admin_refused", { userId: record.user.id });
+
+    setSessionCookie(res, record.user, record.auth.passwordHash);
+    res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
+    logSecurityEvent("oauth_login", { ip: req.ip, userId: record.user.id, provider }, "info");
+    res.redirect(302, "/#/");
+  } catch (error: any) {
+    console.error(`[OAuth] callback failed: ${error.message}`);
+    refuse("failed", "server_error");
+  }
+});
+
+// POST — a signed-in member starts connecting Google or GitHub. A member who has a
+// password must give it again (a stolen session alone must not be able to attach
+// someone else's provider account); a member without one has nothing to check.
+// Answers { url }: the page then does location.assign(url).
+app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id, isAdmin } = (req as any).user as { id: string; isAdmin?: boolean };
+    // Admin accounts keep password login only; nothing is connected to them.
+    if (isAdmin) {
+      logSecurityEvent("oauth_failed", { ip: req.ip, userId: id, reason: "admin_refused", route: "link" });
+      return res.status(403).json({ error: "Admin accounts can only sign in with a password." });
+    }
+    const provider = req.params.provider;
+    if (!isOAuthProvider(provider) || !oauthConfig.providers[provider]) {
+      if (oauthConfig.enabled.length === 0) logSecurityEvent("oauth_unconfigured", { ip: req.ip, route: "link" });
+      return res.status(503).json({ error: "That sign-in method isn't available right now." });
+    }
+
+    const methods = await countSignInMethods(id);
+    if (methods.providers.includes(provider)) {
+      return res.status(409).json({ error: "You have already connected an account from that provider." });
+    }
+    if (methods.password) {
+      const check = await checkCurrentPassword(id, req.body?.currentPassword, "oauth_link", req.ip);
+      if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
+    }
+
+    const now = Date.now();
+    await deleteExpiredOAuthRows(new Date(now).toISOString());
+    const { verifier, challenge } = generatePkce();
+    const stateId = newStateId();
+    await createOAuthState({
+      id: stateId,
+      provider,
+      intent: "link",
+      userId: id,
+      codeVerifier: verifier,
+      expiresAt: new Date(now + OAUTH_STATE_TTL_MS).toISOString()
+    });
+    setOAuthCookie(res, OAUTH_STATE_COOKIE, stateId, OAUTH_COOKIE_PATH, OAUTH_STATE_TTL_MS);
+    logSecurityEvent("oauth_started", { ip: req.ip, userId: id, provider, intent: "link" }, "info");
+    res.json({
+      url: buildAuthorizeUrl(provider, {
+        state: stateId,
+        challenge,
+        redirectUri: oauthConfig.redirectUri(provider)!,
+        clientId: oauthConfig.providers[provider]!.clientId
+      })
+    });
+  } catch (error: any) {
+    console.error(`[OAuth] link start failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// DELETE — disconnect a provider, unless it is the member's last way to sign in.
+app.delete("/api/account/oauth/:provider", accountLimiter, requireAuth, async (req, res) => {
+  try {
+    const { id } = (req as any).user as { id: string };
+    const provider = req.params.provider;
+    if (!isOAuthProvider(provider)) return res.status(404).json({ error: "That sign-in method doesn't exist." });
+
+    const methods = await countSignInMethods(id);
+    if (!methods.providers.includes(provider)) {
+      return res.status(404).json({ error: "That account isn't connected." });
+    }
+    const LAST_METHOD = { error: "That is your only way to sign in. Connect another account first." };
+    if (methods.count <= 1) return res.status(409).json(LAST_METHOD);
+
+    // The count above is for the message; the DELETE re-checks the same rule itself.
+    if (!(await removeOAuthIdentityKeepingOneMethod(id, provider))) return res.status(409).json(LAST_METHOD);
+    logSecurityEvent("oauth_unlinked", { ip: req.ip, userId: id, provider }, "info");
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error(`[OAuth] unlink failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// A new member has no LeetCode data: no solved counts, no history, no baseline.
+// All of that starts when they link LeetCode from their account settings.
+function newMemberRecord(username: string, displayName: string): User {
+  return {
+    id: `user-${crypto.randomUUID()}`,
+    displayName,
+    loginUsername: username,
+    leetcodeLinked: false,
+    leetcodeUsername: "",
+    avatarUrl: defaultAvatar(username),
+    school: "",
+    bio: "",
+    githubUrl: "",
+    linkedinUrl: "",
+    websiteUrl: "",
+    allTimeSolved: 0,
+    easySolved: 0,
+    mediumSolved: 0,
+    hardSolved: 0,
+    contestRating: null,
+    contestsAttended: 0,
+    currentStreak: null,
+    longestStreak: null,
+    weeklyProgress: 0,
+    monthlyProgress: 0,
+    rank: 0,
+    lastUpdated: null,
+    trackingStart: "",
+    baselineSolved: 0,
+    history: []
+  };
+}
+
+const PENDING_ID_RE = /^[0-9a-f]{32}$/;
+
+async function readPendingOAuthSignup(req: express.Request) {
+  const value = req.cookies?.[OAUTH_SIGNUP_COOKIE];
+  if (typeof value !== "string" || !PENDING_ID_RE.test(value)) return null;
+  return getPendingOAuthSignup(value, new Date().toISOString());
+}
+
+// GET — the username screen asks who it is creating an account for. The address
+// is masked, and nothing here can be used without the httpOnly cookie that only
+// the browser that completed the provider step holds.
+app.get("/api/auth/oauth/pending", oauthLimiter, async (req, res) => {
+  try {
+    const pending = await readPendingOAuthSignup(req);
+    if (!pending) {
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      return res.status(400).json({ error: OAUTH_SIGNUP_EXPIRED_MESSAGE, expired: true });
+    }
+    res.json({
+      provider: pending.provider,
+      maskedEmail: maskEmail(pending.email),
+      suggestedDisplayName: pending.displayName
+    });
+  } catch (error: any) {
+    console.error(`[OAuth] pending lookup failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
+// POST — the new member chooses a public username (and, optionally, a display
+// name). The account is created here and only here, with the provider-verified
+// address stored on it, no password and no LeetCode. Everything that can be
+// checked without spending the pending sign-up is checked first, so a typo or a
+// taken name doesn't send the person back through the provider.
+app.post("/api/auth/oauth/complete", oauthLimiter, async (req, res) => {
+  try {
+    const expired = () => {
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      return res.status(400).json({ error: OAUTH_SIGNUP_EXPIRED_MESSAGE, expired: true });
+    };
+
+    const pending = await readPendingOAuthSignup(req);
+    if (!pending) return expired();
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const check = checkUsername(body.username);
+    if (!check.ok) return res.status(400).json({ error: check.error });
+    const username = check.username;
+    if (await getUserAuthByLoginUsername(username)) {
+      return res.status(409).json({ error: "That username is taken." });
+    }
+
+    // Someone may have taken this address since the provider step.
+    if (await emailTaken(pending.email)) {
+      await consumePendingOAuthSignup(pending.id, new Date().toISOString());
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      return res.status(409).json({ error: OAUTH_EMAIL_IN_USE_MESSAGE });
+    }
+
+    // One use: of two simultaneous completions exactly one gets the row.
+    const taken = await consumePendingOAuthSignup(pending.id, new Date().toISOString());
+    if (!taken) return expired();
+
+    const user = newMemberRecord(username, cleanDisplayName(body.displayName, username));
+    try {
+      await insertUserWithIdentity(user, {
+        loginUsername: username,
+        email: taken.email,
+        provider: taken.provider,
+        providerUserId: taken.providerUserId
+      });
+    } catch (error: any) {
+      if (!String(error?.message).includes("UNIQUE")) throw error;
+      // The unique indexes decide, and the batch is all-or-nothing: no member was created.
+      if (await getUserAuthByLoginUsername(username)) {
+        // Lost a race for the name. Give the sign-up back so another name can be tried.
+        await createPendingOAuthSignup(taken);
+        return res.status(409).json({ error: "That username was just taken. Please choose another one." });
+      }
+      res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+      if (await getUserIdByOAuthIdentity(taken.provider, taken.providerUserId)) {
+        return res.status(409).json({ error: "This account already has a Leeterboard account. Sign in with it instead." });
+      }
+      return res.status(409).json({ error: OAUTH_EMAIL_IN_USE_MESSAGE });
+    }
+
+    logSecurityEvent(
+      "account_created",
+      { ip: req.ip, userId: user.id, username, maskedEmail: maskEmail(taken.email), provider: taken.provider },
+      "info"
+    );
+    res.clearCookie(OAUTH_SIGNUP_COOKIE, oauthSignupCookieOptions);
+    setSessionCookie(res, user, ""); // no password: the token carries no fingerprint
+    res.status(201).json({ ...user, isAdmin: isAdminUser(user) });
+  } catch (error: any) {
+    console.error(`[OAuth] complete failed: ${error.message}`);
+    res.status(500).json({ error: "Something went wrong. Please try again." });
+  }
+});
+
 // POST logout
-app.post("/api/logout", (req, res) => {
+app.post("/api/logout", (_req, res) => {
   clearSessionCookie(res);
   res.json({ success: true });
 });
@@ -1370,9 +1785,28 @@ app.get("/api/auth/session", async (req, res) => {
     if (!resolved) {
       // Drop a stale/invalid cookie (deleted account, changed password, ...).
       if (readSession(req)) clearSessionCookie(res);
-      return res.json({ status: "guest" });
+      // The enabled providers are public: the login screen needs them to know
+      // which buttons to show (none enabled means sign-up is unavailable).
+      return res.json({ status: "guest", oauthProviders: oauthConfig.enabled });
     }
-    res.json({ status: "authenticated", user: { ...resolved.user, isAdmin: resolved.isAdmin } });
+    // A member's OWN address is the one place it is ever returned (so the
+    // account page can show it). It is added here, to this response only: the
+    // User mapping used by the board, profiles and admin tables has no email.
+    const own = await getUserEmail(resolved.user.id);
+    // How this member can sign in, so Account settings can offer Connect and
+    // Disconnect and know which one is their last way in.
+    const methods = await countSignInMethods(resolved.user.id);
+    res.json({
+      status: "authenticated",
+      user: {
+        ...resolved.user,
+        isAdmin: resolved.isAdmin,
+        email: own?.email ?? null,
+        emailVerified: Boolean(own?.verifiedAt),
+        signInMethods: { password: methods.password, providers: methods.providers }
+      },
+      oauthProviders: oauthConfig.enabled
+    });
   } catch (error: any) {
     console.error(`[Auth] session check failed: ${error.message}`);
     res.status(500).json({ error: "Something went wrong. Please try again." });
@@ -1381,27 +1815,32 @@ app.get("/api/auth/session", async (req, res) => {
 
 /* ---------- Account settings (signed-in members) ---------- */
 
+type ReauthResult = { record: UserWithAuth | null; status: number; error: string; code?: string };
+
+// Answer for a member who has no password (they sign in with Google or GitHub,
+// or the account is older than passwords). There is nothing to check, so the
+// password-only actions say so instead of asking for one. The UI hides those
+// actions for them; this is the server-side answer when a request arrives anyway.
+const NO_PASSWORD_CODE = "no_password";
+const NO_PASSWORD_ERROR = "This account doesn't use a password.";
+
 // Re-checks the member's current password for sensitive actions (changing
 // the password, deleting the account), so a stolen session alone isn't
 // enough. Wrong guesses count toward the same lockout as the login form.
+// A member with no password gets a 409 `no_password` before anything is
+// compared, so this never records a failed attempt against them.
 async function checkCurrentPassword(
   userId: string,
   password: unknown,
-  action: "password_change" | "account_delete",
+  action: "password_change" | "account_delete" | "oauth_link",
   ip: string | undefined
-): Promise<{ record: UserWithAuth | null; status: number; error: string; code?: string }> {
+): Promise<ReauthResult> {
   const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
 
-  if (typeof password !== "string" || !password) return fail(400, "Enter your current password.");
   const record = await getUserAuthById(userId);
   if (!record) return fail(401, SESSION_REQUIRED_BODY.error, SESSION_REQUIRED_CODE);
-
-  if (!isPasswordHash(record.auth.passwordHash)) {
-    return fail(
-      409,
-      "This account has no password yet. Log out, then use \"Forgot password\" to set one by verifying a linked account."
-    );
-  }
+  if (!isPasswordHash(record.auth.passwordHash)) return fail(409, NO_PASSWORD_ERROR, NO_PASSWORD_CODE);
+  if (typeof password !== "string" || !password) return fail(400, "Enter your current password.");
 
   let failuresBefore = record.auth.failedLogins;
   if (record.auth.lockedUntil) {
@@ -1435,6 +1874,30 @@ async function checkCurrentPassword(
   }
 
   if (record.auth.failedLogins > 0) await clearFailedLogins(userId);
+  return { record, status: 200, error: "" };
+}
+
+// Confirms an account deletion. A member with a password proves it with the
+// password, exactly as before. A member without one (D4) types their own login
+// name instead (case and surrounding spaces don't matter, as at sign-up): there is no secret to check, so this guards against a stray
+// click rather than a stolen session, which is why admin accounts are held to
+// the password. A wrong name is a plain 400: it counts toward no lockout, since
+// the name is public and there is nothing to guess.
+async function checkAccountDeletion(userId: string, body: any, ip: string | undefined): Promise<ReauthResult> {
+  const fail = (status: number, error: string, code?: string) => ({ record: null, status, error, code });
+
+  const record = await getUserAuthById(userId);
+  if (!record) return fail(401, SESSION_REQUIRED_BODY.error, SESSION_REQUIRED_CODE);
+  if (isPasswordHash(record.auth.passwordHash)) return checkCurrentPassword(userId, body?.password, "account_delete", ip);
+
+  if (isAdminUser(record.user)) return fail(403, "Admin accounts need a password to be removed.", NO_PASSWORD_CODE);
+  const typed = body?.confirmUsername;
+  if (typeof typed !== "string" || !typed) return fail(400, "Type your username to confirm.");
+  // Login names are stored trimmed and lowercase and are unique in any case, so
+  // "Alice" and " alice " are the same name; anything else is not.
+  if (typed.trim().toLowerCase() !== record.user.loginUsername.toLowerCase()) {
+    return fail(400, "That isn't your username. Check the spelling and try again.");
+  }
   return { record, status: 200, error: "" };
 }
 
@@ -1905,17 +2368,23 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
   }
 });
 
-// POST — delete the member's own account for good (stats and history
-// included). Needs the password. POST rather than DELETE so the body always
-// survives proxies.
+// POST — delete the member's own account for good (stats, history, e-mail and
+// connected Google/GitHub accounts included). Needs the password, or for a
+// member with no password their own username as `confirmUsername`. POST rather
+// than DELETE so the body always survives proxies.
 app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) => {
   try {
     const { id } = (req as any).user as { id: string };
-    const check = await checkCurrentPassword(id, req.body?.password, "account_delete", req.ip);
+    const check = await checkAccountDeletion(id, req.body, req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
+    const confirmedWith = isPasswordHash(check.record.auth.passwordHash) ? "password" : "username";
     await deleteUserById(id);
-    logSecurityEvent("account_deleted", { ip: req.ip, userId: id, username: check.record.user.loginUsername }, "info");
+    logSecurityEvent(
+      "account_deleted",
+      { ip: req.ip, userId: id, username: check.record.user.loginUsername, confirmedWith },
+      "info"
+    );
     clearSessionCookie(res);
     res.json({ success: true });
   } catch (error: any) {
@@ -2236,7 +2705,7 @@ async function syncAllUsers(
 // fresh boards return immediately. A short-lived lock in the database stops
 // simultaneous visitors (possibly on different serverless instances) from all
 // scraping LeetCode at once.
-app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (req, res) => {
+app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) => {
   try {
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
     const age = Date.now() - Date.parse(lastSyncAll);
@@ -2274,7 +2743,7 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (req, res) => 
 // last successful fetch (users.last_updated) with the outcome of the latest
 // attempt (sync_status), so a member whose LeetCode account was removed or
 // renamed shows up as "not_found" instead of just quietly going stale.
-app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
+app.get("/api/admin/sync-status", requireAdmin, async (_req, res) => {
   try {
     const [users, statuses, lastSyncAll] = await Promise.all([
       listUsers(),
@@ -2452,7 +2921,7 @@ async function startServer() {
       process.exit(1);
     }
     app.use(express.static(distPath, { dotfiles: "ignore" }));
-    app.get("/*splat", pageLimiter, (req, res) => {
+    app.get("/*splat", pageLimiter, (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

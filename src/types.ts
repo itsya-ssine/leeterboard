@@ -93,10 +93,18 @@ export interface User {
   // Empty object = none. Optional so records built by hand don't need it.
   platforms?: Partial<Record<PlatformId, PlatformAccount>>;
   // Present only on the currently-authenticated user's own record (see
-  // /api/auth/session, /api/auth/login and /api/auth/register/verify) —
+  // /api/auth/session and /api/auth/login) —
   // never trust a client-supplied value for this, it's always derived
   // server-side from the admin list in auth.ts.
   isAdmin?: boolean;
+  // The member's OWN e-mail address and whether it was verified. Present only
+  // on the record /api/auth/session returns for the signed-in member (null when
+  // they have none); every other record, and every other member's, has neither.
+  // Never shown to anyone else.
+  email?: string | null;
+  emailVerified?: boolean;
+  // Available only on the authenticated member's session payload.
+  signInMethods?: { password: boolean; providers: Array<"github" | "google"> };
 }
 
 export interface LeaderboardStats {

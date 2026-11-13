@@ -134,3 +134,17 @@ export const feedbackLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "That's a lot of feedback in a short time. Please try again in a while." }
 });
+
+// Sign in with Google / GitHub: starting an attempt, coming back from the
+// provider, and (later steps) finishing a sign-up. Per IP and shared through the
+// database, so it holds across serverless instances. A normal sign-in is two
+// requests (start and callback), so 30 per window is about 15 sign-ins per IP.
+export const oauthLimiter = rateLimit({
+  store: new DbRateLimitStore("oauth"),
+  handler: blocked("oauth"),
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sign-in attempts. Please wait a few minutes and try again." }
+});

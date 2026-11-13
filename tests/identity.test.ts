@@ -16,8 +16,8 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import jwt from "jsonwebtoken";
-import { client, startServer, type TestServer } from "./helpers.js";
-import { makeUser } from "./f2-seed.js";
+import { client, signUpViaOAuth, startServer, type TestServer } from "./helpers.js";
+import { makeFakeOAuth, makeUser, mergeEnv, OAUTH_TEST_ENV } from "./f2-seed.js";
 
 const PW = "correct-horse-battery-9";
 const NEW_PW = "another-long-passphrase-4";
@@ -28,6 +28,7 @@ let legacyHash = "";
 let server: TestServer;
 let api: ReturnType<typeof client>;
 let carolCookie = "";
+const fake = makeFakeOAuth();
 
 before(async () => {
   secret = crypto.randomBytes(48).toString("hex");
@@ -46,19 +47,23 @@ before(async () => {
   legacyHash = await hashPassword(PW);
   await db.insertUser(makeUser("Bob_99"), legacyHash);
 
-  server = await startServer({ TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret });
+  server = await startServer(mergeEnv(fake.env, { TURSO_DATABASE_URL: dbUrl, JWT_SECRET: secret, ...OAUTH_TEST_ENV }));
   api = client(server);
 
   // A new member with no LeetCode account.
-  const reg = await api("POST", "/api/auth/register", {
-    body: { username: "Carol_Example_1", password: PW, displayName: "Carol" }
-  });
+  const reg = await signUpViaOAuth(api, fake, { username: "Carol_Example_1", displayName: "Carol" });
   assert.equal(reg.status, 201, reg.text);
-  carolCookie = reg.cookie!;
+  // A provider sign-up has no password. This file's password-change tests need
+  // one, so give her one (which signs the provider session out) and log in.
+  await db.setPasswordHash(reg.json.id, legacyHash);
+  const loggedIn = await api("POST", "/api/auth/login", { body: { username: "carol_example_1", password: PW } });
+  assert.equal(loggedIn.status, 200, loggedIn.text);
+  carolCookie = loggedIn.cookie!;
 });
 
 after(async () => {
   await server?.stop();
+  fake.cleanup();
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 

@@ -1,20 +1,47 @@
 import { checkUsername } from "../usernames.js";
+import type { OAuthProvider } from "./authApi.js";
 
-// Client-side check of the sign-up form, so obvious mistakes are explained
-// without a round trip. The server applies the same rules (usernames.ts is the
-// very same file; the password limits mirror MIN/MAX_PASSWORD_LENGTH in auth.ts)
-// and is the one that decides: it also answers "That username is taken."
-export const PASSWORD_MIN_LENGTH = 8;
-export const PASSWORD_MAX_LENGTH = 128;
-
-/** A message to show next to the form, or null when it looks fine. */
-export function checkSignup(username: string, password: string): string | null {
+/** Validate the public username chosen after OAuth has verified the email. */
+export function checkSignupUsername(username: string): string | null {
   const name = checkUsername(username);
-  if (!name.ok) return name.error;
-  if (password.length < PASSWORD_MIN_LENGTH) return `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
-  if (password.length > PASSWORD_MAX_LENGTH) return `Password must be at most ${PASSWORD_MAX_LENGTH} characters.`;
-  if (password.toLowerCase() === name.username) return "Password can't be the same as your username.";
-  return null;
+  return name.ok ? null : name.error;
+}
+
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  cancelled: "Sign-in was cancelled. You can try again.",
+  failed: "We couldn't sign you in. Please try again.",
+  unverified_email: "Your provider account doesn't have a verified email address.",
+  email_in_use: "An account already uses this email. Sign in the way you did before, then connect this provider in Account settings.",
+  domain_not_allowed: "Sign-up with this email domain isn't allowed.",
+  expired: "This sign-up has expired. Please start again.",
+  unavailable: "Sign-up is temporarily unavailable. Please try again later.",
+  admin_refused: "Admin accounts must sign in with a password.",
+  already_linked: "This provider is already connected to another account."
+};
+
+/** Only known OAuth callback codes get a message; arbitrary query text is ignored. */
+export function oauthErrorMessage(code: string | null): string | null {
+  if (code === null || !Object.prototype.hasOwnProperty.call(OAUTH_ERROR_MESSAGES, code)) return null;
+  return OAUTH_ERROR_MESSAGES[code];
+}
+
+/** Providers are shown in a stable order. Linked providers remain visible even
+ * when they are no longer enabled for new sign-ins, so members can disconnect. */
+export function visibleOAuthProviders(
+  enabled: OAuthProvider[],
+  linked: OAuthProvider[] = []
+): OAuthProvider[] {
+  const available = new Set([...enabled, ...linked]);
+  return (["github", "google"] as const).filter((provider) => available.has(provider));
+}
+
+/** A provider can be disconnected only when another sign-in method remains. */
+export function canDisconnectOAuthProvider(
+  methods: { password: boolean; providers: OAuthProvider[] },
+  provider: OAuthProvider
+): boolean {
+  return methods.providers.includes(provider) &&
+    (methods.password || methods.providers.some((connected) => connected !== provider));
 }
 
 // Shown once, right after sign-up, on the account page the new member lands on.

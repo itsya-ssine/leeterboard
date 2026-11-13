@@ -14,7 +14,8 @@
 //   ownership_blocked, password_reset_via_ownership,
 //   platform_link_verified, platform_link_failed, platform_unlinked, admin_user_removed,
 //   admin_refresh, admin_message_sent, feedback_received,
-//   admin_feedback_deleted, csrf_blocked, rate_limited, session_rejected
+//   admin_feedback_deleted, csrf_blocked, rate_limited, session_rejected,
+//   oauth_started, oauth_login, oauth_failed, oauth_unconfigured, oauth_linked, oauth_unlinked
 
 export type SecurityEvent =
   | "login_failed"
@@ -39,9 +40,17 @@ export type SecurityEvent =
   | "feedback_received"
   | "admin_feedback_deleted"
   | "csrf_blocked"
-  | "rate_limited";
+  | "rate_limited"
+  | "oauth_started"
+  | "oauth_login"
+  | "oauth_failed"
+  | "oauth_unconfigured"
+  | "oauth_linked"
+  | "oauth_unlinked";
 
-const SENSITIVE_KEY = /pass(word)?|secret|token|cookie|authorization|code|hash|session|jwt|key/i;
+// A field named exactly "email" is redacted too (anchored, so "maskedEmail" -
+// the form that is safe to log - is not caught by it).
+const SENSITIVE_KEY = /pass(word)?|secret|token|cookie|authorization|code|hash|session|jwt|key|^email$/i;
 const MAX_VALUE_LENGTH = 200;
 
 function clean(value: unknown): unknown {

@@ -1,6 +1,6 @@
 # Leeterboard
 
-A competitive-programming leaderboard for a group of friends, a class or a club. Members sign up with a username and a password, then link any of their **LeetCode**, **Codeforces** and **CodinGame** accounts (all optional). Everything is for signed-in members only. The app tracks solved counts, weekly and monthly progress, streaks, contest ratings and badges, and ranks everyone on live boards with a podium, weekly winners, profiles and head-to-head comparisons.
+A competitive-programming leaderboard for a group of friends, a class or a club. Members sign up with **Google or GitHub** and choose a public username (the provider verifies their email address), then link any of their **LeetCode**, **Codeforces** and **CodinGame** accounts (all optional). Members who joined earlier can still sign in with a password and connect Google or GitHub in Account settings. Everything is for signed-in members only. The app tracks solved counts, weekly and monthly progress, streaks, contest ratings and badges, and ranks everyone on live boards with a podium, weekly winners, profiles and head-to-head comparisons.
 
 ## Contents
 
@@ -9,6 +9,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 - [Platforms](#platforms)
 - [Tech stack](#tech-stack)
 - [Getting started](#getting-started)
+- [Provider setup](#provider-setup)
 - [Configuration](#configuration)
 - [Accounts](#accounts)
 - [Account settings](#account-settings)
@@ -62,7 +63,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 
 **Accounts and administration**
 
-- **Sign-up with just a username and a password**, and a **members-only** site: without a session the app shows only the sign-in screen, and the API refuses every data request (see [Security](#security))
+- **Sign-up with Google or GitHub** and a chosen username (the provider verifies the email; no passwords or mail servers to manage; no LeetCode needed), and a **members-only** site: without a session the app shows only the sign-in screen, and the API refuses every data request (see [Security](#security))
 - **Account settings page** (`#/account`) for display name, school, bio, links, linked platforms, password and account deletion
 - **Privacy controls**: hide a linked platform from other members, or hide LeetCode stats on your profile (you still appear on the board)
 - **Admin tools** to sync everyone at once, remove members, watch sync health, and send messages with a record of how many members have read each
@@ -94,7 +95,7 @@ The leaderboard also keeps its view in the query string (`?sort=weekly|allTime|r
 
 ## Platforms
 
-A member signs up with a username and a password, so no platform is required. LeetCode, Codeforces and CodinGame are all optional links, added after signing up, in any combination.
+A member signs up with Google or GitHub and a chosen username, so no platform is required. LeetCode, Codeforces and CodinGame are all optional links, added after signing up, in any combination.
 
 | | LeetCode | Codeforces | CodinGame |
 | --- | --- | --- | --- |
@@ -138,6 +139,8 @@ npm run dev
 
 The app runs at http://localhost:3000. With no database configured, data is stored in a local `local.db` file.
 
+Sign-up uses Google or GitHub OAuth. For local development and tests, you can run with real dev OAuth credentials or use the dev-only fake OAuth provider (`node tests/fake-oauth.mjs`, and set `OAUTH_DEV_PROVIDER_URL=http://localhost:4010` in `.env`). The fake provider issues mock identities and verified emails without reaching external networks; the server strictly refuses `OAUTH_DEV_PROVIDER_URL` in production. Or, set real `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` and `PUBLIC_URL=http://localhost:3000` (registering `http://localhost:3000/api/auth/oauth/github/callback` with GitHub).
+
 To try the app with some members already on the boards, seed two fake members into the local database (they have LeetCode data without linking a real account):
 
 ```bash
@@ -147,17 +150,41 @@ npx tsx scripts/seed-dev-users.ts --reset  # delete and re-create them
 
 The seed script only writes to a local SQLite file. It refuses to run if `TURSO_DATABASE_URL` points anywhere else, or if `NODE_ENV=production` or `VERCEL` is set.
 
+## Provider setup
+
+To enable Google or GitHub sign-in, create OAuth apps with the providers. Keep every client secret server-side only (never a `VITE_` variable, never in chat, issues or logs).
+
+**GitHub**
+1. GitHub → Settings → Developer settings → OAuth Apps → **New OAuth App**.
+2. Homepage URL: your site URL (e.g. `http://localhost:3000` or `https://leaderboard-leet.vercel.app`).
+3. Authorization callback URL: exactly `<PUBLIC_URL>/api/auth/oauth/github/callback`. Since GitHub allows one callback URL per app, create two apps: one for local development (`http://localhost:3000/api/auth/oauth/github/callback`) and one for production (`https://leaderboard-leet.vercel.app/api/auth/oauth/github/callback`).
+4. Generate a client secret and set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in `.env` (or Vercel environment variables).
+
+**Google**
+1. [Google Cloud Console](https://console.cloud.google.com) → create a project → **APIs & Services → OAuth consent screen**: user type External, app name, user support email, and scopes `openid`, `email`, `profile`. Publish the app (in "Testing" mode only listed test accounts can sign in). These basic scopes do not require Google's verification review.
+2. **Credentials → Create Credentials → OAuth client ID → Web application**. Authorized redirect URIs: add `http://localhost:3000/api/auth/oauth/google/callback` and `https://leaderboard-leet.vercel.app/api/auth/oauth/google/callback`.
+3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env` (or Vercel).
+
+Preview deployments on Vercel have dynamic URLs; leave OAuth variables unset for Preview (sign-in with providers is simply disabled there) or configure dedicated apps.
+
 ## Configuration
 
 | Variable | Required | Description |
 | --- | --- | --- |
 | `JWT_SECRET` | Yes | Signs session cookies. Must be at least 32 random characters. |
+| `PUBLIC_URL` | Yes in production | The site's public origin, for example `https://leaderboard-leet.vercel.app` (no trailing slash). In production it must start with `https://`. Used to construct OAuth redirect URIs. |
+| `GITHUB_CLIENT_ID` | To enable GitHub | Client ID from the GitHub OAuth app. Set together with `GITHUB_CLIENT_SECRET`. |
+| `GITHUB_CLIENT_SECRET` | To enable GitHub | Client secret from the GitHub OAuth app. Server-side only. |
+| `GOOGLE_CLIENT_ID` | To enable Google | Client ID from the Google Cloud Console OAuth client. Set together with `GOOGLE_CLIENT_SECRET`. |
+| `GOOGLE_CLIENT_SECRET` | To enable Google | Client secret from the Google OAuth client. Server-side only. |
+| `OAUTH_DEV_PROVIDER_URL` | Dev and tests only | Base URL of the fake provider (`node tests/fake-oauth.mjs`). Refused in production. |
 | `ADMIN_USER_IDS` | Yes (for admin access) | Comma-separated internal member ids (`user-...`) with admin rights. Find one with `npm run admin -- show-id <username>` (the name they sign in with), or `GET /api/auth/session` while signed in. Any member can be an admin, with or without a LeetCode account. Admins are matched by id, never by name: a name is freed when an account is deleted, so a name-based list would let the next person to sign up with it inherit admin. There is no default: if neither admin variable is set, nobody is an admin. |
 | `ADMIN_LEETCODE_USERNAMES` | No (deprecated) | Comma-separated LeetCode usernames with admin rights, used only while `ADMIN_USER_IDS` is empty. A LeetCode username can be recycled by someone else, so prefer ids. |
 | `ALLOWED_ORIGINS` | No | Comma-separated extra origins allowed to make state-changing API requests (CSRF allow-list). The app's own origin is always allowed. |
 | `TURSO_DATABASE_URL` | No | Turso database URL. Leave empty to use the local `local.db` file. |
 | `TURSO_AUTH_TOKEN` | Yes, with a remote database | Auth token for the Turso database. Server-side only: never put it (or any secret) in a `VITE_` variable, which would ship it to the browser. |
 | `TRUST_PROXY_HOPS` | No | How many reverse proxies sit in front of the app, used to read the real client IP for rate limiting. Defaults to `1` in production (Vercel, Render, Railway, Fly) and `0` in development. Raise it only if you add another proxy or CDN; too high lets clients spoof their IP. |
+| `ALLOWED_EMAIL_DOMAINS` | No | Comma-separated domains whose addresses may sign up, for example a school's. Exact match (`school.edu` does not allow `mail.school.edu`), any letter case. Empty means any domain. Applied to sign-up and when connecting an OAuth provider. |
 | `PORT` | No | Server port. Defaults to `3000`. |
 | `SYNC_BUDGET_MS` | No | Time budget in milliseconds for one visit-triggered sync. Defaults to `8000`. |
 
@@ -171,15 +198,18 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 Nothing on the site is public. A visitor sees only the sign-in screen, and every data endpoint answers `401` without a session.
 
-**Signing up** needs a username, a password and, optionally, a display name. No LeetCode (or any other) account is needed, and the new member is signed in straight away and taken to **Account settings** to link their accounts.
+**Signing up** uses **Google or GitHub**. The provider verifies the person's email address, so no email is ever sent and no mail credentials are required. Once the provider flow completes, the new member chooses a public username (and optional display name), and their account is created with the provider-verified email stored in `users.email` (`email_verified_at`). They are then signed in and taken to **Account settings** where they can optionally link LeetCode, Codeforces, or CodinGame.
+
+1. Click **Continue with Google** or **Continue with GitHub**.
+2. Authorize the application at the provider. Provider authorization codes and tokens are exchanged on the server and never stored.
+3. Choose a public username. If the name is valid and free, the account is created with the provider-verified email and signed in immediately.
 
 - The **username** is what members sign in with. It is 3 to 30 characters from `A-Z`, `a-z`, `0-9` and `_`, stored in lowercase, and unique in any letter case. Names that could pass for the site or its staff (`admin`, `root`, `support`, ...) are refused.
-- The **password** is chosen for this site (never a LeetCode, Codeforces or CodinGame password, which the app never asks for) and is 8 to 128 characters. It can't be the username.
-- A name that is taken answers `409`, and bad input answers `400` with the reason.
-
-**Signing in** uses the username and the password. Members who joined before usernames existed keep working: their old LeetCode username, in lowercase, became their username, and their LeetCode account stays linked.
-
-**A forgotten password** can be reset by proving ownership of an account the member linked (LeetCode, Codeforces or CodinGame): `POST /api/auth/reset/start` hands out a one-time code, the member puts it in that profile, and `POST /api/auth/reset/verify` reads it back, sets the new password and signs everyone else out. The sign-in screen has no form for this yet, so for now it is reachable through the API only. A member with nothing linked can't use it. An admin can set a password with `npm run admin -- set-password <username>`. See [Security and operations](docs/security-operations.md).
+- The **email** is verified by the provider, trimmed and lowercased, and unique in any letter case. It is private: it is never shown to other members, never in `/api/users`, never in logs (logs hold a masked form such as `a***@example.com`). If `ALLOWED_EMAIL_DOMAINS` is set, only approved domains can sign up.
+- **Passwords**: Members who sign up via Google or GitHub do not need a password. Existing members who joined before OAuth keep their passwords and sign in with their username and password.
+- **Connecting providers**: Existing members can connect Google and GitHub to their account in **Account settings** (requires entering their current password). An OAuth identity can belong to at most one member.
+- **Sign-in methods**: Every account must keep at least one way to sign in (a password or at least one connected OAuth provider). Disconnecting the last sign-in method is refused.
+- **Password recovery**: Members who have a password and linked accounts (LeetCode, Codeforces, CodinGame) can reset a forgotten password using the proof-of-ownership challenge (`POST /api/auth/reset/start` and `/verify`). Members who connected Google or GitHub can sign in directly through their provider. Members with neither can ask an admin, who can set a password with `npm run admin -- set-password <username>` (add `--confirm-remote` for remote databases). See [Security and operations](docs/security-operations.md).
 
 Sessions last 7 days. When one ends (it expired, the member logged out elsewhere, or the password was changed on another device) the app returns to the sign-in screen and says so.
 
@@ -187,16 +217,18 @@ Sessions last 7 days. When one ends (it expired, the member logged out elsewhere
 
 Logged-in members click their name in the header and choose **Account settings** (`#/account`; the same menu also links to their profile) to:
 
+- **Manage sign-in methods.** View connected Google and GitHub accounts, connect new providers (requires the current password if the member has one), or disconnect a provider (disconnection is refused if it is the member's only sign-in method).
 - **Change their display name, school, bio and links.** School is shown as a tag on the leaderboard. Bio and the GitHub, LinkedIn and website links are shown on the profile page. The server validates each link and limits lengths. The avatar is not editable: a member gets a generated letter avatar, replaced by their LeetCode profile picture once they link LeetCode (it then refreshes automatically).
+- **View their verified email.** The card shows the address masked (`a***@example.com`), verified by Google or GitHub.
 - **Manage linked accounts** (see below).
 - **Hide LeetCode stats on their profile.** They still count on the board and in the group stats.
-- **Change their password.** This needs the current password, keeps the current device signed in, and signs out every other device.
+- **Change their password.** Available for members who have a password. This needs the current password, keeps the current device signed in, and signs out every other device.
 - **Log out.**
-- **Delete their account.** This needs the password and permanently removes the member's stats and history. Signing up again starts from zero.
+- **Delete their account.** Permanently removes the member's stats, history and linked accounts. Members with a password confirm with their password; passwordless members confirm by typing their username.
 
 ## Linked accounts
 
-Signing up needs only a username and a password. Everything else is optional: from **Account settings**, a member can link any of **LeetCode**, **Codeforces** and **CodinGame**, in any combination (none, one, or all three), and remove them again.
+Signing up needs only Google or GitHub OAuth and a username. Linking is optional: from **Account settings**, a member can link any of **LeetCode**, **Codeforces** and **CodinGame**, in any combination (none, one, or all three), and remove them again.
 
 1. Choose the platform and enter the handle.
 2. Copy the one-time code (valid for 30 minutes) and paste it where the page says: the Summary on LeetCode, the Organization field on Codeforces, the Tagline on CodinGame.
@@ -207,7 +239,7 @@ Each platform has its own row on the page with the same steps: link, prove with 
 
 A linked account can be unlinked at any time, or hidden on the member's profile. A hidden account still counts on the leaderboard and in the trends; other members' browsers receive it flagged as hidden and without the day-by-day series, and the profile page doesn't show it. The owner and admins see everything.
 
-A linked account is also how a forgotten password is recovered (see [Security and operations](docs/security-operations.md)): a member with none linked can only change their password by entering the old one, or ask an admin to remove the account.
+A linked account is also a way to recover a forgotten password for members with a password (see [Security and operations](docs/security-operations.md)); members who connected Google or GitHub can sign in with their provider, and members with neither can ask an admin.
 
 ## Badges and tiers
 
@@ -252,8 +284,17 @@ The theme is driven by CSS variables in `src/index.css`:
 
 ## Security
 
-- **Members only, enforced by the API.** Every route that returns member, board, trend or profile data requires a session and answers `401` (with the code `session_required`) without one; hiding the UI is only a convenience on top. The few public routes are the sign-in, sign-up and password-reset endpoints, the session check, logout and the feedback form. `tests/gating.test.ts` fails if any route is open to visitors without being on its short allow-list.
+- **Members only, enforced by the API.** Every route that returns member, board, trend or profile data requires a session and answers `401` (with the code `session_required`) without one; hiding the UI is only a convenience on top. The few public routes are the sign-in and OAuth endpoints, password-reset endpoints, the session check, logout and the feedback form. `tests/gating.test.ts` fails if any route is open to visitors without being on its short allow-list.
 - Passwords are hashed with scrypt and a unique salt per password.
+- **OAuth rules (Google and GitHub)**:
+  - **PKCE**: Strict PKCE with SHA-256 code challenge (`code_challenge`) and random 43-character verifier (`code_verifier`).
+  - **State verification**: Cryptographic single-use `state` parameter (128-bit hex string) held in an HttpOnly cookie and validated with constant-time equality (`crypto.timingSafeEqual`).
+  - **No account matching by email**: Sign-in matches *only* by the provider's stable user ID (`oauth_identities`), never by email address. Having the same email as an existing member does not automatically sign into or link that member's account (account takeover prevention).
+  - **Token and secret privacy**: Authorization codes, access tokens and client secrets are exchanged in server memory and never stored, logged or sent to the browser. Client secrets are never in `VITE_` variables.
+  - **Verified emails only**: The server only accepts emails that the provider explicitly marked verified (e.g. GitHub primary verified email, Google `email_verified: true`).
+  - **Emails are private**: Stored lowercase with `email_verified_at`. Never exposed in public member payloads (`/api/users`, profiles, boards, admin tables); members see only their own masked email (`a***@example.com`) in account settings.
+  - **Strict redirect URIs**: `redirect_uri` is strictly constructed on the server from `PUBLIC_URL`, never from the HTTP `Host` header or client parameters.
+  - **Production guards**: `OAUTH_DEV_PROVIDER_URL` is blocked from booting in production mode.
 - An account locks for 15 minutes after 5 failed password attempts, whether at login or when confirming a password change or deletion. Attempts are also rate limited per IP.
 - Unknown usernames and wrong passwords return the same error.
 - Sessions are signed HTTP-only cookies. Resetting a password signs out all older sessions.
@@ -263,7 +304,7 @@ The theme is driven by CSS variables in `src/index.css`:
 - The sensitive rate limiters keep their counters in the database, so they hold across serverless instances (see [Rate limits](#rate-limits)).
 - Dependencies are audited with `npm run audit:prod`, and Dependabot keeps them and the CI actions current.
 - Security regressions are covered by `npm test`: the suite starts the real server on a throwaway database and checks authorization, forged tokens, CSRF, challenge replay, rate limits, validation, headers and log hygiene (it checks the database as well as the status codes). CI runs it on every push and pull request, alongside a dependency audit, a full-history secret scan and CodeQL (`.github/workflows`).
-- Security events (failed and locked logins, ownership checks, password and account changes, admin actions, blocked requests) are logged as structured JSON with secrets redacted. See [docs/security-operations.md](docs/security-operations.md) for the event list, what to alert on, an incident-response checklist and the backup-restore drill.
+- Security events (failed and locked logins, ownership checks, password and account changes, OAuth events, admin actions, blocked requests) are logged as structured JSON with secrets redacted. See [docs/security-operations.md](docs/security-operations.md) for the event list, what to alert on, an incident-response checklist and the backup-restore drill.
 - Notification text is always rendered as plain text, never HTML.
 
 ## Data syncing
@@ -294,8 +335,11 @@ users ──< platform_accounts     linked Codeforces / CodinGame accounts, with
 users ──< platform_history      one snapshot per member per platform per UTC day
 users ──< platform_sync_status  latest sync attempt per member per platform
 users ──< pending_links         open "prove you own this account" requests
+users ──< oauth_identities      connected Google / GitHub accounts (provider + provider_user_id)
+users ──o< oauth_states         in-flight OAuth flows (PKCE verifier, intent, single use, 10 min)
+pending_oauth_signups           verified provider identities waiting for a username (15 min)
 pending_registrations           unused since the username sign-up (kept empty for rollback)
-pending_resets                   "forgot password" requests waiting for the proof code
+pending_resets                  "forgot password" requests waiting for the proof code
 rate_limits                     counters for the sensitive rate limiters (shared across instances)
 meta                            key/value store (weekly winners archive, last full sync)
 schema_migrations               applied migrations
@@ -366,8 +410,11 @@ All endpoints live under `/api`.
 | GET | `/api/trends?platform=codingame` | Members | The same shape, built from linked CodinGame accounts; the values are XP, not problems |
 | POST | `/api/users/:id/refresh` | Admin, rate limited | Refresh one member from LeetCode (a member without LeetCode only has their other accounts refreshed) |
 | POST | `/api/sync-if-stale` | Members, rate limited | Refresh stale members within a time budget (used by the page whenever a member opens the board) |
-| POST | `/api/auth/register` | Public | Sign up with a username and password (no LeetCode needed) |
-| POST | `/api/auth/login` | Public | Log in with `username` + `password` (the old `leetcodeUsername` field is still accepted) |
+| GET | `/api/auth/oauth/:provider/start` | Public, rate limited | Start OAuth sign-in (`:provider` is `github` or `google`). Sets HttpOnly `oauth_state` cookie and redirects to provider |
+| GET | `/api/auth/oauth/:provider/callback` | Public, rate limited | Callback from provider. Existing identities sign in immediately; new ones get a pending signup and redirect to username step |
+| GET | `/api/auth/oauth/pending` | Public, rate limited | Get provider, masked email and suggested display name for the pending signup (needs `oauth_signup` cookie) |
+| POST | `/api/auth/oauth/complete` | Public, rate limited | Complete signup with `{ username, displayName? }`. Creates account with verified email and signs in (`201`) |
+| POST | `/api/auth/login` | Public | Log in with `username` + `password` (for existing members with a password) |
 | POST | `/api/auth/reset/start` | Public, rate limited | Forgot password, step 1: name the account to prove (LeetCode, Codeforces or CodinGame), choose the new password, get a one-time code |
 | POST | `/api/auth/reset/verify` | Public, rate limited | Forgot password, step 2: reads the profile, and if the code is there sets the password and signs the person in |
 | POST | `/api/logout` | Public | Log out |
@@ -380,8 +427,10 @@ All endpoints live under `/api`.
 | POST | `/api/account/platforms/:platform/verify` | Member, rate limited | Verify the proof code and finish linking |
 | PATCH | `/api/account/platforms/:platform` | Member | Show or hide a linked account. Body `{ "hidden": boolean }` |
 | DELETE | `/api/account/platforms/:platform` | Member | Unlink an account |
-| POST | `/api/account/password` | Member | Change the password (needs the current one) |
-| POST | `/api/account/delete` | Member | Delete the account (needs the password) |
+| POST | `/api/account/oauth/:provider/start` | Member, rate limited | Start connecting an OAuth provider (`:provider` is `github` or `google`). Body `{ "currentPassword"?: string }` (required if member has a password) |
+| DELETE | `/api/account/oauth/:provider` | Member | Disconnect an OAuth provider (refused if it is the only remaining sign-in method) |
+| POST | `/api/account/password` | Member | Change the password (requires current password; available for members with a password) |
+| POST | `/api/account/delete` | Member | Delete the account (body `{ "password": string }` for members with a password, or `{ "confirmUsername": string }` for passwordless members) |
 | GET | `/api/notifications` and related | Member | See [Notification API](#notification-api) |
 | POST | `/api/refresh-all` | Admin, rate limited | Refresh every member who linked LeetCode, plus every linked Codeforces and CodinGame account |
 | DELETE | `/api/users/:id` | Admin | Remove a member |
@@ -394,13 +443,13 @@ All endpoints live under `/api`.
 
 ## Rate limits
 
-Limits are per IP. The sensitive limiters (login, sign-up, verification, refresh, account actions and feedback) store their counters in the `rate_limits` table, so they are enforced across every serverless instance and survive restarts and cold starts. The general `/api` ceiling stays in memory: the frontend polls it, and a database write per poll isn't worth the cost. Logins are additionally protected by a per-account lockout, which holds even if an attacker rotates IPs.
+Limits are per IP. The sensitive limiters (login, OAuth, verification, refresh, account actions and feedback) store their counters in the `rate_limits` table, so they are enforced across every serverless instance and survive restarts and cold starts. The general `/api` ceiling stays in memory: the frontend polls it, and a database write per poll isn't worth the cost. Logins are additionally protected by a per-account lockout, which holds even if an attacker rotates IPs.
 
 | Scope | Limit |
 | --- | --- |
 | All `/api` requests | 300 per 15 minutes |
 | Login | 20 per 15 minutes |
-| Sign-up | 10 per hour |
+| OAuth start, callback, pending, complete | 20 per 15 minutes |
 | Verification (linking accounts, password reset) | 20 per 15 minutes |
 | Starting a password reset | 10 per hour |
 | Single-member refresh and sync-if-stale | 6 per minute |
@@ -451,6 +500,9 @@ leeterboard/
 ├── server.ts               Express app: auth, account, sync and trend routes
 ├── auth.ts                 sessions, password hashing, admin check
 ├── usernames.ts            rules for choosing a username
+├── emails.ts               rules for an email address (format, allowed domains, masking)
+├── oauth.ts                pure OAuth helpers (PKCE, state validation, provider endpoints, URL validation)
+├── oauthProviders.ts       OAuth token exchange and user info fetchers (GitHub, Google, fake dev provider)
 ├── db.ts                   database access and MIGRATIONS
 ├── platformSync.ts         sync for linked platform accounts
 ├── platformTrends.ts       group trend for a linked platform
@@ -479,6 +531,7 @@ leeterboard/
 - Never run `npm run dev` (or `tsx server.ts`) on a server: it starts the Vite dev server. On a recognised hosting platform (Render, Railway, Fly, Heroku, Cloud Run, Kubernetes, ...) the app refuses to start that way unless `NODE_ENV` is set on purpose.
 - Only `dist/client/` is served. The server bundle lives in `server-dist/` and must stay out of any folder you serve statically (the app also refuses to start if it finds server code in `dist/client/`).
 - Upgrading from an older version? Run `npm run clean` once, so the old `dist/server.cjs` and its sourcemap are removed from disk, then rebuild.
+- Set up OAuth before the first deploy: create the OAuth apps with GitHub and/or Google (see [Provider setup](#provider-setup)), and set `PUBLIC_URL`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` and/or the Google pair in your production environment settings. Migrations run automatically on startup.
 - After deploying, check it from outside, see [Verify a self-hosted deployment](docs/security-operations.md#verify-a-self-hosted-deployment).
 
 **Vercel:** import the repository and set the environment variables in the project settings. A Turso database is required, because Vercel has no persistent disk for a local SQLite file. `vercel.json` routes `/api/*` to the Express app and serves the built frontend for everything else. There is no background job on Vercel; the board syncs when visitors open it (see [Data syncing](#data-syncing)).

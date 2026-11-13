@@ -112,7 +112,8 @@ export interface SessionPayload {
   // Tokens issued before login names existed carry `leetcodeUsername` instead.
   loginUsername: string;
   // Fingerprint of the account's password hash at login time (see
-  // sessionStamp). Absent only on tokens issued before passwords existed.
+  // sessionStamp). Absent on tokens issued before passwords existed and on
+  // tokens of members who have no password (they sign in with Google / GitHub).
   ps?: string;
 }
 
@@ -190,9 +191,14 @@ const cookieBase = {
 export function setSessionCookie(res: Response, user: { id: string; loginUsername: string }, passwordHash: string): void {
   const payload: SessionPayload = {
     id: user.id,
-    loginUsername: user.loginUsername,
-    ps: sessionStamp(passwordHash)
+    loginUsername: user.loginUsername
   };
+  // A member with no password (created through Google / GitHub) has nothing to
+  // fingerprint. Their token carries no `ps`, which resolveSession accepts only
+  // while the account still has no password (the same rule as tokens from before
+  // passwords existed). With an empty hash a `ps` would never match, so the
+  // session would be refused on the very next request.
+  if (isPasswordHash(passwordHash)) payload.ps = sessionStamp(passwordHash);
   const token = jwt.sign(payload, JWT_SECRET!, { algorithm: "HS256", expiresIn: SESSION_TTL });
   res.cookie(COOKIE_NAME, token, { ...cookieBase, maxAge: SESSION_MAX_AGE_MS });
 }
