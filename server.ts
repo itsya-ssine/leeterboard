@@ -68,6 +68,7 @@ import {
   listOAuthProviders,
   OAuthIdentityConflictError,
   setPasswordHash,
+  bumpSessionVersion,
   recordFailedLogin,
   clearFailedLogins,
   consumePendingLink,
@@ -1235,7 +1236,8 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
     );
 
     res.clearCookie(RESET_COOKIE, resetCookieOptions);
-    setSessionCookie(res, user, pending.passwordHash);
+    const updatedUserAuth = await getUserAuthById(user.id);
+    setSessionCookie(res, user, pending.passwordHash, updatedUserAuth?.auth.sessionVersion);
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
     console.error(`[Auth] reset verify failed: ${error.message}`);
@@ -1336,7 +1338,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     }
 
     if (auth.failedLogins > 0) await clearFailedLogins(user.id);
-    setSessionCookie(res, user, auth.passwordHash);
+    setSessionCookie(res, user, auth.passwordHash, auth.sessionVersion);
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
     console.error(`[Auth] login failed: ${error.message}`);
@@ -1564,7 +1566,7 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     // before the account became an admin must not be a way around that).
     if (isAdminUser(record.user)) return refuse("admin_refused", "admin_refused", { userId: record.user.id });
 
-    setSessionCookie(res, record.user, record.auth.passwordHash);
+    setSessionCookie(res, record.user, record.auth.passwordHash, record.auth.sessionVersion);
     res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
     logSecurityEvent("oauth_login", { ip: req.ip, userId: record.user.id, provider }, "info");
     res.redirect(302, "/#/");
@@ -1790,6 +1792,19 @@ app.post("/api/auth/oauth/complete", oauthLimiter, async (req, res) => {
 app.post("/api/logout", (_req, res) => {
   clearSessionCookie(res);
   res.json({ success: true });
+});
+
+// POST /api/auth/logout-all — signs out all devices by incrementing the user's session_version (SEC-05).
+app.post("/api/auth/logout-all", requireAuth, accountLimiter, async (req, res, next) => {
+  try {
+    const user = (req as any).user as { id: string; loginUsername: string };
+    await bumpSessionVersion(user.id);
+    clearSessionCookie(res);
+    logSecurityEvent("session_revoked_all", { ip: req.ip, userId: user.id, username: user.loginUsername }, "info");
+    res.json({ success: true, message: "Logged out from all devices." });
+  } catch (error: any) {
+    next(error);
+  }
 });
 
 // GET current auth state: "guest" (no valid session) or "authenticated". The
@@ -2374,8 +2389,9 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 
     const newHash = await hashPassword(newPassword as string);
     await setPasswordHash(id, newHash);
+    const updatedUserAuth = await getUserAuthById(id);
     logSecurityEvent("password_changed", { ip: req.ip, userId: id, username: loginUsername }, "info");
-    setSessionCookie(res, check.record.user, newHash);
+    setSessionCookie(res, check.record.user, newHash, updatedUserAuth?.auth.sessionVersion);
     res.json({ success: true });
   } catch (error: any) {
     console.error(`[Account] password change failed: ${error.message}`);

@@ -61,6 +61,7 @@ CREATE TABLE users (
 
   -- Credentials and brute-force protection. Never exposed through the API.
   password_hash      TEXT NOT NULL DEFAULT '',
+  session_version    INTEGER NOT NULL DEFAULT 0,
   failed_logins      INTEGER NOT NULL DEFAULT 0,
   locked_until       TEXT,
 

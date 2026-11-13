@@ -115,6 +115,9 @@ export interface SessionPayload {
   // sessionStamp). Absent on tokens issued before passwords existed and on
   // tokens of members who have no password (they sign in with Google / GitHub).
   ps?: string;
+  // Version counter of the user's session. Stored in users.session_version.
+  // Incrementing it revokes all previously issued sessions across devices.
+  sv?: number;
 }
 
 // Who is an admin.
@@ -188,10 +191,17 @@ const cookieBase = {
   path: "/"
 };
 
-export function setSessionCookie(res: Response, user: { id: string; loginUsername: string }, passwordHash: string): void {
+export function setSessionCookie(
+  res: Response,
+  user: { id: string; loginUsername: string; sessionVersion?: number },
+  passwordHash: string,
+  sessionVersion?: number
+): void {
+  const sv = sessionVersion ?? user.sessionVersion ?? 0;
   const payload: SessionPayload = {
     id: user.id,
-    loginUsername: user.loginUsername
+    loginUsername: user.loginUsername,
+    sv
   };
   // A member with no password (created through Google / GitHub) has nothing to
   // fingerprint. Their token carries no `ps`, which resolveSession accepts only
@@ -228,7 +238,8 @@ export function readSession(req: Request): SessionPayload | null {
     return {
       id: decoded.id,
       loginUsername: name,
-      ps: typeof decoded.ps === "string" ? decoded.ps : undefined
+      ps: typeof decoded.ps === "string" ? decoded.ps : undefined,
+      sv: typeof decoded.sv === "number" ? decoded.sv : undefined
     };
   } catch {
     return null; // expired or tampered — treat as logged out
@@ -236,7 +247,8 @@ export function readSession(req: Request): SessionPayload | null {
 }
 
 // Reads the cookie AND checks it against the database: the account must still
-// exist and the password must not have changed since the token was issued.
+// exist, the password must not have changed since the token was issued, and the
+// session version must match the current database value.
 // Tokens from before passwords existed (no `ps`) stay valid only until the
 // account is claimed with a password.
 export async function resolveSession(req: Request): Promise<{ user: User; isAdmin: boolean } | null> {
@@ -252,6 +264,10 @@ export async function resolveSession(req: Request): Promise<{ user: User; isAdmi
       ? hasPassword && safeEqual(session.ps, sessionStamp(record.auth.passwordHash))
       : !hasPassword;
   if (!valid) return null;
+
+  if (session.sv !== undefined && record.auth.sessionVersion !== undefined) {
+    if (session.sv !== record.auth.sessionVersion) return null;
+  }
 
   return { user: record.user, isAdmin: isAdminUser(record.user) };
 }

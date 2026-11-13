@@ -324,6 +324,7 @@ export async function initDb(): Promise<void> {
         current_streak INTEGER,
         longest_streak INTEGER,
         password_hash TEXT NOT NULL DEFAULT '',
+        session_version INTEGER NOT NULL DEFAULT 0,
         failed_logins INTEGER NOT NULL DEFAULT 0,
         locked_until TEXT,
         email TEXT,
@@ -435,7 +436,8 @@ const MIGRATIONS: Migration[] = [
   { version: 17, name: "email_verification", up: migrateEmailVerification },
   { version: 18, name: "oauth_sign_in", up: migrateOAuthSignIn },
   { version: 19, name: "drop_pending_email_codes", up: migrateDropPendingEmailCodes },
-  { version: 20, name: "leases", up: migrateLeases }
+  { version: 20, name: "leases", up: migrateLeases },
+  { version: 21, name: "user_session_version", up: migrateUserSessionVersion }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -691,6 +693,12 @@ async function migrateDropPendingEmailCodes(): Promise<void> {
 // v20 — distributed leases for background and scheduled sync tasks.
 async function migrateLeases(): Promise<void> {
   await client.batch(LEASE_DDL, "write");
+}
+
+// v21 — revocable sessions via session_version counter on users.
+async function migrateUserSessionVersion(): Promise<void> {
+  if (await columnExists("users", "session_version")) return;
+  await client.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0");
 }
 
 // v16 — the same sticky "this handle stopped resolving" marker LeetCode has
@@ -1008,6 +1016,7 @@ export interface UserAuth {
   passwordHash: string;
   failedLogins: number;
   lockedUntil: string | null;
+  sessionVersion: number;
 }
 
 export interface UserWithAuth {
@@ -1021,7 +1030,8 @@ async function rowToUserWithAuth(row: Record<string, unknown>): Promise<UserWith
     auth: {
       passwordHash: (row.password_hash as string) || "",
       failedLogins: Number(row.failed_logins ?? 0),
-      lockedUntil: (row.locked_until as string) || null
+      lockedUntil: (row.locked_until as string) || null,
+      sessionVersion: Number(row.session_version ?? 0)
     }
   };
 }
@@ -2228,13 +2238,22 @@ export async function createSecurityNotice(userId: string, title: string, body: 
 
 /* ---------- Credentials + login throttling ---------- */
 
-// Setting a password also clears any lockout: whoever can prove they own the
-// LeetCode account is allowed back in.
+// Setting a password also clears any lockout and increments the session version,
+// invalidating all prior active sessions across devices.
 export async function setPasswordHash(id: string, passwordHash: string): Promise<void> {
   await client.execute({
-    sql: "UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL WHERE id = ?",
+    sql: "UPDATE users SET password_hash = ?, session_version = session_version + 1, failed_logins = 0, locked_until = NULL WHERE id = ?",
     args: [passwordHash, id]
   });
+}
+
+// Bumps the session version of a user, instantly invalidating all active sessions.
+export async function bumpSessionVersion(id: string): Promise<number> {
+  const res = await client.execute({
+    sql: "UPDATE users SET session_version = session_version + 1 WHERE id = ? RETURNING session_version",
+    args: [id]
+  });
+  return Number(res.rows[0]?.session_version ?? 0);
 }
 
 // One atomic statement: bump the counter and, once it reaches `maxFailures`,

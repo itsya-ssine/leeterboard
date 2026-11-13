@@ -807,7 +807,8 @@ export default function AccountPage({
     changePassword,
     deleteAccount,
     signInMethods,
-    logout
+    logout,
+    logoutAll
   } = useAuth();
 
   const [name, setName] = useState("");
@@ -1028,6 +1029,15 @@ export default function AccountPage({
   const handleLogout = async () => {
     try {
       await logout();
+    } catch {
+      // Already signed out locally.
+    }
+    goHome();
+  };
+
+  const handleLogoutAll = async () => {
+    try {
+      await logoutAll();
     } catch {
       // Already signed out locally.
     }
@@ -1283,16 +1293,24 @@ export default function AccountPage({
             </form>
           </Card>}
 
-          <Card icon={<LogOut className="size-4 text-teal-300" />} title="Log out">
-            <div className="flex flex-col gap-3">
-              <p className="text-sm leading-relaxed text-mist-400">
-                Sign out of <span className="font-medium text-strong">@{user.loginUsername}</span> on this device.
-                Your stats and history are kept.
-              </p>
-              <button type="button" onClick={handleLogout} className={btnSecondary} id="logout-btn">
-                <LogOut className="size-4" />
-                Log out
-              </button>
+          <Card icon={<LogOut className="size-4 text-teal-300" />} title="Sessions & Log out">
+            <div className="flex flex-col gap-4">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-mist-400">Active sessions</h4>
+                <p className="mt-1 text-sm leading-relaxed text-mist-400">
+                  Sessions are versioned and revocable. You can sign out of this device, or revoke all active sessions across all devices (e.g. shared or lost computers).
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" onClick={handleLogout} className={btnSecondary} id="logout-btn">
+                  <LogOut className="size-4" />
+                  Log out (this device)
+                </button>
+                <button type="button" onClick={handleLogoutAll} className={btnSecondary} id="logout-all-btn">
+                  <AlertTriangle className="size-4 text-amber-300" />
+                  Log out of all devices
+                </button>
+              </div>
             </div>
           </Card>
 
