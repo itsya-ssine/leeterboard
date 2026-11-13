@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, GitBranch, LogIn, RefreshCw, UserPlus } from "lucide-react";
+import { AlertTriangle, LogIn, RefreshCw, UserPlus } from "lucide-react";
+import { FaGithub } from "react-icons/fa";
+import { FcGoogle } from "react-icons/fc";
 import { useAuth } from "./AuthContext.js";
 import { AuthError } from "./authApi.js";
 import Modal from "./Modal.js";
@@ -41,7 +43,11 @@ function ProviderButton({
 }) {
   return (
     <button type="button" onClick={onClick} className={btnSecondary}>
-      {provider === "github" && <GitBranch className="size-4" aria-hidden="true" />}
+      {provider === "github" ? (
+        <FaGithub className="size-4" aria-hidden="true" />
+      ) : (
+        <FcGoogle className="size-4" aria-hidden="true" />
+      )}
       Continue with {provider === "github" ? "GitHub" : "Google"}
     </button>
   );

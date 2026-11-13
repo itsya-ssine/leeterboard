@@ -71,6 +71,16 @@ describe("the OAuth auth form", () => {
     assert.match(modal, /window\.location\.hash = "#\/account"/);
   });
 
+  it("shows the GitHub and Google logos on the provider buttons for both sign in and sign up", () => {
+    assert.match(modal, /import \{ FaGithub \} from "react-icons\/fa"/);
+    assert.match(modal, /import \{ FcGoogle \} from "react-icons\/fc"/);
+    assert.match(modal, /<FaGithub className="size-4" aria-hidden="true" \/>/);
+    assert.match(modal, /<FcGoogle className="size-4" aria-hidden="true" \/>/);
+    assert.doesNotMatch(modal, /GitBranch/);
+    // One ProviderButton helper feeds both the Log in and Sign up tabs.
+    assert.equal(modal.match(/providerButtons\(visibleOAuthProviders\(oauthProviders\)\)/g)?.length, 2);
+  });
+
   it("maps OAuth error codes to messages and removes them from the URL", () => {
     assert.match(modal, /oauthErrorMessage\(code\)/);
     assert.match(modal, /clearOAuthErrorFromUrl\(\)/);
