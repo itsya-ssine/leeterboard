@@ -150,8 +150,8 @@ describe("a username that is refused", () => {
 describe("two sign-ups for the same name at once", () => {
   it("lets exactly one win and answers the other 409, with no server error", async () => {
     const [a, b] = await Promise.all([
-      signUpViaOAuth(api, fake, { username: "racer" }),
-      signUpViaOAuth(api, fake, { username: "racer" })
+      signUpViaOAuth(api, fake, { username: "racer", email: "racer1@example.com" }),
+      signUpViaOAuth(api, fake, { username: "racer", email: "racer2@example.com" })
     ]);
     assert.deepEqual([a.status, b.status].sort(), [201, 409]);
     assert.equal(await count("SELECT COUNT(*) AS n FROM users WHERE login_username = 'racer'"), 1);
