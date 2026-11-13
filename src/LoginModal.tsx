@@ -3,6 +3,7 @@ import { AnimatePresence } from "motion/react";
 import { AlertTriangle, LogIn, RefreshCw, UserPlus } from "lucide-react";
 import { FaGithub } from "react-icons/fa";
 import { FcGoogle } from "react-icons/fc";
+import { LEGAL_PATHS } from "./legal.js";
 import { useAuth } from "./AuthContext.js";
 import { AuthError } from "./authApi.js";
 import Modal from "./Modal.js";
@@ -21,6 +22,25 @@ const btnSecondary = `inline-flex h-10 w-full cursor-pointer items-center justif
 const linkBtn = `cursor-pointer font-medium text-teal-300 underline-offset-2 hover:underline ${focusRing} rounded`;
 
 type Tab = "login" | "signup";
+
+// Shown where an account is created. Opens in a new tab so a half-finished
+// sign-up isn't lost while someone reads the policy.
+function ConsentNote() {
+  const link = { target: "_blank", rel: "noopener noreferrer", className: "underline underline-offset-2 hover:text-strong" };
+  return (
+    <p className="text-xs leading-relaxed text-mist-500">
+      By creating an account you agree to the{" "}
+      <a href={LEGAL_PATHS.terms} {...link}>
+        Terms of Service
+      </a>{" "}
+      and acknowledge the{" "}
+      <a href={LEGAL_PATHS.privacy} {...link}>
+        Privacy Policy
+      </a>
+      .
+    </p>
+  );
+}
 
 function ErrorBox({ message }: { message: string }) {
   return (
@@ -264,6 +284,7 @@ export default function LoginModal({
                     {busy ? <RefreshCw className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
                     {busy ? "Creating account…" : "Create account"}
                   </button>
+                  <ConsentNote />
                 </form>
               )}
             </>
@@ -371,6 +392,7 @@ export default function LoginModal({
                       Sign-up is temporarily unavailable.
                     </p>
                   )}
+                  <ConsentNote />
                 </div>
               )}
             </>
