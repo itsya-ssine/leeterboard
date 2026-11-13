@@ -44,10 +44,8 @@ import {
   deletePendingResetsFor,
   purgeExpiredPendingResets,
   getUserEmail,
-  getUserByEmail,
   setUserEmail,
   emailTaken,
-  insertUser,
   updateUser,
   deleteUserById,
   updateDisplayName,
@@ -195,7 +193,7 @@ const oauthConfig = readOAuthConfig(process.env);
 for (const problem of oauthConfig.problems) console.warn(`[OAuth] ${problem}`);
 
 const dbReady = initDb();
-app.use((req, res, next) => {
+app.use((_req, _res, next) => {
   dbReady.then(() => next()).catch(next);
 });
 
@@ -1758,7 +1756,7 @@ app.post("/api/auth/oauth/complete", oauthLimiter, async (req, res) => {
 });
 
 // POST logout
-app.post("/api/logout", (req, res) => {
+app.post("/api/logout", (_req, res) => {
   clearSessionCookie(res);
   res.json({ success: true });
 });
@@ -2691,7 +2689,7 @@ async function syncAllUsers(
 // fresh boards return immediately. A short-lived lock in the database stops
 // simultaneous visitors (possibly on different serverless instances) from all
 // scraping LeetCode at once.
-app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (req, res) => {
+app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) => {
   try {
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
     const age = Date.now() - Date.parse(lastSyncAll);
@@ -2729,7 +2727,7 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (req, res) => 
 // last successful fetch (users.last_updated) with the outcome of the latest
 // attempt (sync_status), so a member whose LeetCode account was removed or
 // renamed shows up as "not_found" instead of just quietly going stale.
-app.get("/api/admin/sync-status", requireAdmin, async (req, res) => {
+app.get("/api/admin/sync-status", requireAdmin, async (_req, res) => {
   try {
     const [users, statuses, lastSyncAll] = await Promise.all([
       listUsers(),
@@ -2907,7 +2905,7 @@ async function startServer() {
       process.exit(1);
     }
     app.use(express.static(distPath, { dotfiles: "ignore" }));
-    app.get("/*splat", pageLimiter, (req, res) => {
+    app.get("/*splat", pageLimiter, (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

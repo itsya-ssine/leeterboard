@@ -13,7 +13,14 @@ import { startServer } from "./helpers.js";
 import { makeUser } from "./f2-seed.js";
 
 // What startServer() would inherit from the developer's shell or .env must not decide these tests.
-const CLEAN = { OAUTH_DEV_PROVIDER_URL: "" };
+const CLEAN = {
+  OAUTH_DEV_PROVIDER_URL: "",
+  PUBLIC_URL: "",
+  GITHUB_CLIENT_ID: "",
+  GITHUB_CLIENT_SECRET: "",
+  GOOGLE_CLIENT_ID: "",
+  GOOGLE_CLIENT_SECRET: ""
+};
 
 describe("OAUTH_DEV_PROVIDER_URL at boot (production mode)", () => {
   it("refuses to start with it, even when it points at this machine", async () => {
@@ -62,11 +69,7 @@ describe("production without any OAuth provider enabled", () => {
     const server = await startServer({
       ...CLEAN,
       TURSO_DATABASE_URL: dbUrl,
-      JWT_SECRET: secret,
-      GITHUB_CLIENT_ID: "",
-      GITHUB_CLIENT_SECRET: "",
-      GOOGLE_CLIENT_ID: "",
-      GOOGLE_CLIENT_SECRET: ""
+      JWT_SECRET: secret
     });
 
     try {

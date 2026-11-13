@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
-import { AlertTriangle, GitBranch, KeyRound, LogIn, RefreshCw, UserPlus } from "lucide-react";
+import { AlertTriangle, GitBranch, LogIn, RefreshCw, UserPlus } from "lucide-react";
 import { useAuth } from "./AuthContext.js";
 import { AuthError } from "./authApi.js";
 import Modal from "./Modal.js";

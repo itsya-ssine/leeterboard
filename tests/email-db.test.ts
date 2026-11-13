@@ -13,10 +13,6 @@ import { after, before, beforeEach, describe, it } from "node:test";
 let tmpDir = "";
 let db: typeof import("../db.js");
 
-const PAST = "2020-01-01T00:00:00.000Z";
-const NOW = "2026-06-01T12:00:00.000Z";
-const FUTURE = "2099-01-01T00:00:00.000Z";
-
 const count = async (sql: string, args: (string | number)[] = []) =>
   Number((await db.client.execute({ sql, args })).rows[0].n);
 

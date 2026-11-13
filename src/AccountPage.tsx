@@ -21,7 +21,6 @@ import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
 import { maskEmail } from "../emails.js";
 import { canDisconnectOAuthProvider, oauthErrorMessage, visibleOAuthProviders } from "./signup.js";
 import type { OAuthProvider } from "./authApi.js";
-import type { PlatformId } from "./types.js";
 import { hasNothingLinked, rowAccountFor, type LinkId, type RowAccount } from "./linkedAccounts.js";
 import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
 import PageHeader from "./PageHeader.js";
@@ -40,7 +39,6 @@ const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap
 const btnPrimary = `${btnBase} w-full bg-gradient-to-r from-teal-400 to-sky-400 text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] hover:brightness-110 active:scale-[0.97]`;
 const btnSecondary = `${btnBase} w-full bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
 const btnDanger = `${btnBase} w-full bg-rose-500 text-white shadow-[0_6px_20px_-8px_rgb(244_63_94/0.6)] hover:bg-rose-400 active:scale-[0.97]`;
-const btnLink = `${btnBase} bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
 // Header actions: a square icon button on phones, icon plus label from sm.
 const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800/80 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] sm:w-auto sm:px-4 ${focusRing}`;
 

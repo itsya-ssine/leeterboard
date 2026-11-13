@@ -99,7 +99,7 @@ router.delete("/notifications/:notificationId", requireAuth, async (req, res) =>
 
 /* ---------- Admins: send messages ---------- */
 
-router.get("/admin/notifications", requireAdmin, async (req, res) => {
+router.get("/admin/notifications", requireAdmin, async (_req, res) => {
   try {
     res.json({ messages: await listSentMessages(20) });
   } catch (error: any) {
