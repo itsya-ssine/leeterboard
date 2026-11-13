@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ArrowRight, Flame, Trophy, Users } from "lucide-react";
 import { FaGithub } from "react-icons/fa";
+import LegalLinks from "./LegalLinks.js";
 
 // The landing page is always dark, whatever theme the app uses, so it uses
 // fixed colours instead of the theme tokens.
@@ -84,6 +85,7 @@ export default function Landing({ onEnter }: { onEnter: (animated: boolean) => v
               itsya-ssine
             </a>
           </span>
+          <LegalLinks linkClassName={`transition hover:text-white ${focusRing}`} />
           <a
             href="https://github.com/itsya-ssine/leeterboard"
             target="_blank"

@@ -13,6 +13,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "admin": "tsx scripts/admin-account.ts",
     "security:check": "tsx scripts/check-security-config.ts",
+    "legal:check": "tsx scripts/check-legal-config.ts",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "db:verify-backup": "tsx scripts/verify-backup.ts"

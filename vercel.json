@@ -32,6 +32,10 @@
       "dest": "server.ts"
     },
     {
+      "src": "/(privacy|terms)/?",
+      "dest": "/index.html"
+    },
+    {
       "src": "/(.*)",
       "dest": "/$1"
     }

@@ -17,6 +17,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 - [Badges and tiers](#badges-and-tiers)
 - [Themes](#themes)
 - [Security](#security)
+- [Legal pages](#legal-pages)
 - [Data syncing](#data-syncing)
 - [Sync health (admins)](#sync-health-admins)
 - [Database](#database)
@@ -307,6 +308,12 @@ The theme is driven by CSS variables in `src/index.css`:
 - Security events (failed and locked logins, ownership checks, password and account changes, OAuth events, admin actions, blocked requests) are logged as structured JSON with secrets redacted. See [docs/security-operations.md](docs/security-operations.md) for the event list, what to alert on, an incident-response checklist and the backup-restore drill.
 - Notification text is always rendered as plain text, never HTML.
 
+## Legal pages
+
+The Privacy Policy (`/privacy`) and Terms of Service (`/terms`) are real paths, not hash routes, so they can be linked from Google's OAuth consent screen and read without signing in. `src/LegalGate.tsx` renders them outside the landing page and the sign-in gate, and `vercel.json` serves them from `index.html` (the Node server and Vite already fall back to it).
+
+Before releasing, fill in the `REPLACE_ME` values in `LEGAL` in [`src/legal.ts`](src/legal.ts) (operator name, contact email, governing law) and run `npm run legal:check`, which fails while any remain. The text in `src/LegalPages.tsx` describes what the code does today: when a change adds a new kind of personal data, a third party, a cookie or a retention period, update it there and bump `LEGAL.effectiveDate`. Tests check that the cookie names and retention periods it quotes still match the code.
+
 ## Data syncing
 
 On a server that stays running, all members who linked LeetCode are refreshed every 30 minutes. On Vercel there is no background job, so the board syncs itself when a member opens it: if it was last synced more than 30 minutes ago, the page asks the server to refresh the stale members (a few at a time, within a short time budget, continuing on the next visit if needed). The same pass refreshes linked Codeforces and CodinGame accounts (including those of members who never linked LeetCode) with whatever time is left. A member without a LeetCode account is never fetched from LeetCode: there is nothing to fetch, and they aren't ranked.
@@ -469,6 +476,7 @@ Limits are per IP. The sensitive limiters (login, OAuth, verification, refresh, 
 | `npm test` | Run the security regression tests against the real server (throwaway database) |
 | `npm run db:verify-backup` | Check that a restored copy of the database is complete and readable (`-- --url <copy>`) |
 | `npm run security:check` | Verify the CSP script hashes, that `vercel.json` sends the same security headers as `securityHeaders.ts`, and that the build scripts keep the server bundle out of the served folder |
+| `npm run legal:check` | Fail while `src/legal.ts` still holds `REPLACE_ME` placeholders (run before releasing) |
 | `npm run audit:prod` | Fail on known high-severity vulnerabilities in production dependencies |
 | `npm run clean` | Remove build output |
 | `npx tsx scripts/seed-dev-users.ts` | Development only: add two fake members to the local database (`--reset` re-creates them) |
@@ -496,6 +504,8 @@ leeterboard/
 │   ├── achievements.ts, tiers.ts, movement.ts, winners.ts, activity.ts, compare.ts
 │   ├── shareCard.ts, compareCard.ts   canvas-drawn PNG cards
 │   ├── theme.tsx, ThemeToggle.tsx, index.css
+│   ├── legal.ts            legal settings (owner fills in) and the /privacy, /terms route
+│   ├── LegalGate.tsx, LegalPages.tsx, LegalLinks.tsx   Privacy Policy and Terms pages
 │   └── NotificationBell.tsx, Toast.tsx, Modal.tsx, ...
 ├── server.ts               Express app: auth, account, sync and trend routes
 ├── auth.ts                 sessions, password hashing, admin check
