@@ -1365,7 +1365,21 @@ const oauthCookieOptions = {
 // code from the allow-list. The type makes a free-form value a compile error.
 // Wider path than the state cookie: the username screen talks to /api/auth/oauth/*,
 // and the cookie must reach exactly those routes.
+const PROVIDER_ERROR_CODES: Record<string, OAuthErrorCode> = Object.assign(Object.create(null), { access_denied: "cancelled" });
 const oauthSignupCookieOptions = { ...oauthCookieOptions, path: "/api/auth" };
+
+// Every OAuth cookie is set here with literal options (HttpOnly, Secure in
+// production, SameSite=Lax). Spreading a shared options object works at runtime
+// but static analysis (CodeQL) cannot see through it and reports the flags as missing.
+function setOAuthCookie(res: express.Response, name: string, value: string, path: string, maxAge: number): void {
+  res.cookie(name, value, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path,
+    maxAge
+  });
+}
 
 // `target` is one of two fixed pages: the login page, or (for a signed-in member
 // connecting a provider) their account page.
@@ -1398,7 +1412,7 @@ app.get("/api/auth/oauth/:provider/start", oauthLimiter, async (req, res) => {
       expiresAt: new Date(now + OAUTH_STATE_TTL_MS).toISOString()
     });
 
-    res.cookie(OAUTH_STATE_COOKIE, stateId, { ...oauthCookieOptions, maxAge: OAUTH_STATE_TTL_MS });
+    setOAuthCookie(res, OAUTH_STATE_COOKIE, stateId, OAUTH_COOKIE_PATH, OAUTH_STATE_TTL_MS);
     logSecurityEvent("oauth_started", { ip: req.ip, provider, intent: "signin" }, "info");
     res.redirect(302, buildAuthorizeUrl(provider, { state: stateId, challenge, redirectUri, clientId: config.clientId }));
   } catch (error: any) {
@@ -1443,10 +1457,6 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     if (state.provider !== provider) return refuse("failed", "state_provider_mismatch");
     if (state.intent === "link") failTarget = "/#/account";
 
-    // 3. The member said no (or the provider refused). Never echo its text.
-    if (req.query.error !== undefined) {
-      return req.query.error === "access_denied" ? (oauthFail(res, "cancelled", failTarget), undefined) : refuse("failed", "provider_error");
-    }
 
     // Connecting a provider: the browser must STILL be signed in as the member who
     // started it. Someone else's session (or none) never gets an identity attached.
@@ -1456,8 +1466,14 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
       if (session.isAdmin) return refuse("admin_refused", "admin_refused", { userId: session.user.id });
     }
 
+    // 3. No code means the provider refused or the member said no. The `error`
+    //    value is only looked up in a fixed table (never echoed, never a gate:
+    //    a request that adds or removes it cannot reach anything sensitive,
+    //    because the code exchange below is what proves the sign-in).
     const code = req.query.code;
-    if (typeof code !== "string") return refuse("failed", "missing_code");
+    if (typeof code !== "string") {
+      return refuse(PROVIDER_ERROR_CODES[String(req.query.error)] ?? "failed", "no_code");
+    }
 
     // 4. Server to server: the code (with the PKCE verifier) for a verified
     //    profile. The token inside is used once and thrown away.
@@ -1524,7 +1540,7 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
         expiresAt: new Date(now + OAUTH_SIGNUP_TTL_MS).toISOString()
       });
       res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
-      res.cookie(OAUTH_SIGNUP_COOKIE, pendingId, { ...oauthSignupCookieOptions, maxAge: OAUTH_SIGNUP_TTL_MS });
+      setOAuthCookie(res, OAUTH_SIGNUP_COOKIE, pendingId, "/api/auth", OAUTH_SIGNUP_TTL_MS);
       return res.redirect(302, "/#/signup/username");
     }
     const record = await getUserAuthById(userId);
@@ -1582,7 +1598,7 @@ app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, asyn
       codeVerifier: verifier,
       expiresAt: new Date(now + OAUTH_STATE_TTL_MS).toISOString()
     });
-    res.cookie(OAUTH_STATE_COOKIE, stateId, { ...oauthCookieOptions, maxAge: OAUTH_STATE_TTL_MS });
+    setOAuthCookie(res, OAUTH_STATE_COOKIE, stateId, OAUTH_COOKIE_PATH, OAUTH_STATE_TTL_MS);
     logSecurityEvent("oauth_started", { ip: req.ip, userId: id, provider, intent: "link" }, "info");
     res.json({
       url: buildAuthorizeUrl(provider, {
