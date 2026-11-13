@@ -28,6 +28,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 - [Scripts](#scripts)
 - [Project structure](#project-structure)
 - [Deployment](#deployment)
+- [License](#license)
 
 ## Features
 
@@ -486,6 +487,7 @@ Limits are per IP. The sensitive limiters (login, OAuth, verification, refresh, 
 
 ```
 leeterboard/
+├── LICENSE                 MIT license for the source code
 ├── db/schema.sql           annotated current schema
 ├── platforms/              Codeforces and CodinGame adapters, shared types and the registry
 ├── scripts/                migrate, seed-dev-users, probe-codingame, check-security-config, verify-backup
@@ -546,3 +548,7 @@ leeterboard/
 - After deploying, check it from outside, see [Verify a self-hosted deployment](docs/security-operations.md#verify-a-self-hosted-deployment).
 
 **Vercel:** import the repository and set the environment variables in the project settings. A Turso database is required, because Vercel has no persistent disk for a local SQLite file. `vercel.json` routes `/api/*` to the Express app and serves the built frontend for everything else. There is no background job on Vercel; the board syncs when visitors open it (see [Data syncing](#data-syncing)).
+
+## License
+
+The source code is released under the [MIT License](LICENSE), copyright (c) 2026 ELMAJDOUBI Yassine. It covers the code in this repository only: it does not cover the hosted service (see the [Terms of Service](src/LegalPages.tsx)) or the names and marks of LeetCode, Codeforces, CodinGame, Google and GitHub, which belong to their owners.
