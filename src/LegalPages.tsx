@@ -9,21 +9,21 @@ import { LEGAL, RETENTION, type LegalPageId } from "./legal.js";
 // period, update the matching section here and bump LEGAL.effectiveDate.
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
-const linkClass = `font-medium text-teal-300 underline decoration-teal-300/30 underline-offset-4 hover:decoration-teal-300 ${focusRing}`;
+export const linkClass = `font-medium text-teal-300 underline decoration-teal-300/30 underline-offset-4 hover:decoration-teal-300 ${focusRing}`;
 
-type SectionDef = { id: string; title: string; body: ReactNode };
+export type SectionDef = { id: string; title: string; body: ReactNode };
 
 /* ---------- small building blocks ---------- */
 
-function Ul({ children }: { children: ReactNode }) {
+export function Ul({ children }: { children: ReactNode }) {
   return <ul className="list-disc space-y-2 pl-5 marker:text-mist-500">{children}</ul>;
 }
 
-function B({ children }: { children: ReactNode }) {
+export function B({ children }: { children: ReactNode }) {
   return <strong className="font-semibold text-strong">{children}</strong>;
 }
 
-function Mail() {
+export function Mail() {
   return (
     <a href={`mailto:${LEGAL.contactEmail}`} className={linkClass}>
       {LEGAL.contactEmail}
@@ -31,7 +31,7 @@ function Mail() {
   );
 }
 
-function formatDate(iso: string): string {
+export function formatDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   return Number.isNaN(d.getTime())
     ? iso
@@ -308,8 +308,10 @@ const PRIVACY: SectionDef[] = [
             platform's stats and history; the rest of your account stays.
           </li>
           <li>
-            <B>Get a copy of your data.</B> There is no self-service download yet. Email <Mail /> and we will send you a copy
-            in a common, machine-readable format.
+            <B>Get a copy of your data.</B> Account settings has a Download my data button. It saves one JSON file (a
+            common, machine-readable format) with your profile, e-mail, sign-in connections, stats and daily history,
+            badges, notifications and any feedback you sent. It leaves out your password hash and one-time codes. If you
+            cannot sign in, email <Mail /> and we will send you a copy.
           </li>
           <li>
             <B>Revoke sign-in access</B> from your Google or GitHub account settings whenever you like.
@@ -569,9 +571,24 @@ const PAGES: Record<LegalPageId, { title: string; command: string; blurb: string
   }
 };
 
-export default function LegalPage({ page }: { page: LegalPageId }) {
-  const { title, command, blurb, sections } = PAGES[page];
-
+/**
+ * The shared look of a long-form page: logo bar, title, "On this page" list,
+ * numbered sections and the footer. The legal pages and the FAQ both use it.
+ * `updated` is the ISO date shown as "Last updated".
+ */
+export function DocumentPage({
+  title,
+  command,
+  blurb,
+  updated,
+  sections
+}: {
+  title: string;
+  command: string;
+  blurb: string;
+  updated: string;
+  sections: SectionDef[];
+}) {
   useEffect(() => {
     document.title = `${title} · ${LEGAL.serviceName}`;
   }, [title]);
@@ -597,7 +614,7 @@ export default function LegalPage({ page }: { page: LegalPageId }) {
           <h1 className="font-logo text-3xl font-bold tracking-tight text-strong md:text-5xl">{title}</h1>
           <p className="mt-2 text-base text-mist-400">{blurb}</p>
           <p className="mt-4 text-sm text-mist-500">
-            Last updated <time dateTime={LEGAL.effectiveDate}>{formatDate(LEGAL.effectiveDate)}</time>
+            Last updated <time dateTime={updated}>{formatDate(updated)}</time>
           </p>
         </div>
 
@@ -630,4 +647,9 @@ export default function LegalPage({ page }: { page: LegalPageId }) {
       </div>
     </main>
   );
+}
+
+export default function LegalPage({ page }: { page: LegalPageId }) {
+  const { title, command, blurb, sections } = PAGES[page];
+  return <DocumentPage title={title} command={command} blurb={blurb} updated={LEGAL.effectiveDate} sections={sections} />;
 }
