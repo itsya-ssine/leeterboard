@@ -210,21 +210,13 @@ export default function LoginModal({
             <>
               <div className="mt-1">
                 <h2 className="text-lg font-semibold text-strong">Choose your username</h2>
-                {pendingLoading ? (
-                  <p role="status" className="mt-2 text-sm text-mist-400">Checking your sign-up…</p>
-                ) : pending ? (
-                  <p className="mt-2 text-sm leading-relaxed text-mist-400">
-                    Signed in with {pending.provider === "github" ? "GitHub" : "Google"} as {pending.maskedEmail}.
-                    Your email is verified and will stay private.
-                  </p>
-                ) : null}
               </div>
 
               {pending && (
                 <form onSubmit={handleCompleteSignup} className="mt-5 flex flex-col gap-4" noValidate>
                   <div>
                     <label htmlFor="signup-username" className="mb-1.5 block text-sm font-medium text-mist-400">
-                      Username <span className="font-normal text-mist-500">(letters, numbers, underscores)</span>
+                      Username
                     </label>
                     <input
                       id="signup-username"
@@ -245,7 +237,7 @@ export default function LoginModal({
 
                   <div>
                     <label htmlFor="signup-display" className="mb-1.5 block text-sm font-medium text-mist-400">
-                      Display name <span className="font-normal text-mist-500">(optional)</span>
+                      Display name
                     </label>
                     <input
                       id="signup-display"
@@ -307,10 +299,6 @@ export default function LoginModal({
               {/* ---------- Log in ---------- */}
               {tab === "login" && (
                 <form onSubmit={handleLogin} className="mt-5 flex flex-col gap-4">
-                  <p className="text-sm leading-relaxed text-mist-400">
-                    Log in with your username and password. If you joined before accounts were separate from LeetCode, your username is your LeetCode username.
-                  </p>
-
                   <div>
                     <label htmlFor="login-username" className="mb-1.5 block text-sm font-medium text-mist-400">
                       Username
@@ -346,10 +334,6 @@ export default function LoginModal({
                     />
                   </div>
 
-                  <p className="-mt-2 text-sm text-mist-500">
-                    Forgot your password? If you connected GitHub or Google, use that button. Otherwise ask an admin.
-                  </p>
-
                   {error && <ErrorBox message={error} />}
 
                   <button type="submit" disabled={busy} className={btnPrimary}>
@@ -367,21 +351,12 @@ export default function LoginModal({
                     </>
                   )}
 
-                  <p className="text-center text-sm text-mist-500">
-                    New here?{" "}
-                    <button type="button" onClick={() => switchTab("signup")} className={linkBtn}>
-                      Sign up
-                    </button>
-                  </p>
                 </form>
               )}
 
               {/* ---------- Sign up ---------- */}
               {tab === "signup" && (
                 <div className="mt-5 flex flex-col gap-4">
-                  <p className="text-sm leading-relaxed text-mist-400">
-                    We use Google or GitHub to confirm your email. We never see your password for them. Your email stays private.
-                  </p>
                   {error && <ErrorBox message={error} />}
                   {oauthProviders.length > 0 ? (
                     providerButtons(visibleOAuthProviders(oauthProviders))
@@ -390,12 +365,6 @@ export default function LoginModal({
                       Sign-up is temporarily unavailable.
                     </p>
                   )}
-                  <p className="text-center text-sm text-mist-500">
-                    Already have an account?{" "}
-                    <button type="button" onClick={() => switchTab("login")} className={linkBtn}>
-                      Log in
-                    </button>
-                  </p>
                 </div>
               )}
             </>

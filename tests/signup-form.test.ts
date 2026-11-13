@@ -56,9 +56,8 @@ describe("the OAuth auth form", () => {
     assert.match(ctx, /oauthProviders: OAuthProvider\[\]/);
   });
 
-  it("uses provider sign-in for new accounts and explains that provider passwords stay private", () => {
-    assert.match(modal, /We use Google or GitHub to confirm your email/);
-    assert.match(modal, /We never see your password for them/);
+  it("uses provider sign-in for new accounts, with no explanatory copy around the forms", () => {
+    assert.doesNotMatch(modal, /We use Google or GitHub|New here\?|Already have an account\?|Forgot your password\?/);
     assert.match(modal, /startOAuthSignIn\(provider\)/);
     assert.doesNotMatch(modal, /CodeEntry|startRegistration|verifyRegistration|signup-email|signup-password/);
     assert.doesNotMatch(api, /api\/auth\/register|api\/auth\/reset\/email/);
@@ -66,14 +65,13 @@ describe("the OAuth auth form", () => {
 
   it("loads the pending identity and completes sign-up with the chosen username", () => {
     assert.match(modal, /fetchPendingOAuthSignup\(\)/);
-    assert.match(modal, /Signed in with/);
+    assert.doesNotMatch(modal, /Signed in with/);
     assert.match(modal, /completeOAuthSignup\(username\.trim\(\), displayName\.trim\(\) \|\| undefined\)/);
     assert.match(modal, /This sign-up has expired\. Please start again\./);
     assert.match(modal, /window\.location\.hash = "#\/account"/);
   });
 
-  it("shows the password recovery guidance and removes OAuth error codes from the URL", () => {
-    assert.match(modal, /If you connected GitHub or Google, use that button\. Otherwise ask an admin/);
+  it("maps OAuth error codes to messages and removes them from the URL", () => {
     assert.match(modal, /oauthErrorMessage\(code\)/);
     assert.match(modal, /clearOAuthErrorFromUrl\(\)/);
     assert.match(modal, /role="alert"/);
