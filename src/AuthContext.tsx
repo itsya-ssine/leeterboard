@@ -73,7 +73,7 @@ interface AuthContextValue {
   updateSchool: (school: string) => Promise<User>;
   updateProfileDetails: (details: ProfileDetails) => Promise<User>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
-  deleteAccount: (password: string) => Promise<void>;
+  deleteAccount: (confirmation: string, hasPassword: boolean) => Promise<void>;
   startPlatformLink: (platform: PlatformId, handle: string) => Promise<PlatformLinkChallenge>;
   verifyPlatformLink: (platform: PlatformId) => Promise<User>;
   unlinkPlatform: (platform: PlatformId) => Promise<User>;
@@ -218,8 +218,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await postJson("/api/account/password", { currentPassword, newPassword });
   }, []);
 
-  const deleteAccount = useCallback(async (password: string) => {
-    await postJson("/api/account/delete", { password });
+  const deleteAccount = useCallback(async (confirmation: string, hasPassword: boolean) => {
+    await postJson("/api/account/delete", hasPassword ? { password: confirmation } : { confirmUsername: confirmation });
     setUser(null);
     setStatus("guest");
   }, []);
