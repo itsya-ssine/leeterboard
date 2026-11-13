@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { FaGithub } from "react-icons/fa";
 import { LEGAL, LEGAL_PATHS } from "./legal.js";
+import { FAQ_PATH } from "./faq.js";
 
 // The footer every page shares: the app, the landing page and the legal pages.
 //
@@ -52,6 +53,9 @@ export default function SiteFooter({
           </a>
           <a href={LEGAL_PATHS.terms} className={link} {...legalTarget}>
             Terms
+          </a>
+          <a href={FAQ_PATH} className={link} {...legalTarget}>
+            FAQ
           </a>
           <a href={`mailto:${LEGAL.contactEmail}`} className={link}>
             Contact

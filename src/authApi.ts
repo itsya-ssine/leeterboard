@@ -41,6 +41,50 @@ export async function requestJson<T>(method: string, url: string, body?: unknown
 
 export const postJson = <T,>(url: string, body: unknown = {}) => requestJson<T>("POST", url, body);
 
+/** The file name the server suggests in Content-Disposition, or a safe default. */
+export function exportFileNameFrom(header: string | null): string {
+  const match = header ? /filename="?([A-Za-z0-9._-]+)"?/.exec(header) : null;
+  return match?.[1] ?? "leeterboard-data.json";
+}
+
+/**
+ * Downloads a JSON copy of everything stored about the signed-in member
+ * (GET /api/account/export) and hands it to the browser as a file.
+ * Resolves with the file name; throws AuthError like the other requests.
+ */
+export async function downloadMyData(): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch("/api/account/export", { headers: { Accept: "application/json" } });
+  } catch {
+    throw new AuthError("Couldn't reach the server. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      // Non-JSON body: fall through to the generic message.
+    }
+    throw new AuthError(data?.error || "Couldn't download your data. Please try again.", false, res.status);
+  }
+  const fileName = exportFileNameFrom(res.headers.get("Content-Disposition"));
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  } finally {
+    // Give the browser a moment to start the download before the URL is released.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+  return fileName;
+}
+
 export type OAuthProvider = "github" | "google";
 
 export interface PendingOAuthSignup {

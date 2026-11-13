@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
@@ -20,7 +21,7 @@ import {
 import { useAuth, type PlatformLinkChallenge } from "./AuthContext.js";
 import { maskEmail } from "../emails.js";
 import { canDisconnectOAuthProvider, oauthErrorMessage, visibleOAuthProviders } from "./signup.js";
-import type { OAuthProvider } from "./authApi.js";
+import { downloadMyData, type OAuthProvider } from "./authApi.js";
 import { hasNothingLinked, rowAccountFor, type LinkId, type RowAccount } from "./linkedAccounts.js";
 import { formatRankTitle, rankTextClass } from "./CodeforcesPage.js";
 import PageHeader from "./PageHeader.js";
@@ -833,6 +834,8 @@ export default function AccountPage({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletePw, setDeletePw] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportNotice, setExportNotice] = useNoticeState();
   const [deleteNotice, setDeleteNotice] = useNoticeState();
 
   // Fill the forms once, when the signed-in member is first known — not every
@@ -1001,6 +1004,21 @@ export default function AccountPage({
     } catch (err: any) {
       setDeleteNotice({ kind: "error", message: err.message || "Couldn't delete your account." });
       setDeleteBusy(false);
+    }
+  };
+
+  // Saves a JSON copy of everything stored about this member. No password is
+  // asked for: it is the member's own data, behind their signed-in session.
+  const handleExport = async () => {
+    setExportNotice(null);
+    setExportBusy(true);
+    try {
+      const fileName = await downloadMyData();
+      setExportNotice({ kind: "success", message: `Your data was saved as ${fileName}.` });
+    } catch (err: any) {
+      setExportNotice({ kind: "error", message: err.message || "Couldn't download your data." });
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -1274,6 +1292,21 @@ export default function AccountPage({
               <button type="button" onClick={handleLogout} className={btnSecondary} id="logout-btn">
                 <LogOut className="size-4" />
                 Log out
+              </button>
+            </div>
+          </Card>
+
+          <Card icon={<Download className="size-4 text-teal-300" />} title="Download your data" id="account-export-card">
+            <div className="flex flex-col gap-3">
+              <p className="text-sm leading-relaxed text-mist-400">
+                Get a copy of everything we store about you as one JSON file: your profile, sign-in connections, e-mail,
+                stats and daily history for every linked platform, badges, notifications and feedback you sent. Your
+                password and one-time codes are never included.
+              </p>
+              <NoticeBox notice={exportNotice} />
+              <button type="button" onClick={handleExport} disabled={exportBusy} className={btnSecondary} id="export-data-btn">
+                {exportBusy ? <RefreshCw className="size-4 animate-spin" /> : <Download className="size-4" />}
+                {exportBusy ? "Preparing…" : "Download my data"}
               </button>
             </div>
           </Card>

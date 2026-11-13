@@ -32,7 +32,7 @@
       "dest": "server.ts"
     },
     {
-      "src": "/(privacy|terms)/?",
+      "src": "/(privacy|terms|faq)/?",
       "dest": "/index.html"
     },
     {

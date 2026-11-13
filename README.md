@@ -18,6 +18,8 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 - [Themes](#themes)
 - [Security](#security)
 - [Legal pages](#legal-pages)
+- [Data export](#data-export)
+- [FAQ page](#faq-page)
 - [Data syncing](#data-syncing)
 - [Sync health (admins)](#sync-health-admins)
 - [Database](#database)
@@ -90,8 +92,9 @@ The app is a single page switched with the URL hash, so no server rewrite is nee
 | `#/u/<username>` | Member profile | Members |
 | `#/account` | Account settings and linked accounts | Members |
 | `#/admin` | Sync health, messages and feedback | Admins |
+| `/privacy`, `/terms`, `/faq` | Privacy Policy, Terms of Service, How scoring works (real paths, not hash routes) | Everyone, no sign-in |
 
-"Members" means a signed-in member; a visitor without a session only ever sees the sign-in screen, whichever address they open. A signed-in member who opens `#/admin` without admin rights sees a short "for admins" notice.
+"Members" means a signed-in member; a visitor without a session only ever sees the sign-in screen, whichever address they open (apart from the three public pages above). A signed-in member who opens `#/admin` without admin rights sees a short "for admins" notice.
 
 The leaderboard also keeps its view in the query string (`?sort=weekly|allTime|rating&q=<search>`) and remembers pinned members in your browser.
 
@@ -225,6 +228,7 @@ Logged-in members click their name in the header and choose **Account settings**
 - **Manage linked accounts** (see below).
 - **Hide LeetCode stats on their profile.** They still count on the board and in the group stats.
 - **Change their password.** Available for members who have a password. This needs the current password, keeps the current device signed in, and signs out every other device.
+- **Download their data.** One JSON file with everything stored about them (see [Data export](#data-export)). No password is asked for: it is their own data, behind their signed-in session.
 - **Log out.**
 - **Delete their account.** Permanently removes the member's stats, history and linked accounts. Members with a password confirm with their password; passwordless members confirm by typing their username.
 
@@ -314,6 +318,18 @@ The theme is driven by CSS variables in `src/index.css`:
 The Privacy Policy (`/privacy`) and Terms of Service (`/terms`) are real paths, not hash routes, so they can be linked from Google's OAuth consent screen and read without signing in. `src/LegalGate.tsx` renders them outside the landing page and the sign-in gate, and `vercel.json` serves them from `index.html` (the Node server and Vite already fall back to it).
 
 Before releasing, fill in the `REPLACE_ME` values in `LEGAL` in [`src/legal.ts`](src/legal.ts) (operator name, contact email, governing law) and run `npm run legal:check`, which fails while any remain. The text in `src/LegalPages.tsx` describes what the code does today: when a change adds a new kind of personal data, a third party, a cookie or a retention period, update it there and bump `LEGAL.effectiveDate`. Tests check that the cookie names and retention periods it quotes still match the code.
+
+## Data export
+
+**Account settings > Download my data** (`GET /api/account/export`) saves `leeterboard-<username>-<date>.json`: a copy of everything the database holds about the signed-in member, for data-portability requests (GDPR Art. 20, Morocco's Law 09-08). The member id always comes from the session, never from the request, so nobody can export anyone else. The response is `Cache-Control: no-store` and the route shares the account-actions rate limit. Each download is logged as an `account_exported` security event (the event only, never the data).
+
+It contains the profile and e-mail, sign-in connections (which providers, not tokens), LeetCode stats and daily history, linked Codeforces / CodinGame accounts with their history, badges and weekly wins, notifications (including ones the member dismissed, since they are still held), feedback they sent, and each platform's last sync status. The file says what it leaves out under `notIncluded`: the password hash and login counters, one-time codes and sign-in handshakes, rate-limit counters, the admin who sent a message, and admin read-state on feedback.
+
+`accountExport.ts` reads every table with an **explicit column list**, so a column added to the schema later is not exported until someone decides it belongs there. When you add a table or column that holds personal data, add it there and to `tests/account-export.test.ts`, and keep `deleteUserById` in `db.ts` in step so export and deletion cover the same data.
+
+## FAQ page
+
+"How scoring works" lives at `/faq`, a real path like `/privacy` and `/terms`, so visitors can read it before signing up. It explains the three leaderboard orderings and their tie-breaks, weekly and monthly progress (Monday 00:00 UTC rounds, baselines), tiers, badges, what "solved" means on each platform, and how often data updates. `src/FaqPage.tsx` renders it on the same page shell as the legal pages; the tier table is built from `src/tiers.ts`, and the sync interval, poll interval and history length come from shared constants that `tests/faq.test.ts` checks against `server.ts`, `src/App.tsx` and `db.ts`. When ranking, progress, tiers, badges or syncing change, update the text and bump `FAQ_UPDATED` in `src/faq.ts`.
 
 ## Data syncing
 
@@ -438,6 +454,7 @@ All endpoints live under `/api`.
 | POST | `/api/account/oauth/:provider/start` | Member, rate limited | Start connecting an OAuth provider (`:provider` is `github` or `google`). Body `{ "currentPassword"?: string }` (required if member has a password) |
 | DELETE | `/api/account/oauth/:provider` | Member | Disconnect an OAuth provider (refused if it is the only remaining sign-in method) |
 | POST | `/api/account/password` | Member | Change the password (requires current password; available for members with a password) |
+| GET | `/api/account/export` | Member | Download a JSON copy of the member's own data (see [Data export](#data-export)) |
 | POST | `/api/account/delete` | Member | Delete the account (body `{ "password": string }` for members with a password, or `{ "confirmUsername": string }` for passwordless members) |
 | GET | `/api/notifications` and related | Member | See [Notification API](#notification-api) |
 | POST | `/api/refresh-all` | Admin, rate limited | Refresh every member who linked LeetCode, plus every linked Codeforces and CodinGame account |
@@ -507,11 +524,13 @@ leeterboard/
 │   ├── shareCard.ts, compareCard.ts   canvas-drawn PNG cards
 │   ├── theme.tsx, ThemeToggle.tsx, index.css
 │   ├── legal.ts            legal settings (owner fills in) and the /privacy, /terms route
-│   ├── LegalGate.tsx, LegalPages.tsx   Privacy Policy and Terms pages
+│   ├── LegalGate.tsx, LegalPages.tsx   Privacy Policy and Terms pages (LegalPages.tsx also holds the shared page shell)
+│   ├── faq.ts, FaqPage.tsx  the /faq "How scoring works" route and page
 │   ├── SiteFooter.tsx      the footer shared by the app, landing and legal pages
 │   └── NotificationBell.tsx, Toast.tsx, Modal.tsx, ...
 ├── server.ts               Express app: auth, account, sync and trend routes
 ├── auth.ts                 sessions, password hashing, admin check
+├── accountExport.ts        the member's own data as one JSON document (Download my data)
 ├── usernames.ts            rules for choosing a username
 ├── emails.ts               rules for an email address (format, allowed domains, masking)
 ├── oauth.ts                pure OAuth helpers (PKCE, state validation, provider endpoints, URL validation)
