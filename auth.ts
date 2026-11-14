@@ -137,6 +137,34 @@ export async function isBreachedPassword(password: string): Promise<boolean> {
   }
 }
 
+/**
+ * SEC-08: Creates an HMAC-signed device recognition token for a successfully logged in user.
+ * Valid for 30 days. Used to bypass targeted-DoS lockout for known-good devices.
+ */
+export function signDeviceToken(userId: string): string {
+  const payload = `${userId}:${Date.now()}`;
+  const sig = crypto.createHmac("sha256", JWT_SECRET!).update(payload).digest("hex");
+  return `${payload}.${sig}`;
+}
+
+/**
+ * SEC-08: Verifies an HMAC-signed device recognition token.
+ */
+export function verifyDeviceToken(token: string, userId: string): boolean {
+  if (!token || typeof token !== "string") return false;
+  const parts = token.split(".");
+  if (parts.length !== 2) return false;
+  const [payload, sig] = parts;
+  const [tokenUserId, timestampStr] = payload.split(":");
+  if (tokenUserId !== userId) return false;
+  const expectedSig = crypto.createHmac("sha256", JWT_SECRET!).update(payload).digest("hex");
+  if (sig.length !== expectedSig.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+    return false;
+  }
+  const ts = Number(timestampStr);
+  return Number.isFinite(ts) && Date.now() - ts < 30 * 24 * 60 * 60 * 1000;
+}
+
 /* ---------- Sessions ---------- */
 
 // The body of every 401 that means "there is no valid session" (never signed

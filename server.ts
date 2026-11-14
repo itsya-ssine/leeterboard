@@ -111,6 +111,8 @@ import {
   isPasswordHash,
   needsRehash,
   isBreachedPassword,
+  signDeviceToken,
+  verifyDeviceToken,
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH
 } from "./auth.js";
@@ -1294,6 +1296,20 @@ function readLoginCredentials(body: unknown): { username: string; password: stri
   return { username: trimmed.toLowerCase(), password };
 }
 
+const DEVICE_COOKIE = "known_device";
+const DEVICE_COOKIE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function setKnownDeviceCookie(res: express.Response, userId: string): void {
+  const token = signDeviceToken(userId);
+  res.cookie(DEVICE_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/api/auth",
+    maxAge: DEVICE_COOKIE_TTL_MS
+  });
+}
+
 // POST — password login.
 app.post("/api/auth/login", loginLimiter, async (req, res) => {
   try {
@@ -1325,17 +1341,24 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     const { user, auth } = record;
     let failuresBefore = auth.failedLogins;
 
+    const deviceCookie = req.cookies?.[DEVICE_COOKIE];
+    const isKnownDevice = typeof deviceCookie === "string" && verifyDeviceToken(deviceCookie, user.id);
+
     if (auth.lockedUntil) {
       const until = Date.parse(auth.lockedUntil);
       if (until > Date.now()) {
-        logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: loginName });
-        const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
-        return res.status(429).json({
-          error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
-        });
+        // SEC-08: A known-good device (from prior successful login) is not locked out by DoS attempts from other IPs
+        if (!isKnownDevice) {
+          logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: loginName });
+          const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
+          return res.status(429).json({
+            error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
+          });
+        }
+      } else {
+        await clearFailedLogins(user.id); // lock has expired
+        failuresBefore = 0;
       }
-      await clearFailedLogins(user.id); // lock has expired
-      failuresBefore = 0;
     }
 
     if (!isPasswordHash(auth.passwordHash)) {
@@ -1362,7 +1385,14 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
           username: loginName,
           minutes: LOCKOUT_MS / 60_000
         });
+        await createSecurityNotice(
+          user.id,
+          "Security alert: 5 failed sign-in attempts",
+          `We detected repeated failed sign-in attempts on your account. If this was not you, someone may be trying to guess your password. Your account has been temporarily locked to untrusted devices for ${LOCKOUT_MS / 60_000} minutes.`
+        );
       }
+      const delayMs = process.env.NODE_ENV === "test" ? 0 : Math.min(1000 * Math.pow(2, failuresBefore), 4000);
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
       return res.status(401).json(INVALID);
     }
 
@@ -1372,6 +1402,7 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
       await setPasswordHash(user.id, auth.passwordHash);
       logSecurityEvent("password_rehashed", { userId: user.id, username: loginName }, "info");
     }
+    setKnownDeviceCookie(res, user.id);
     setSessionCookie(res, user, auth.passwordHash, auth.sessionVersion);
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
