@@ -1,1 +1,1 @@
-export * from "../shared/winners.js";
+export * from "./features/leaderboard/utils/winners.js";

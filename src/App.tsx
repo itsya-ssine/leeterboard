@@ -93,100 +93,13 @@ const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 const PINNED_STORAGE_KEY = "leeterboard:pinned";
 
+import RoundTimer, { nextRoundStartMs, formatLocalReset, isoWeek } from "./features/leaderboard/components/RoundTimer.js";
+import SubmissionTicker from "./features/leaderboard/components/SubmissionTicker.js";
+import NavLinks, { type Page, NAV_ITEMS, ADMIN_NAV_ITEM } from "./components/navigation/NavLinks.js";
+import DifficultyBar from "./components/ui/DifficultyBar.js";
+import GroupGrowthChart from "./features/statistics/components/GroupGrowthChart.js";
+
 type SortKey = "weekly" | "allTime" | "rating";
-
-/* ---------- Competitive-programming flavour ---------- */
-
-// The board's week runs Monday to Sunday (UTC), so the "round" ends at the
-// next Monday 00:00 UTC.
-function nextRoundStartMs(nowMs: number): number {
-  const d = new Date(nowMs);
-  const sinceMonday = (d.getUTCDay() + 6) % 7;
-  const today = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  return today + (7 - sinceMonday) * 86_400_000;
-}
-
-function formatLocalReset(nextMs: number): string {
-  try {
-    const d = new Date(nextMs);
-    const day = d.toLocaleDateString(undefined, { weekday: "short" });
-    const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
-    return `${day} ${time} your time (Mon 00:00 UTC)`;
-  } catch {
-    return "Monday 00:00 UTC";
-  }
-}
-
-function isoWeek(nowMs: number): number {
-  const d = new Date(nowMs);
-  const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1);
-  return Math.ceil(((date.getTime() - yearStart) / 86_400_000 + 1) / 7);
-}
-
-// Contest-style clock: how long until this week's round closes. It owns its
-// one-second tick so the rest of the board doesn't re-render every second.
-function RoundTimer() {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const targetMs = nextRoundStartMs(nowMs);
-  const left = Math.max(0, targetMs - nowMs);
-  const days = Math.floor(left / 86_400_000);
-  const hms = [Math.floor(left / 3_600_000) % 24, Math.floor(left / 60_000) % 60, Math.floor(left / 1000) % 60]
-    .map((n) => String(n).padStart(2, "0"))
-    .join(":");
-  const localReset = formatLocalReset(targetMs);
-  return (
-    <div
-      className="flex items-center gap-2 rounded-full bg-ink-900/70 px-3 py-1.5 font-mono text-sm ring-1 ring-line"
-      title={`Weekly round resets on ${localReset}`}
-    >
-      <Timer className="size-3.5 text-amber-300" aria-hidden="true" />
-      <span className="text-xs uppercase tracking-widest text-mist-500">Round ends</span>
-      <span
-        className="font-semibold tabular-nums text-strong"
-        aria-label={`Round ends in ${days} days, ${hms}. Resets on ${localReset}`}
-      >
-        {days}d {hms}
-      </span>
-    </div>
-  );
-}
-
-// A scrolling "judge feed" of this week's solvers. Decorative: the same data
-// is in the table, so it is hidden from assistive tech.
-function SubmissionTicker({ users }: { users: User[] }) {
-  const solvers = [...users]
-    .filter((u) => u.weeklyProgress > 0)
-    .sort((a, b) => b.weeklyProgress - a.weeklyProgress)
-    .slice(0, 14);
-  if (solvers.length < 2) return null;
-  const items = [...solvers, ...solvers]; // doubled so the loop is seamless
-  return (
-    <div
-      aria-hidden="true"
-      className="ticker relative z-10 overflow-hidden border-b border-line bg-ink-950/60 py-1.5 font-mono text-xs"
-    >
-      <div className="ticker-track">
-        {items.map((u, i) => (
-          <span key={`${u.id}-${i}`} className="mx-5 inline-flex shrink-0 items-center gap-2 whitespace-nowrap">
-            <span className="rounded-[3px] bg-emerald-400/15 px-1.5 py-px font-bold text-emerald-400 ring-1 ring-emerald-400/30">
-              AC
-            </span>
-            <span className="text-mist-100">{u.displayName}</span>
-            <span className="font-semibold tabular-nums text-emerald-400">+{u.weeklyProgress}</span>
-            <span className="text-mist-500">/ {u.allTimeSolved} total</span>
-            <span className="text-mist-500/60">//</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // Stats page tiles: icon + accent per summary card, and medal styling for the
 // top-three cards.
@@ -211,8 +124,6 @@ const TOP_MEDALS = [
 // #/codeforces = Codeforces board, #/codingame = CodinGame board, #/admin = sync health for admins) so no
 // server rewrite is needed: a plain
 // static host or Vercel serves "/" for all.
-type Page = "leaderboard" | "stats" | "codeforces" | "codingame" | "compare" | "profile" | "account" | "admin";
-
 // Which platform the Stats page is showing.
 type StatsPlatform = "leetcode" | "codeforces" | "codingame";
 
@@ -236,84 +147,6 @@ function readProfileName(): string | null {
   } catch {
     return null;
   }
-}
-
-const NAV_ITEMS = [
-  { page: "leaderboard", href: "#/", label: "Leaderboard", Icon: ListOrdered },
-  { page: "codeforces", href: "#/codeforces", label: "Codeforces", Icon: Trophy },
-  { page: "codingame", href: "#/codingame", label: "CodinGame", Icon: Gamepad2 },
-  { page: "stats", href: "#/stats", label: "Stats", Icon: Activity },
-  { page: "compare", href: "#/compare", label: "Compare", Icon: Swords }
-] as const;
-
-// Only shown to admins; the page itself is also gated, and the API behind it
-// checks admin rights on every request.
-const ADMIN_NAV_ITEM = { page: "admin", href: "#/admin", label: "Sync health", Icon: ShieldCheck } as const;
-
-// Labels are written out in full only when there is room; otherwise a link
-// shrinks to its icon (the name stays available as a tooltip and to screen
-// readers). `labelFrom` is the breakpoint at which the text appears. `fill`
-// spreads the links across the full width (the bar under the header on small
-// screens).
-// "never" = icons at every width (used for admins, who have one more link than
-// the header has room to spell out).
-const NAV_LABEL_CLASS = { sm: "hidden sm:inline", xl: "hidden xl:inline", never: "hidden" } as const;
-const NAV_PADDING_CLASS = { sm: "px-2.5 sm:px-3", xl: "px-2.5 xl:px-3", never: "px-2.5" } as const;
-
-function NavLinks({
-  page,
-  isAdmin = false,
-  className = "",
-  labelFrom = "xl",
-  fill = false
-}: {
-  page: Page;
-  isAdmin?: boolean;
-  className?: string;
-  labelFrom?: keyof typeof NAV_LABEL_CLASS;
-  fill?: boolean;
-}) {
-  const { t } = useI18n();
-  const items = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
-
-  const getNavLabel = (p: string, defaultLabel: string) => {
-    switch (p) {
-      case "leaderboard": return t.leaderboard;
-      case "codeforces": return t.codeforces;
-      case "codingame": return t.codingame;
-      case "stats": return t.stats;
-      case "compare": return t.compare;
-      case "admin": return t.syncHealth;
-      default: return defaultLabel;
-    }
-  };
-
-  return (
-    <nav aria-label="Main" className={`items-center gap-1 ${className}`}>
-      {items.map(({ page: p, href, label, Icon }) => {
-        const navLabel = getNavLabel(p, label);
-        return (
-          <a
-            key={p}
-            href={href}
-            aria-current={page === p ? "page" : undefined}
-            aria-label={navLabel}
-            title={navLabel}
-            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
-              NAV_PADDING_CLASS[labelFrom]
-            } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
-              page === p
-                ? "bg-ink-800 text-strong shadow-[inset_0_-2px_0_0_var(--color-teal-400)] ring-1 ring-line"
-                : "text-mist-400 hover:bg-tint hover:text-strong"
-            }`}
-          >
-            <Icon className="size-4 shrink-0" aria-hidden="true" />
-            <span className={NAV_LABEL_CLASS[labelFrom]}>{navLabel}</span>
-          </a>
-        );
-      })}
-    </nav>
-  );
 }
 
 // Single source of truth for ordering, used for both the absolute ranks and
@@ -383,63 +216,6 @@ function isStale(iso: string, now: number): boolean {
 const shortDate = (isoDate: string) =>
   new Date(`${isoDate}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
 
-/* ---------- Difficulty bar ---------- */
-
-// Segmented Easy/Medium/Hard solve-count bar with the raw counts underneath.
-// "sm" is used in leaderboard rows and podium cards, "lg" in the profile modal.
-function DifficultyBar({
-  easy,
-  medium,
-  hard,
-  size = "sm"
-}: {
-  easy: number;
-  medium: number;
-  hard: number;
-  size?: "sm" | "lg";
-}) {
-  const total = Math.max(1, easy + medium + hard);
-  const lg = size === "lg";
-  const segments = [
-    { label: "Easy", letter: "E", value: easy, bar: "bg-gradient-to-r from-emerald-500 to-emerald-300", dot: "bg-emerald-400", text: "text-emerald-300" },
-    { label: "Medium", letter: "M", value: medium, bar: "bg-gradient-to-r from-amber-500 to-amber-300", dot: "bg-amber-400", text: "text-amber-300" },
-    { label: "Hard", letter: "H", value: hard, bar: "bg-gradient-to-r from-rose-500 to-rose-300", dot: "bg-rose-400", text: "text-rose-300" }
-  ];
-
-  return (
-    <div
-      className="flex w-full flex-col gap-2"
-      role="img"
-      aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}
-    >
-      <div className={`flex w-full gap-0.5 overflow-hidden rounded-full bg-tint ${lg ? "h-2.5" : "h-1.5"}`}>
-        {segments.map(
-          (s) =>
-            s.value > 0 && (
-              <div
-                key={s.label}
-                className={`h-full rounded-full ${s.bar} transition-[width] duration-700 ease-out`}
-                style={{ width: `${(s.value / total) * 100}%` }}
-                title={`${s.value} ${s.label}`}
-              />
-            )
-        )}
-      </div>
-      <div className={`flex items-center tabular-nums ${lg ? "gap-5 text-sm" : "gap-3 text-xs"}`}>
-        {segments.map((s) => (
-          <span key={s.label} className={`inline-flex items-center gap-1.5 ${s.text}`}>
-            <span className="balloon mb-0.5" aria-hidden="true" />
-            <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-mist-500">
-              {lg ? s.label : s.letter}
-            </span>
-            <span className="font-mono font-semibold">{s.value}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function HotStreak({ className = "size-3.5" }: { className?: string }) {
   return (
     <span title="Hot solve streak" className="shrink-0">
@@ -449,150 +225,6 @@ function HotStreak({ className = "size-3.5" }: { className?: string }) {
 }
 
 /* ---------- Group growth chart ---------- */
-
-interface TrendPoint {
-  date: string;
-  solved: number;
-  activeUsers: number;
-}
-
-function GroupGrowthChart({
-  trend,
-  description = "Problems the whole roster has solved since tracking began",
-  breakdownLabel = "Solved by difficulty, whole roster"
-}: {
-  trend: any;
-  description?: string;
-  breakdownLabel?: string;
-}) {
-  const series: TrendPoint[] = trend?.historyTrend ?? [];
-  const breakdown: { name: string; value: number }[] = trend?.difficultyBreakdown ?? [];
-  const pick = (name: string) => breakdown.find((b) => b.name === name)?.value ?? 0;
-  const { theme } = useTheme();
-  const c = chartColors(theme);
-  const latest = series.length ? series[series.length - 1].solved : 0;
-  const weekAgo = series.length > 7 ? series[series.length - 8].solved : (series[0]?.solved ?? 0);
-  const weekDelta = Math.max(0, latest - weekAgo);
-
-  return (
-    <section
-      id="growth-panel"
-      aria-label="Group growth"
-      className="card-aurora mb-8 animate-rise p-5"
-    >
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// growth.log</div>
-          <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">Group growth</h2>
-          <p className="mt-0.5 text-sm text-mist-500">{description}</p>
-        </div>
-        {series.length >= 2 && (
-          <div className="flex gap-2 font-mono">
-            <div className="rounded-lg bg-tint px-3 py-1.5 ring-1 ring-line">
-              <div className="text-[10px] uppercase tracking-widest text-mist-500">Since start</div>
-              <div className="text-lg font-bold tabular-nums text-emerald-400">+{latest.toLocaleString()}</div>
-            </div>
-            <div className="rounded-lg bg-tint px-3 py-1.5 ring-1 ring-line">
-              <div className="text-[10px] uppercase tracking-widest text-mist-500">Last 7 days</div>
-              <div className="text-lg font-bold tabular-nums text-teal-300">+{weekDelta.toLocaleString()}</div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {series.length < 2 ? (
-        <p className="py-10 text-center text-sm text-mist-500">
-          The chart appears once the board has more than one day of history.
-        </p>
-      ) : (
-        <div className="h-56 w-full">
-          {/* Accessible data table for screen readers (WCAG 2.2 AA / UX-02) */}
-          <div className="sr-only">
-            <table>
-              <caption>Group growth history</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">Problems solved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {series.map((pt) => (
-                  <tr key={pt.date}>
-                    <td>{shortDate(pt.date)}</td>
-                    <td>{pt.solved.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="growthFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={c.accent} stopOpacity={0.45} />
-                  <stop offset="100%" stopColor={c.accent} stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="growthStroke" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#2dd4bf" />
-                  <stop offset="55%" stopColor="#38bdf8" />
-                  <stop offset="100%" stopColor="#a78bfa" />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke={c.grid} vertical={false} />
-              <XAxis
-                dataKey="date"
-                tickFormatter={shortDate}
-                tick={{ fill: c.tick, fontSize: 12 }}
-                tickLine={false}
-                axisLine={false}
-                minTickGap={32}
-              />
-              <YAxis
-                domain={[0, (max: number) => Math.max(5, Math.ceil(max * 1.1))]}
-                allowDecimals={false}
-                tickFormatter={(v: number) => v.toLocaleString()}
-                tick={{ fill: c.tick, fontSize: 12 }}
-                tickLine={false}
-                axisLine={false}
-                width={48}
-              />
-              <Tooltip
-                cursor={{ stroke: c.cursor }}
-                contentStyle={{
-                  background: c.tooltipBg,
-                  border: `1px solid ${c.tooltipBorder}`,
-                  borderRadius: 8,
-                  color: c.tooltipText,
-                  fontSize: 13
-                }}
-                labelStyle={{ color: c.tooltipLabel }}
-                labelFormatter={(label) => shortDate(String(label))}
-                formatter={(value) => [`+${Number(value).toLocaleString()}`, "Growth"]}
-              />
-              <Area
-                type="monotone"
-                dataKey="solved"
-                stroke="url(#growthStroke)"
-                strokeWidth={3}
-                fill="url(#growthFill)"
-                isAnimationActive={true}
-                animationDuration={900}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      {breakdown.length > 0 && (
-        <div className="mt-4 border-t border-line pt-4">
-          <div className="mb-3 font-mono text-[11px] uppercase tracking-widest text-mist-500">// {breakdownLabel}</div>
-          <DifficultyBar easy={pick("Easy")} medium={pick("Medium")} hard={pick("Hard")} size="lg" />
-        </div>
-      )}
-    </section>
-  );
-}
 
 /* ---------- App ---------- */
 
