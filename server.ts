@@ -30,6 +30,7 @@ import {
   daysIntoWeek,
   computeWeeklyProgressFromHistory
 } from "./server/domain/progress.js";
+import { executeLeetCodeGraphQL } from "./leetcodeClient.js";
 import {
   initDb,
   listUsers,
@@ -287,26 +288,10 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
       }
     `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await executeLeetCodeGraphQL<{ matchedUser?: any }>(query, { username: cleanUsername });
 
-    const response = await fetch("https://leetcode.com/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Referer": "https://leetcode.com",
-        "Origin": "https://leetcode.com"
-      },
-      body: JSON.stringify({ query, variables: { username: cleanUsername } }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      const json: any = await response.json();
-      const matchedUser = json?.data?.matchedUser;
+    if (res.ok) {
+      const matchedUser = res.data?.matchedUser;
 
       if (matchedUser === null) {
         // LeetCode explicitly returns matchedUser: null for a username
@@ -332,6 +317,8 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
           };
         }
       }
+    } else {
+      console.warn(`[Fetch] Official LeetCode GraphQL failed/timed out: ${res.error}`);
     }
   } catch (err: any) {
     console.warn(`[Fetch] Official LeetCode GraphQL failed/timed out: ${err.message}`);
@@ -438,35 +425,13 @@ async function fetchContestFromGraphQL(username: string): Promise<ContestLookup>
       }
     `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-    const response = await fetch("https://leetcode.com/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Referer": "https://leetcode.com",
-        "Origin": "https://leetcode.com"
-      },
-      body: JSON.stringify({ query, variables: { username: username.trim() } }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.warn(`[Contest] LeetCode GraphQL returned HTTP ${response.status} for ${username}`);
+    const res = await executeLeetCodeGraphQL<{ userContestRanking?: any }>(query, { username: username.trim() });
+    if (!res.ok) {
+      console.warn(`[Contest] LeetCode GraphQL failed for ${username}: ${res.error}`);
       return "failed";
     }
 
-    const json: any = await response.json();
-    if (json?.errors || !json?.data) {
-      console.warn(`[Contest] LeetCode GraphQL returned an error/empty body for ${username}`);
-      return "failed";
-    }
-
-    const ranking = json.data.userContestRanking;
+    const ranking = res.data?.userContestRanking;
     if (ranking === null) return "unrated"; // a definitive answer: never entered a contest
     const rated = toContestRating(ranking);
     if (rated) return rated;
@@ -554,31 +519,18 @@ async function fetchCalendarYear(
       }
     `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-    const response = await fetch("https://leetcode.com/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Referer": "https://leetcode.com",
-        "Origin": "https://leetcode.com"
-      },
-      body: JSON.stringify({ query, variables: { username: username.trim(), year: year ?? null } }),
-      signal: controller.signal
+    const res = await executeLeetCodeGraphQL<{ matchedUser?: { userCalendar?: any } }>(query, {
+      username: username.trim(),
+      year: year ?? null
     });
 
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.warn(`[Streak] LeetCode GraphQL returned HTTP ${response.status} for ${username}`);
+    if (!res.ok) {
+      console.warn(`[Streak] LeetCode GraphQL failed for ${username}: ${res.error}`);
       return null;
     }
 
-    const json: any = await response.json();
-    const cal = json?.data?.matchedUser?.userCalendar;
-    if (json?.errors || !cal) {
+    const cal = res.data?.matchedUser?.userCalendar;
+    if (!cal) {
       console.warn(`[Streak] LeetCode GraphQL returned an error/empty body for ${username}`);
       return null;
     }
