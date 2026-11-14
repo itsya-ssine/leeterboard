@@ -68,6 +68,7 @@ import {
   listOAuthProviders,
   OAuthIdentityConflictError,
   setPasswordHash,
+  recordPasswordReset,
   bumpSessionVersion,
   recordFailedLogin,
   clearFailedLogins,
@@ -1104,6 +1105,27 @@ app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
       return res.status(403).json({ error: RESET_BLOCKED_MESSAGE });
     }
 
+    // Cooldown protection (SEC-06): after an activity-based reset, require a 24h
+    // cooldown before another reset can take effect to prevent rapid recycled-account takeovers.
+    const RESET_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+    if (record.auth.passwordResetAt) {
+      const resetTime = Date.parse(record.auth.passwordResetAt);
+      if (!Number.isNaN(resetTime) && Date.now() - resetTime < RESET_COOLDOWN_MS) {
+        logSecurityEvent("ownership_blocked", {
+          ip: req.ip,
+          userId: record.user.id,
+          username,
+          platform,
+          reason: "reset_cooldown",
+          stage: "start"
+        });
+        const hoursLeft = Math.max(1, Math.ceil((RESET_COOLDOWN_MS - (Date.now() - resetTime)) / 3_600_000));
+        return res.status(429).json({
+          error: `This account's password was recently reset. To prevent unauthorized takeovers, please wait ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"} before requesting another reset, or contact an administrator.`
+        });
+      }
+    }
+
     await purgeExpiredPendingResets(new Date().toISOString());
     const id = crypto.randomBytes(32).toString("hex");
     const code = `leeterboard-${crypto.randomBytes(6).toString("hex")}`;
@@ -1221,12 +1243,14 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
     const hadPassword = isPasswordHash((await getUserAuthById(user.id))?.auth.passwordHash);
     // New hash = every older session is signed out, and any lockout is cleared.
     await setPasswordHash(user.id, pending.passwordHash);
+    await recordPasswordReset(user.id);
+    await bumpSessionVersion(user.id);
     await deletePendingResetsFor(user.id);
     await createSecurityNotice(
       user.id,
       "Your password was reset",
-      `Someone proved they own your ${label} account "${pending.handle}" and used it to set a new password. ` +
-        "If that was you, nothing more to do. If it wasn't, change your password in your account settings and ask an admin for help."
+      `Someone proved they own your ${label} account "${pending.handle}" and used it to set a new password on ${new Date().toUTCString()}. ` +
+        "If that was you, nothing more to do. If it wasn't, change your password immediately in your account settings and ask an admin for help."
     );
     logSecurityEvent("ownership_verified", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset" }, "info");
     logSecurityEvent(
@@ -1823,6 +1847,7 @@ app.get("/api/auth/session", async (req, res) => {
     // account page can show it). It is added here, to this response only: the
     // User mapping used by the board, profiles and admin tables has no email.
     const own = await getUserEmail(resolved.user.id);
+    const authRecord = await getUserAuthById(resolved.user.id);
     // How this member can sign in, so Account settings can offer Connect and
     // Disconnect and know which one is their last way in.
     const methods = await countSignInMethods(resolved.user.id);
@@ -1833,7 +1858,8 @@ app.get("/api/auth/session", async (req, res) => {
         isAdmin: resolved.isAdmin,
         email: own?.email ?? null,
         emailVerified: Boolean(own?.verifiedAt),
-        signInMethods: { password: methods.password, providers: methods.providers }
+        signInMethods: { password: methods.password, providers: methods.providers },
+        passwordResetAt: authRecord?.auth.passwordResetAt ?? null
       },
       oauthProviders: oauthConfig.enabled
     });

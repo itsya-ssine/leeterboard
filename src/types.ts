@@ -105,6 +105,7 @@ export interface User {
   emailVerified?: boolean;
   // Available only on the authenticated member's session payload.
   signInMethods?: { password: boolean; providers: Array<"github" | "google"> };
+  passwordResetAt?: string | null;
 }
 
 export interface LeaderboardStats {

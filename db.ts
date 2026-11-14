@@ -327,6 +327,7 @@ export async function initDb(): Promise<void> {
         session_version INTEGER NOT NULL DEFAULT 0,
         failed_logins INTEGER NOT NULL DEFAULT 0,
         locked_until TEXT,
+        password_reset_at TEXT,
         email TEXT,
         email_verified_at TEXT
       )`,
@@ -437,7 +438,8 @@ const MIGRATIONS: Migration[] = [
   { version: 18, name: "oauth_sign_in", up: migrateOAuthSignIn },
   { version: 19, name: "drop_pending_email_codes", up: migrateDropPendingEmailCodes },
   { version: 20, name: "leases", up: migrateLeases },
-  { version: 21, name: "user_session_version", up: migrateUserSessionVersion }
+  { version: 21, name: "user_session_version", up: migrateUserSessionVersion },
+  { version: 22, name: "password_reset_at", up: migratePasswordResetAt }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -699,6 +701,12 @@ async function migrateLeases(): Promise<void> {
 async function migrateUserSessionVersion(): Promise<void> {
   if (await columnExists("users", "session_version")) return;
   await client.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0");
+}
+
+// v22 — track when passwords are reset via recovery for cooldown and audit.
+async function migratePasswordResetAt(): Promise<void> {
+  if (await columnExists("users", "password_reset_at")) return;
+  await client.execute("ALTER TABLE users ADD COLUMN password_reset_at TEXT");
 }
 
 // v16 — the same sticky "this handle stopped resolving" marker LeetCode has
@@ -1017,6 +1025,7 @@ export interface UserAuth {
   failedLogins: number;
   lockedUntil: string | null;
   sessionVersion: number;
+  passwordResetAt: string | null;
 }
 
 export interface UserWithAuth {
@@ -1031,7 +1040,8 @@ async function rowToUserWithAuth(row: Record<string, unknown>): Promise<UserWith
       passwordHash: (row.password_hash as string) || "",
       failedLogins: Number(row.failed_logins ?? 0),
       lockedUntil: (row.locked_until as string) || null,
-      sessionVersion: Number(row.session_version ?? 0)
+      sessionVersion: Number(row.session_version ?? 0),
+      passwordResetAt: (row.password_reset_at as string) || null
     }
   };
 }
@@ -2254,6 +2264,14 @@ export async function bumpSessionVersion(id: string): Promise<number> {
     args: [id]
   });
   return Number(res.rows[0]?.session_version ?? 0);
+}
+
+// Records the timestamp of a completed password reset via recovery.
+export async function recordPasswordReset(id: string): Promise<void> {
+  await client.execute({
+    sql: "UPDATE users SET password_reset_at = ? WHERE id = ?",
+    args: [new Date().toISOString(), id]
+  });
 }
 
 // One atomic statement: bump the counter and, once it reaches `maxFailures`,

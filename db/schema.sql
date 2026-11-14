@@ -64,6 +64,7 @@ CREATE TABLE users (
   session_version    INTEGER NOT NULL DEFAULT 0,
   failed_logins      INTEGER NOT NULL DEFAULT 0,
   locked_until       TEXT,
+  password_reset_at  TEXT,
 
   -- Private e-mail address (migration 17). Never part of the public member
   -- payload: read it only through a dedicated query. It is the address Google or

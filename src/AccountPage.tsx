@@ -1290,6 +1290,11 @@ export default function AccountPage({
                 {pwBusy && <RefreshCw className="size-4 animate-spin" />}
                 {pwBusy ? "Changing…" : "Change password"}
               </button>
+              {user.passwordResetAt && (
+                <p className="text-xs text-mist-500">
+                  Password was last reset via linked account on {new Date(user.passwordResetAt).toLocaleDateString()}.
+                </p>
+              )}
             </form>
           </Card>}
 
