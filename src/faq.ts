@@ -12,7 +12,7 @@ export const FAQ_PATH = "/faq";
 export const FAQ_UPDATED = "2026-11-13";
 
 export const SYNC_MINUTES = 30;
-export const POLL_SECONDS = 15;
+export const POLL_SECONDS = 60;
 
 /** True for /faq, with a trailing slash or any letter case; false for everything else. */
 export function isFaqPath(pathname: string): boolean {

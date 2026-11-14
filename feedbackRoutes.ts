@@ -83,15 +83,15 @@ router.post("/feedback", feedbackLimiter, async (req, res) => {
 
 /* ---------- Admins: the inbox ---------- */
 
-router.get("/admin/feedback", requireAdmin, async (_req, res) => {
+router.get("/admin/feedback", requireAdmin, async (_req, res, next) => {
   try {
     res.json(await listFeedback(100));
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-router.patch("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
+router.patch("/admin/feedback/:feedbackId", requireAdmin, async (req, res, next) => {
   try {
     const feedbackId = req.params.feedbackId as string;
     const { read } = req.body ?? {};
@@ -105,13 +105,13 @@ router.patch("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
     if (!updated) return res.status(404).json({ error: "Feedback not found." });
     res.json({ ok: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
-router.delete("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
+router.delete("/admin/feedback/:feedbackId", requireAdmin, async (req, res, next) => {
   try {
-    const admin = (req as any).user as { id: string; loginUsername: string };
+    const admin = req.user!;
     const feedbackId = req.params.feedbackId as string;
     if (feedbackId.length === 0 || feedbackId.length > 64) {
       return res.status(404).json({ error: "Feedback not found." });
@@ -125,7 +125,7 @@ router.delete("/admin/feedback/:feedbackId", requireAdmin, async (req, res) => {
     );
     res.json({ ok: true });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 

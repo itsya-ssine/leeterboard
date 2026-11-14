@@ -6,7 +6,7 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import "dotenv/config";
-import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./src/types.js";
+import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./shared/types.js";
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
@@ -22,8 +22,15 @@ import {
   type OAuthErrorCode
 } from "./oauth.js";
 import { maskEmail, parseAllowedDomains } from "./emails.js";
-import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
+import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./shared/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
+import {
+  computeProgressFromHistory,
+  baselineOf,
+  daysIntoWeek,
+  computeWeeklyProgressFromHistory
+} from "./server/domain/progress.js";
+import { executeLeetCodeGraphQL } from "./leetcodeClient.js";
 import {
   initDb,
   listUsers,
@@ -68,11 +75,15 @@ import {
   listOAuthProviders,
   OAuthIdentityConflictError,
   setPasswordHash,
+  recordPasswordReset,
+  bumpSessionVersion,
   recordFailedLogin,
   clearFailedLogins,
   consumePendingLink,
   getMeta,
   setMeta,
+  acquireLease,
+  releaseLease,
   recordSyncResult,
   listSyncStatus,
   loadPlatformsByUser,
@@ -105,6 +116,11 @@ import {
   verifyPassword,
   burnPasswordCheck,
   isPasswordHash,
+  needsRehash,
+  isBreachedPassword,
+  signDeviceToken,
+  verifyDeviceToken,
+  IS_SECURE_ENV,
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH
 } from "./auth.js";
@@ -117,6 +133,7 @@ import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { buildAccountExport, exportFileName } from "./accountExport.js";
+import { safeAvatar } from "./avatar.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
 import { apiLimiter, pageLimiter, loginLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter, oauthLimiter } from "./rateLimit.js";
 
@@ -159,6 +176,18 @@ class LeetCodeUnavailableError extends Error {
     this.name = "LeetCodeUnavailableError";
   }
 }
+
+// Attach a correlation ID to every request early so logs and responses agree.
+app.use((req, res, next) => {
+  const incoming = req.get("x-request-id");
+  const requestId =
+    incoming && typeof incoming === "string" && incoming.length <= 128
+      ? incoming
+      : crypto.randomUUID();
+  req.id = requestId;
+  res.setHeader("x-request-id", requestId);
+  next();
+});
 
 // Security headers (CSP, HSTS, framing, MIME sniffing, permissions) and
 // no-store caching for every /api response — see securityHeaders.ts. The same
@@ -259,26 +288,10 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
       }
     `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await executeLeetCodeGraphQL<{ matchedUser?: any }>(query, { username: cleanUsername });
 
-    const response = await fetch("https://leetcode.com/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Referer": "https://leetcode.com",
-        "Origin": "https://leetcode.com"
-      },
-      body: JSON.stringify({ query, variables: { username: cleanUsername } }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      const json: any = await response.json();
-      const matchedUser = json?.data?.matchedUser;
+    if (res.ok) {
+      const matchedUser = res.data?.matchedUser;
 
       if (matchedUser === null) {
         // LeetCode explicitly returns matchedUser: null for a username
@@ -292,10 +305,7 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
           const medium = acSubmissions.find((x: any) => x.difficulty === "Medium")?.count || 0;
           const hard = acSubmissions.find((x: any) => x.difficulty === "Hard")?.count || 0;
 
-          let avatarUrl = matchedUser?.profile?.userAvatar;
-          if (avatarUrl && avatarUrl.startsWith("/")) {
-            avatarUrl = `https://leetcode.com${avatarUrl}`;
-          }
+          const avatarUrl = safeAvatar(matchedUser?.profile?.userAvatar);
 
           return {
             allTimeSolved: all,
@@ -307,6 +317,8 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
           };
         }
       }
+    } else {
+      console.warn(`[Fetch] Official LeetCode GraphQL failed/timed out: ${res.error}`);
     }
   } catch (err: any) {
     console.warn(`[Fetch] Official LeetCode GraphQL failed/timed out: ${err.message}`);
@@ -330,10 +342,7 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
       if (data?.errors) {
         confirmedNotFound = true;
       } else if (typeof data.totalSolved === "number") {
-        let avatarUrl = data.avatar;
-        if (avatarUrl && avatarUrl.startsWith("/")) {
-          avatarUrl = `https://leetcode.com${avatarUrl}`;
-        }
+        const avatarUrl = safeAvatar(data.avatar);
         return {
           allTimeSolved: data.totalSolved || 0,
           easySolved: data.easySolved || 0,
@@ -416,35 +425,13 @@ async function fetchContestFromGraphQL(username: string): Promise<ContestLookup>
       }
     `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-    const response = await fetch("https://leetcode.com/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Referer": "https://leetcode.com",
-        "Origin": "https://leetcode.com"
-      },
-      body: JSON.stringify({ query, variables: { username: username.trim() } }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.warn(`[Contest] LeetCode GraphQL returned HTTP ${response.status} for ${username}`);
+    const res = await executeLeetCodeGraphQL<{ userContestRanking?: any }>(query, { username: username.trim() });
+    if (!res.ok) {
+      console.warn(`[Contest] LeetCode GraphQL failed for ${username}: ${res.error}`);
       return "failed";
     }
 
-    const json: any = await response.json();
-    if (json?.errors || !json?.data) {
-      console.warn(`[Contest] LeetCode GraphQL returned an error/empty body for ${username}`);
-      return "failed";
-    }
-
-    const ranking = json.data.userContestRanking;
+    const ranking = res.data?.userContestRanking;
     if (ranking === null) return "unrated"; // a definitive answer: never entered a contest
     const rated = toContestRating(ranking);
     if (rated) return rated;
@@ -532,31 +519,18 @@ async function fetchCalendarYear(
       }
     `;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-    const response = await fetch("https://leetcode.com/graphql", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Referer": "https://leetcode.com",
-        "Origin": "https://leetcode.com"
-      },
-      body: JSON.stringify({ query, variables: { username: username.trim(), year: year ?? null } }),
-      signal: controller.signal
+    const res = await executeLeetCodeGraphQL<{ matchedUser?: { userCalendar?: any } }>(query, {
+      username: username.trim(),
+      year: year ?? null
     });
 
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.warn(`[Streak] LeetCode GraphQL returned HTTP ${response.status} for ${username}`);
+    if (!res.ok) {
+      console.warn(`[Streak] LeetCode GraphQL failed for ${username}: ${res.error}`);
       return null;
     }
 
-    const json: any = await response.json();
-    const cal = json?.data?.matchedUser?.userCalendar;
-    if (json?.errors || !cal) {
+    const cal = res.data?.matchedUser?.userCalendar;
+    if (!cal) {
       console.warn(`[Streak] LeetCode GraphQL returned an error/empty body for ${username}`);
       return null;
     }
@@ -631,82 +605,7 @@ async function fetchStreaks(username: string, knownLongest: number | null): Prom
 //
 // For the weekly counter use computeWeeklyProgressFromHistory(), which resets
 // every Monday instead of rolling over the last 7 days.
-function computeProgressFromHistory(
-  history: HistoryRecord[],
-  currentTotal: number,
-  days: number,
-  now: number = Date.now(),
-  joined?: { date: string; solved: number }
-): number | null {
-  if (!history || history.length === 0) return null;
-
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const endOfToday = Math.floor(now / DAY_MS) * DAY_MS + DAY_MS - 1;
-  const target = endOfToday - days * DAY_MS;
-
-  // One point per date; a snapshot represents the total at the end of its
-  // UTC day (it is overwritten by later syncs that day), capped at `now`.
-  const byDate = new Map<string, { t: number; count: number }>();
-  for (const r of history) {
-    const t = Date.parse(`${r.date}T23:59:59.999Z`);
-    if (!Number.isFinite(t) || t > now) continue;
-    byDate.set(r.date, { t, count: r.solvedCount });
-  }
-  // The member's total when they joined is the earliest known point, taken at
-  // the start of their joining day. It is what a window that reaches back
-  // before they joined is measured from, so progress is exact from day one
-  // instead of waiting for a second snapshot.
-  if (joined && /^\d{4}-\d{2}-\d{2}$/.test(joined.date)) {
-    const t = Date.parse(`${joined.date}T00:00:00.000Z`);
-    if (Number.isFinite(t) && t <= now) byDate.set(`joined:${joined.date}`, { t, count: joined.solved });
-  }
-  const points = [...byDate.values()].sort((a, b) => a.t - b.t);
-  // The live total is the newest point. Keep it monotonic: a lower live total
-  // (LeetCode revoking solves) must not produce negative progress.
-  points.push({ t: now, count: currentTotal });
-
-  let before: { t: number; count: number } | null = null;
-  let after: { t: number; count: number } | null = null;
-  for (const p of points) {
-    if (p.t <= target) before = p;
-    else { after = p; break; }
-  }
-
-  let baseline: number;
-  if (!before) {
-    baseline = points[0].count; // tracking started inside the window
-  } else if (!after || after.t === before.t) {
-    baseline = before.count;
-  } else {
-    const ratio = (target - before.t) / (after.t - before.t);
-    baseline = before.count + (after.count - before.count) * ratio;
-  }
-
-  return Math.max(0, Math.round(currentTotal - baseline));
-}
-
-// A member's starting point for progress maths (see User.trackingStart).
-function baselineOf(user: User): { date: string; solved: number } {
-  return { date: user.trackingStart, solved: user.baselineSolved };
-}
-
-// Number of UTC days in the current Monday-to-Sunday week, up to and including
-// today: 1 on Monday, 7 on Sunday.
-function daysIntoWeek(now: number = Date.now()): number {
-  return ((new Date(now).getUTCDay() + 6) % 7) + 1;
-}
-
-// Problems solved so far in the current calendar week (Monday 00:00 UTC to
-// now). The baseline is the total at the end of last Sunday, so the counter
-// starts again from 0 for every member on Monday.
-function computeWeeklyProgressFromHistory(
-  history: HistoryRecord[],
-  currentTotal: number,
-  now: number = Date.now(),
-  joined?: { date: string; solved: number }
-): number | null {
-  return computeProgressFromHistory(history, currentTotal, daysIntoWeek(now), now, joined);
-}
+// Progress maths and weekly window calculations are in server/domain/progress.ts.
 
 // REST API Endpoints
 
@@ -792,12 +691,30 @@ function withVisiblePlatforms<T extends { id: string; platforms?: Partial<Record
   return { ...user, platforms };
 }
 
+// Uptime and system health check (CQ-08 / PRO-07)
+app.get("/api/health", async (_req, res) => {
+  try {
+    const lastSyncAll = await getMeta("lastSyncAll");
+    res.set("Cache-Control", "no-store").json({
+      ok: true,
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      lastSyncAll: lastSyncAll || null
+    });
+  } catch {
+    res.set("Cache-Control", "no-store").status(503).json({
+      ok: false,
+      error: "Database unavailable"
+    });
+  }
+});
+
 // GET all users (with automatic ranking update). Members only: the board is
 // not public, so there is always a signed-in viewer here.
-app.get("/api/users", requireAuth, async (req, res) => {
+app.get("/api/users", requireAuth, async (req, res, next) => {
   try {
-    const { id, isAdmin } = (req as any).user as { id: string; isAdmin: boolean };
-    const viewer: Viewer = { id, isAdmin };
+    const { id, isAdmin } = req.user!;
+    const viewer: Viewer = { id, isAdmin: !!isAdmin };
     res.vary("Cookie"); // the answer depends on who is asking
     const users = (await listUsers()).map((u) => withVisiblePlatforms(u, viewer));
     sortAndRankUsers(users);
@@ -805,7 +722,17 @@ app.get("/api/users", requireAuth, async (req, res) => {
     const winners = await resolveWinners(users);
     res.json({ users, lastSyncAll, winners });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
+  }
+});
+
+// GET lightweight version token for adaptive client polling (UX-01). Members only.
+app.get("/api/version", requireAuth, async (req, res, next) => {
+  try {
+    const lastSyncAll = (await getMeta("lastSyncAll")) || "";
+    res.json({ lastSyncAll });
+  } catch (error: any) {
+    next(error);
   }
 });
 
@@ -839,11 +766,14 @@ function parseLeetCodeUsername(value: unknown): string | null {
   return LEETCODE_USERNAME_RE.test(v) ? v : null;
 }
 
-function validatePassword(password: unknown, username: string): string | null {
+async function validatePassword(password: unknown, username: string): Promise<string | null> {
   if (typeof password !== "string") return "Password is required.";
   if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
   if (password.length > MAX_PASSWORD_LENGTH) return `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`;
   if (password.toLowerCase() === username.toLowerCase()) return "Password can't be the same as your username.";
+  if (await isBreachedPassword(password)) {
+    return "This password has appeared in a known data breach. Please choose a different, more secure password.";
+  }
   return null;
 }
 
@@ -1022,12 +952,12 @@ if (ALLOWED_EMAIL_DOMAINS.length > 0) {
 //   - an account whose linked name stopped resolving (it may now belong to
 //     someone else; an admin lifts that with `npm run admin -- approve-reset`),
 //   - an unknown username, or a platform the member hasn't linked.
-const RESET_COOKIE = "pwreset";
+const RESET_COOKIE = IS_SECURE_ENV ? "__Secure-pwreset" : "pwreset";
 const RESET_TTL_MS = 30 * 60 * 1000;
 const resetCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: IS_SECURE_ENV,
   path: "/api/auth"
 };
 const RESET_PLATFORMS: readonly RecoveryPlatform[] = ["leetcode", "codeforces", "codingame"];
@@ -1066,7 +996,7 @@ app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
     if (!platform) {
       return res.status(400).json({ error: "Choose the account you linked: LeetCode, Codeforces or CodinGame." });
     }
-    const passwordError = validatePassword(body.password, username);
+    const passwordError = await validatePassword(body.password, username);
     if (passwordError) {
       return res.status(400).json({ error: passwordError });
     }
@@ -1087,6 +1017,27 @@ app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
         stage: "start"
       });
       return res.status(403).json({ error: RESET_BLOCKED_MESSAGE });
+    }
+
+    // Cooldown protection (SEC-06): after an activity-based reset, require a 24h
+    // cooldown before another reset can take effect to prevent rapid recycled-account takeovers.
+    const RESET_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+    if (record.auth.passwordResetAt) {
+      const resetTime = Date.parse(record.auth.passwordResetAt);
+      if (!Number.isNaN(resetTime) && Date.now() - resetTime < RESET_COOLDOWN_MS) {
+        logSecurityEvent("ownership_blocked", {
+          ip: req.ip,
+          userId: record.user.id,
+          username,
+          platform,
+          reason: "reset_cooldown",
+          stage: "start"
+        });
+        const hoursLeft = Math.max(1, Math.ceil((RESET_COOLDOWN_MS - (Date.now() - resetTime)) / 3_600_000));
+        return res.status(429).json({
+          error: `This account's password was recently reset. To prevent unauthorized takeovers, please wait ${hoursLeft} hour${hoursLeft === 1 ? "" : "s"} before requesting another reset, or contact an administrator.`
+        });
+      }
     }
 
     await purgeExpiredPendingResets(new Date().toISOString());
@@ -1116,22 +1067,32 @@ app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
   }
 });
 
+function clearResetCookie(res: express.Response): void {
+  res.clearCookie(RESET_COOKIE, resetCookieOptions);
+  if (RESET_COOKIE !== "pwreset") {
+    res.clearCookie("pwreset", { ...resetCookieOptions, secure: false });
+  }
+}
+
 // POST — forgot password, step 2. Reads the linked account's public profile and,
 // if the code is there, sets the new password, signs the person in, signs out
 // everyone else and leaves the owner a notice.
 app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
   try {
-    const cookieValue = req.cookies?.[RESET_COOKIE];
+    const cookieValue =
+      req.cookies?.[RESET_COOKIE] ??
+      req.cookies?.["__Secure-pwreset"] ??
+      req.cookies?.["pwreset"];
     const pending =
       typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingReset(cookieValue) : null;
     if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
       if (pending) await deletePendingReset(pending.id);
-      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      clearResetCookie(res);
       return res.status(400).json({ error: "This reset request has expired. Please start again.", expired: true });
     }
     if (pending.attempts >= MAX_VERIFY_ATTEMPTS) {
       await deletePendingReset(pending.id);
-      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      clearResetCookie(res);
       return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
     }
 
@@ -1140,7 +1101,7 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
     const eligibility = user ? await resetEligibility(user, pending.platform) : null;
     if (!user || !eligibility || !eligibility.ok || eligibility.handle.toLowerCase() !== pending.handle.toLowerCase()) {
       await deletePendingReset(pending.id);
-      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      clearResetCookie(res);
       logSecurityEvent("ownership_blocked", {
         ip: req.ip,
         userId: pending.userId,
@@ -1163,6 +1124,7 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
       }
       if (lookup.status === "not_found") {
         await deletePendingReset(pending.id);
+        clearResetCookie(res);
         logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: "leetcode", reason: "name_not_found", stage: "verify" });
         return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
       }
@@ -1173,6 +1135,7 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
       } catch (err: any) {
         if (err instanceof PlatformNotFoundError) {
           await deletePendingReset(pending.id);
+          clearResetCookie(res);
           logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: pending.platform, reason: "name_not_found", stage: "verify" });
           return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
         }
@@ -1206,12 +1169,14 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
     const hadPassword = isPasswordHash((await getUserAuthById(user.id))?.auth.passwordHash);
     // New hash = every older session is signed out, and any lockout is cleared.
     await setPasswordHash(user.id, pending.passwordHash);
+    await recordPasswordReset(user.id);
+    await bumpSessionVersion(user.id);
     await deletePendingResetsFor(user.id);
     await createSecurityNotice(
       user.id,
       "Your password was reset",
-      `Someone proved they own your ${label} account "${pending.handle}" and used it to set a new password. ` +
-        "If that was you, nothing more to do. If it wasn't, change your password in your account settings and ask an admin for help."
+      `Someone proved they own your ${label} account "${pending.handle}" and used it to set a new password on ${new Date().toUTCString()}. ` +
+        "If that was you, nothing more to do. If it wasn't, change your password immediately in your account settings and ask an admin for help."
     );
     logSecurityEvent("ownership_verified", { ip: req.ip, userId: user.id, platform: pending.platform, purpose: "reset" }, "info");
     logSecurityEvent(
@@ -1220,8 +1185,9 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
       hadPassword ? "warn" : "info"
     );
 
-    res.clearCookie(RESET_COOKIE, resetCookieOptions);
-    setSessionCookie(res, user, pending.passwordHash);
+    clearResetCookie(res);
+    const updatedUserAuth = await getUserAuthById(user.id);
+    setSessionCookie(res, user, pending.passwordHash, updatedUserAuth?.auth.sessionVersion);
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
     console.error(`[Auth] reset verify failed: ${error.message}`);
@@ -1247,6 +1213,20 @@ function readLoginCredentials(body: unknown): { username: string; password: stri
   const trimmed = name.trim();
   if (trimmed.length === 0 || password.length === 0) return null;
   return { username: trimmed.toLowerCase(), password };
+}
+
+const DEVICE_COOKIE = IS_SECURE_ENV ? "__Secure-known_device" : "known_device";
+const DEVICE_COOKIE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function setKnownDeviceCookie(res: express.Response, userId: string): void {
+  const token = signDeviceToken(userId);
+  res.cookie(DEVICE_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: IS_SECURE_ENV,
+    path: "/api/auth",
+    maxAge: DEVICE_COOKIE_TTL_MS
+  });
 }
 
 // POST — password login.
@@ -1280,17 +1260,27 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     const { user, auth } = record;
     let failuresBefore = auth.failedLogins;
 
+    const deviceCookie =
+      req.cookies?.[DEVICE_COOKIE] ??
+      req.cookies?.["__Secure-known_device"] ??
+      req.cookies?.["known_device"];
+    const isKnownDevice = typeof deviceCookie === "string" && verifyDeviceToken(deviceCookie, user.id);
+
     if (auth.lockedUntil) {
       const until = Date.parse(auth.lockedUntil);
       if (until > Date.now()) {
-        logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: loginName });
-        const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
-        return res.status(429).json({
-          error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
-        });
+        // SEC-08: A known-good device (from prior successful login) is not locked out by DoS attempts from other IPs
+        if (!isKnownDevice) {
+          logSecurityEvent("login_blocked_locked", { ip: req.ip, userId: user.id, username: loginName });
+          const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60_000));
+          return res.status(429).json({
+            error: `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`
+          });
+        }
+      } else {
+        await clearFailedLogins(user.id); // lock has expired
+        failuresBefore = 0;
       }
-      await clearFailedLogins(user.id); // lock has expired
-      failuresBefore = 0;
     }
 
     if (!isPasswordHash(auth.passwordHash)) {
@@ -1317,12 +1307,25 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
           username: loginName,
           minutes: LOCKOUT_MS / 60_000
         });
+        await createSecurityNotice(
+          user.id,
+          "Security alert: 5 failed sign-in attempts",
+          `We detected repeated failed sign-in attempts on your account. If this was not you, someone may be trying to guess your password. Your account has been temporarily locked to untrusted devices for ${LOCKOUT_MS / 60_000} minutes.`
+        );
       }
+      const delayMs = process.env.NODE_ENV === "test" ? 0 : Math.min(1000 * Math.pow(2, failuresBefore), 4000);
+      if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
       return res.status(401).json(INVALID);
     }
 
     if (auth.failedLogins > 0) await clearFailedLogins(user.id);
-    setSessionCookie(res, user, auth.passwordHash);
+    if (needsRehash(auth.passwordHash)) {
+      auth.passwordHash = await hashPassword(password);
+      await setPasswordHash(user.id, auth.passwordHash);
+      logSecurityEvent("password_rehashed", { userId: user.id, username: loginName }, "info");
+    }
+    setKnownDeviceCookie(res, user.id);
+    setSessionCookie(res, user, auth.passwordHash, auth.sessionVersion);
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
     console.error(`[Auth] login failed: ${error.message}`);
@@ -1343,11 +1346,11 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
 // (provider, provider user id): the e-mail address is never used to find, sign in
 // or link anyone.
 // ---------------------------------------------------------------------------
-const OAUTH_STATE_COOKIE = "oauth_state";
+const OAUTH_STATE_COOKIE = IS_SECURE_ENV ? "__Secure-oauth_state" : "oauth_state";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_COOKIE_PATH = "/api/auth/oauth";
 // The verified identity waiting for a username (a pending_oauth_signups row).
-const OAUTH_SIGNUP_COOKIE = "oauth_signup";
+const OAUTH_SIGNUP_COOKIE = IS_SECURE_ENV ? "__Secure-oauth_signup" : "oauth_signup";
 const OAUTH_SIGNUP_TTL_MS = 15 * 60 * 1000;
 const OAUTH_SIGNUP_EXPIRED_MESSAGE = "This sign-up has expired. Please start again.";
 const OAUTH_EMAIL_IN_USE_MESSAGE =
@@ -1358,7 +1361,7 @@ const OAUTH_EMAIL_IN_USE_MESSAGE =
 const oauthCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: IS_SECURE_ENV,
   path: OAUTH_COOKIE_PATH
 };
 
@@ -1375,7 +1378,7 @@ const oauthSignupCookieOptions = { ...oauthCookieOptions, path: "/api/auth" };
 function setOAuthCookie(res: express.Response, name: string, value: string, path: string, maxAge: number): void {
   res.cookie(name, value, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: IS_SECURE_ENV,
     sameSite: "lax",
     path,
     maxAge
@@ -1447,7 +1450,11 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     //    the state id and it has to equal the `state` the provider sent back.
     //    Constant-time, and a missing, repeated or malformed value is just false.
     const stateId = req.query.state;
-    if (!stateMatches(req.cookies?.[OAUTH_STATE_COOKIE], stateId)) {
+    const incomingStateCookie =
+      req.cookies?.[OAUTH_STATE_COOKIE] ??
+      req.cookies?.["__Secure-oauth_state"] ??
+      req.cookies?.["oauth_state"];
+    if (!stateMatches(incomingStateCookie, stateId)) {
       return refuse("failed", "state_mismatch");
     }
 
@@ -1550,7 +1557,7 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     // before the account became an admin must not be a way around that).
     if (isAdminUser(record.user)) return refuse("admin_refused", "admin_refused", { userId: record.user.id });
 
-    setSessionCookie(res, record.user, record.auth.passwordHash);
+    setSessionCookie(res, record.user, record.auth.passwordHash, record.auth.sessionVersion);
     res.clearCookie(OAUTH_STATE_COOKIE, oauthCookieOptions);
     logSecurityEvent("oauth_login", { ip: req.ip, userId: record.user.id, provider }, "info");
     res.redirect(302, "/#/");
@@ -1566,7 +1573,7 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
 // Answers { url }: the page then does location.assign(url).
 app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, isAdmin } = (req as any).user as { id: string; isAdmin?: boolean };
+    const { id, isAdmin } = req.user!;
     // Admin accounts keep password login only; nothing is connected to them.
     if (isAdmin) {
       logSecurityEvent("oauth_failed", { ip: req.ip, userId: id, reason: "admin_refused", route: "link" });
@@ -1618,7 +1625,7 @@ app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, asyn
 // DELETE — disconnect a provider, unless it is the member's last way to sign in.
 app.delete("/api/account/oauth/:provider", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const provider = req.params.provider;
     if (!isOAuthProvider(provider)) return res.status(404).json({ error: "That sign-in method doesn't exist." });
 
@@ -1675,7 +1682,10 @@ function newMemberRecord(username: string, displayName: string): User {
 const PENDING_ID_RE = /^[0-9a-f]{32}$/;
 
 async function readPendingOAuthSignup(req: express.Request) {
-  const value = req.cookies?.[OAUTH_SIGNUP_COOKIE];
+  const value =
+    req.cookies?.[OAUTH_SIGNUP_COOKIE] ??
+    req.cookies?.["__Secure-oauth_signup"] ??
+    req.cookies?.["oauth_signup"];
   if (typeof value !== "string" || !PENDING_ID_RE.test(value)) return null;
   return getPendingOAuthSignup(value, new Date().toISOString());
 }
@@ -1778,6 +1788,19 @@ app.post("/api/logout", (_req, res) => {
   res.json({ success: true });
 });
 
+// POST /api/auth/logout-all — signs out all devices by incrementing the user's session_version (SEC-05).
+app.post("/api/auth/logout-all", requireAuth, accountLimiter, async (req, res, next) => {
+  try {
+    const user = req.user!;
+    await bumpSessionVersion(user.id);
+    clearSessionCookie(res);
+    logSecurityEvent("session_revoked_all", { ip: req.ip, userId: user.id, username: user.loginUsername }, "info");
+    res.json({ success: true, message: "Logged out from all devices." });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
 // GET current auth state: "guest" (no valid session) or "authenticated". The
 // frontend uses this single endpoint to decide what to render.
 app.get("/api/auth/session", async (req, res) => {
@@ -1794,6 +1817,7 @@ app.get("/api/auth/session", async (req, res) => {
     // account page can show it). It is added here, to this response only: the
     // User mapping used by the board, profiles and admin tables has no email.
     const own = await getUserEmail(resolved.user.id);
+    const authRecord = await getUserAuthById(resolved.user.id);
     // How this member can sign in, so Account settings can offer Connect and
     // Disconnect and know which one is their last way in.
     const methods = await countSignInMethods(resolved.user.id);
@@ -1804,7 +1828,8 @@ app.get("/api/auth/session", async (req, res) => {
         isAdmin: resolved.isAdmin,
         email: own?.email ?? null,
         emailVerified: Boolean(own?.verifiedAt),
-        signInMethods: { password: methods.password, providers: methods.providers }
+        signInMethods: { password: methods.password, providers: methods.providers },
+        passwordResetAt: authRecord?.auth.passwordResetAt ?? null
       },
       oauthProviders: oauthConfig.enabled
     });
@@ -1908,7 +1933,7 @@ async function checkAccountDeletion(userId: string, body: any, ip: string | unde
 // member's LeetCode account.
 app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const body = req.body ?? {};
     const hasName = body.displayName !== undefined;
     const hasSchool = body.school !== undefined;
@@ -1998,7 +2023,7 @@ async function userJson(id: string) {
 // code to put in its profile.
 app.post("/api/account/platforms/:platform/start", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const platform = resolveLinkPlatform(req.params.platform, res);
     if (!platform) return;
 
@@ -2054,7 +2079,7 @@ app.post("/api/account/platforms/:platform/start", accountLimiter, requireAuth, 
 // account, runs its first sync and returns the updated member.
 app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const platform = resolveLinkPlatform(req.params.platform, res);
     if (!platform) return;
 
@@ -2125,7 +2150,7 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
 // member's main account and isn't handled here.
 app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     if (!isPlatformId(req.params.platform)) return res.status(404).json({ error: "Unknown platform." });
     const platform = PLATFORMS[req.params.platform];
 
@@ -2150,7 +2175,7 @@ app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, asyn
 // POST start: pick the username, get the code.
 app.post("/api/account/leetcode/start", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const handle = parseLeetCodeUsername((req.body as any)?.leetcodeUsername);
     if (!handle) {
       return res.status(400).json({ error: "Enter a valid LeetCode username (letters, numbers, _ . - only)." });
@@ -2201,7 +2226,7 @@ app.post("/api/account/leetcode/start", accountLimiter, requireAuth, async (req,
 // starts tracking from now.
 app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const pending = await getPendingLink(id, "leetcode");
     if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
       if (pending) await deletePendingLink(id, "leetcode");
@@ -2306,7 +2331,7 @@ app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req,
 // member, their other linked accounts and their settings stay.
 app.delete("/api/account/leetcode", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     if (!(await unlinkLeetcodeAccount(id))) {
       return res.status(404).json({ error: "You don't have a LeetCode account linked." });
     }
@@ -2323,7 +2348,7 @@ app.delete("/api/account/leetcode", accountLimiter, requireAuth, async (req, res
 // PATCH — show or hide a linked account from other members. Body: { hidden: boolean }.
 app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     if (!isPlatformId(req.params.platform)) return res.status(404).json({ error: "Unknown platform." });
     const platform = PLATFORMS[req.params.platform];
 
@@ -2346,13 +2371,13 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
 // session and keeps this one signed in with a fresh cookie.
 app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, loginUsername } = (req as any).user as { id: string; loginUsername: string };
+    const { id, loginUsername } = req.user!;
     const { currentPassword, newPassword } = req.body ?? {};
 
     const check = await checkCurrentPassword(id, currentPassword, "password_change", req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
-    const passwordError = validatePassword(newPassword, loginUsername);
+    const passwordError = await validatePassword(newPassword, loginUsername);
     if (passwordError) return res.status(400).json({ error: passwordError });
     if (newPassword === currentPassword) {
       return res.status(400).json({ error: "Your new password must be different from the current one." });
@@ -2360,8 +2385,9 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 
     const newHash = await hashPassword(newPassword as string);
     await setPasswordHash(id, newHash);
+    const updatedUserAuth = await getUserAuthById(id);
     logSecurityEvent("password_changed", { ip: req.ip, userId: id, username: loginUsername }, "info");
-    setSessionCookie(res, check.record.user, newHash);
+    setSessionCookie(res, check.record.user, newHash, updatedUserAuth?.auth.sessionVersion);
     res.json({ success: true });
   } catch (error: any) {
     console.error(`[Account] password change failed: ${error.message}`);
@@ -2375,7 +2401,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 // (the log line aside), and a cross-site page can't read the response.
 app.get("/api/account/export", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, loginUsername } = (req as any).user as { id: string; loginUsername: string };
+    const { id, loginUsername } = req.user!;
     const now = new Date();
     const data = await buildAccountExport(id, now);
     if (!data) return res.status(404).json({ error: "Account not found." });
@@ -2397,7 +2423,7 @@ app.get("/api/account/export", accountLimiter, requireAuth, async (req, res) => 
 // than DELETE so the body always survives proxies.
 app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const check = await checkAccountDeletion(id, req.body, req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
@@ -2422,7 +2448,7 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
 // the account page, which requires their password.
 app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   const id = req.params.id as string;
-  const session = (req as any).user as { id: string; loginUsername: string };
+  const session = req.user!;
 
   try {
     const target = await getUserById(id);
@@ -2454,9 +2480,9 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 // POST refresh individual user — admin only. Each call triggers several
 // outbound scrapes, so it must not be an anonymous amplification point. The
 // only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
-app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res) => {
+app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res, next) => {
   const id = req.params.id as string;
-  const admin = (req as any).user as { id: string; loginUsername: string };
+  const admin = req.user!;
   logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "member", targetId: id }, "info");
 
   try {
@@ -2568,7 +2594,7 @@ app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res
     res.vary("Cookie");
     res.json(withVisiblePlatforms(user, await viewerOf(req)));
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -2725,10 +2751,10 @@ async function syncAllUsers(
 // board. This is what keeps the board fresh on Vercel, where there is no
 // background job. Any signed-in member may call it because it only ever does the
 // same real fetches a sync does, and only when the board is actually stale;
-// fresh boards return immediately. A short-lived lock in the database stops
-// simultaneous visitors (possibly on different serverless instances) from all
+// fresh boards return immediately. A short-lived distributed lease in the database
+// stops simultaneous visitors (possibly on different serverless instances) from all
 // scraping LeetCode at once.
-app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) => {
+app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res, next) => {
   try {
     const lastSyncAll = (await getMeta("lastSyncAll")) || "";
     const age = Date.now() - Date.parse(lastSyncAll);
@@ -2736,11 +2762,10 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) =>
       return res.json({ synced: false, partial: false, busy: false, lastSyncAll });
     }
 
-    const lockUntil = Date.parse((await getMeta("autoSyncLockUntil")) || "");
-    if (Number.isFinite(lockUntil) && lockUntil > Date.now()) {
+    const leaseHolder = await acquireLease("sync", AUTO_SYNC_BUDGET_MS + 20_000);
+    if (!leaseHolder) {
       return res.json({ synced: false, partial: false, busy: true, lastSyncAll });
     }
-    await setMeta("autoSyncLockUntil", new Date(Date.now() + AUTO_SYNC_BUDGET_MS + 20_000).toISOString());
 
     try {
       const result = await syncAllUsers({
@@ -2754,10 +2779,59 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) =>
         lastSyncAll: result.lastSyncAll
       });
     } finally {
-      await setMeta("autoSyncLockUntil", new Date(0).toISOString()).catch(() => {});
+      await releaseLease("sync", leaseHolder).catch(() => {});
     }
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
+  }
+});
+
+// POST /api/cron/sync — server-scheduled background sync endpoint (SEC-02).
+// Protected by CRON_SECRET using timingSafeEqual. Outside cookie session logic.
+// Triggered by GitHub Actions schedule or external cron services.
+app.post("/api/cron/sync", async (req, res, next) => {
+  try {
+    const authHeader = req.get("authorization") ?? "";
+    const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`;
+    const givenBuf = Buffer.from(authHeader);
+    const wantBuf = Buffer.from(expected);
+
+    if (
+      !process.env.CRON_SECRET ||
+      givenBuf.length === 0 ||
+      givenBuf.length !== wantBuf.length ||
+      !crypto.timingSafeEqual(givenBuf, wantBuf)
+    ) {
+      logSecurityEvent("cron_sync_unauthorized", { ip: req.ip }, "warn");
+      return res.status(401).json({ error: "Unauthorized." });
+    }
+
+    const leaseHolder = await acquireLease("sync", 5 * 60_000);
+    if (!leaseHolder) {
+      return res.status(202).json({ skipped: "already running" });
+    }
+
+    try {
+      const result = await syncAllUsers({
+        onlyStaleMs: AUTO_SYNC_STALE_MS,
+        budgetMs: AUTO_SYNC_BUDGET_MS
+      });
+      logSecurityEvent("cron_sync_completed", {
+        ip: req.ip,
+        partial: result.partial,
+        count: result.users.length
+      }, "info");
+      res.json({
+        ok: true,
+        synced: true,
+        partial: result.partial,
+        lastSyncAll: result.lastSyncAll
+      });
+    } finally {
+      await releaseLease("sync", leaseHolder).catch(() => {});
+    }
+  } catch (error: any) {
+    next(error);
   }
 });
 
@@ -2766,7 +2840,7 @@ app.post("/api/sync-if-stale", requireAuth, refreshLimiter, async (_req, res) =>
 // last successful fetch (users.last_updated) with the outcome of the latest
 // attempt (sync_status), so a member whose LeetCode account was removed or
 // renamed shows up as "not_found" instead of just quietly going stale.
-app.get("/api/admin/sync-status", requireAdmin, async (_req, res) => {
+app.get("/api/admin/sync-status", requireAdmin, async (_req, res, next) => {
   try {
     const [users, statuses, lastSyncAll] = await Promise.all([
       listUsers(),
@@ -2798,7 +2872,7 @@ app.get("/api/admin/sync-status", requireAdmin, async (_req, res) => {
     };
     res.json(report);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
@@ -2810,19 +2884,19 @@ app.use("/api", notificationRoutes);
 app.use("/api", feedbackRoutes);
 
 // POST refresh all users — admin only
-app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res) => {
-  const admin = (req as any).user as { id: string; loginUsername: string };
+app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res, next) => {
+  const admin = req.user!;
   logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "all" }, "info");
   try {
     const result = await syncAllUsers();
     res.json({ success: true, ...result });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 // GET aggregated monthly trend metrics (members only, like the board itself)
-app.get("/api/trends", requireAuth, async (req, res) => {
+app.get("/api/trends", requireAuth, async (req, res, next) => {
   try {
     const users = await listUsers();
 
@@ -2904,8 +2978,45 @@ app.get("/api/trends", requireAuth, async (req, res) => {
       totalSolved: board.reduce((acc, u) => acc + u.allTimeSolved, 0)
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
+});
+
+// Central error handler: never leak raw driver / internal error messages to clients.
+app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const reqId = req.id || crypto.randomUUID();
+  const rawStatus = (err as any)?.status ?? (err as any)?.statusCode;
+  const status = typeof rawStatus === "number" && rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
+
+  if (res.headersSent) return;
+
+  if (status >= 500) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      JSON.stringify({
+        level: "error",
+        requestId: reqId,
+        method: req.method,
+        path: req.path,
+        message
+      })
+    );
+    return res.status(500).json({
+      error: "Something went wrong. Please try again.",
+      requestId: reqId
+    });
+  }
+
+  const clientMessage =
+    status === 413
+      ? "Payload too large."
+      : status === 400
+      ? "Invalid request payload."
+      : "Bad request.";
+  res.status(status).json({
+    error: clientMessage,
+    requestId: reqId
+  });
 });
 
 // Serve frontend assets in production and Vite dev server in development

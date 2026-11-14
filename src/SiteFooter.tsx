@@ -60,9 +60,9 @@ export default function SiteFooter({
           <a href={`mailto:${LEGAL.contactEmail}`} className={link}>
             Contact
           </a>
-          <a href={LEGAL.sourceUrl} className={link} {...external}>
+          <a href={LEGAL.sourceUrl} className={link} {...external} title="Star on GitHub">
             <FaGithub size={15} aria-hidden="true" />
-            GitHub
+            Star on GitHub
             <span className="sr-only">(opens in a new tab)</span>
           </a>
           {statusUrl && (

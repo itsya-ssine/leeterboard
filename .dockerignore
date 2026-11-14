@@ -1,0 +1,12 @@
+node_modules
+dist
+server-dist
+.git
+.github
+*.db
+*.db*
+.env
+.env.*
+tests
+coverage
+.cache

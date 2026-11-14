@@ -79,7 +79,9 @@ try {
       ? ok("every member has a password hash")
       : warn(`${noPassword} member(s) have no password yet (expected only for accounts from before passwords existed)`);
 
-    const malformed = await scalar("SELECT COUNT(*) FROM users WHERE password_hash != '' AND password_hash NOT LIKE 'scrypt$%'");
+    const malformed = await scalar(
+      "SELECT COUNT(*) FROM users WHERE password_hash != '' AND password_hash NOT LIKE 'scrypt$%' AND password_hash NOT LIKE '$argon2id$%'"
+    );
     malformed === 0 ? ok("password hashes have the expected format") : bad(`${malformed} member(s) have a malformed password hash`);
 
     if (present.has("history")) {

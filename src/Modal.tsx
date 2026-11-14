@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "motion/react";
 import { X } from "lucide-react";
@@ -19,12 +19,62 @@ interface ModalProps {
 }
 
 export default function Modal({ onClose, label, id, maxWidth = "max-w-md", dismissible = true, children }: ModalProps) {
+  const modalRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
+    // Remember trigger to return focus on close (WCAG 2.2 AA)
+    triggerRef.current = document.activeElement as HTMLElement | null;
+
+    // Focus first interactive element inside dialog
+    const focusTimer = setTimeout(() => {
+      if (modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length > 0) focusable[0].focus();
+        else modalRef.current.focus();
+      }
+    }, 40);
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && dismissible) onClose();
+      if (e.key === "Escape" && dismissible) {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && modalRef.current) {
+        const focusable = Array.from(
+          modalRef.current.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          )
+        ).filter((el) => el.offsetParent !== null);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
+
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      clearTimeout(focusTimer);
+      document.removeEventListener("keydown", onKeyDown);
+      if (triggerRef.current && typeof triggerRef.current.focus === "function") {
+        triggerRef.current.focus();
+      }
+    };
   }, [onClose, dismissible]);
 
   useEffect(() => {
@@ -54,15 +104,17 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", dismi
       />
 
       <motion.div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-label={label}
         id={id}
+        tabIndex={-1}
         initial={{ opacity: 0, y: 14, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 14, scale: 0.97 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
-        className={`relative z-10 w-full ${maxWidth} shadow-2xl shadow-black/60`}
+        className={`relative z-10 w-full ${maxWidth} shadow-2xl shadow-black/60 focus:outline-none`}
       >
         <div className="card-aurora flex max-h-[90vh] flex-col overflow-hidden">
           <div

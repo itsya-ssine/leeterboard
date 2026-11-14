@@ -15,3 +15,10 @@ query-filters:
   # tests fail, and `npm test` is a required check. See docs/security-operations.md.
   - exclude:
       id: js/missing-token-validation
+  # "Insufficient password hash" (js/insufficient-password-hash) flags SHA-1 usage
+  # when evaluating passwords. Leeterboard stores all passwords using Argon2id
+  # (with automatic scrypt upgrade). The only SHA-1 calculation on a candidate password
+  # is for Have I Been Pwned's k-Anonymity range API (RFC/HIBP protocol), where
+  # the first 5 characters are sent to api.pwnedpasswords.com to check for public leaks.
+  - exclude:
+      id: js/insufficient-password-hash

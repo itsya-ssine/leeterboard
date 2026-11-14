@@ -111,7 +111,7 @@ export function client(server: TestServer) {
       /* not JSON */
     }
     const setCookie = res.headers.get("set-cookie");
-    const cookie = setCookie?.match(/(?:^|,\s*)(session=[^;]+)/)?.[1] ?? null;
+    const cookie = setCookie?.match(/(?:^|,\s*)((?:__Host-)?session=[^;]+)/)?.[1] ?? null;
     return { status: res.status, headers: res.headers, text, json, cookie };
   };
   // The server's address, for the helpers below that must not follow redirects.
@@ -138,7 +138,10 @@ async function oauthRoundTrip(
   const headers = { "x-forwarded-for": input.ip };
   const start = await fetch(`${api.baseUrl}/api/auth/oauth/${input.provider}/start`, { redirect: "manual", headers });
   const state = new URL(start.headers.get("location") ?? "").searchParams.get("state");
-  const stateCookie = start.headers.getSetCookie().find((c) => c.startsWith("oauth_state="))?.split(";")[0];
+  const stateCookie = start.headers
+    .getSetCookie()
+    .find((c) => c.startsWith("oauth_state=") || c.startsWith("__Secure-oauth_state="))
+    ?.split(";")[0];
   if (!state || !stateCookie) throw new Error(`oauth start gave no state (status ${start.status})`);
   const code = fake.issueCode(input.provider, { id: input.providerUserId, email: input.email, name: input.displayName });
   const cb = await fetch(`${api.baseUrl}/api/auth/oauth/${input.provider}/callback?code=${code}&state=${state}`, {
@@ -146,7 +149,8 @@ async function oauthRoundTrip(
     headers: { ...headers, cookie: stateCookie }
   });
   const set = cb.headers.getSetCookie();
-  const pick = (name: string) => set.find((c) => c.startsWith(`${name}=`))?.split(";")[0] ?? null;
+  const pick = (name: string) =>
+    set.find((c) => c.startsWith(`${name}=`) || c.startsWith(`__Host-${name}=`) || c.startsWith(`__Secure-${name}=`))?.split(";")[0] ?? null;
   return { status: cb.status, location: cb.headers.get("location") ?? "", signupCookie: pick("oauth_signup"), sessionCookie: pick("session") };
 }
 

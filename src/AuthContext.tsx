@@ -59,6 +59,7 @@ interface AuthContextValue {
   // login names existed use their LeetCode username (the same name, lowercase).
   login: (username: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
   refreshSession: () => Promise<void>;
   updateDisplayName: (displayName: string) => Promise<User>;
   updateSchool: (school: string) => Promise<User>;
@@ -269,6 +270,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const logoutAll = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout-all", { method: "POST" });
+    } finally {
+      setUser(null);
+      setStatus("guest");
+    }
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -286,6 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unlinkOAuth,
         login,
         logout,
+        logoutAll,
         refreshSession,
         updateDisplayName,
         updateSchool,

@@ -1,0 +1,6 @@
+dist/
+server-dist/
+node_modules/
+local.db*
+*.patch
+package-lock.json

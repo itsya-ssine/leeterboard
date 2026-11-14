@@ -32,7 +32,7 @@ if (
 const SCRYPT = { N: 2 ** 15, r: 8, p: 1, keyLen: 64 } as const;
 const HASH_PREFIX = "scrypt$";
 
-export const MIN_PASSWORD_LENGTH = 8;
+export const MIN_PASSWORD_LENGTH = 10;
 // Upper bound so nobody can make us hash megabytes of input.
 export const MAX_PASSWORD_LENGTH = 128;
 
@@ -89,6 +89,83 @@ export async function burnPasswordCheck(password: string): Promise<void> {
   await verifyPassword(password, await dummyHash);
 }
 
+// SEC-07: Checks whether a stored password hash was computed with older/lower scrypt parameters
+// and should be upgraded transparently upon successful login.
+export function needsRehash(stored: string): boolean {
+  if (!isPasswordHash(stored)) return false;
+  const parts = stored.split("$");
+  if (parts.length !== 6) return false;
+  const [, nStr, rStr, pStr] = parts;
+  const N = Number(nStr);
+  const r = Number(rStr);
+  const p = Number(pStr);
+  return N < SCRYPT.N || r < SCRYPT.r || p < SCRYPT.p;
+}
+
+/**
+ * SEC-07: Checks whether a password appears in Have I Been Pwned's breached password database.
+ * Uses k-Anonymity (only the first 5 characters of SHA-1 are sent upstream).
+ * Fails open (returns false) if the API times out, returns an error, or is unreachable.
+ */
+export async function isBreachedPassword(password: string): Promise<boolean> {
+  if (process.env.SKIP_HIBP_CHECK === "true" || process.env.NODE_ENV === "test") return false;
+  try {
+    const hashBuffer = await crypto.webcrypto.subtle.digest("SHA-1", Buffer.from(password));
+    const sha1 = Buffer.from(hashBuffer).toString("hex").toUpperCase();
+    const prefix = sha1.slice(0, 5);
+    const suffix = sha1.slice(5);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, {
+      headers: { "Add-Padding": "true", "User-Agent": "Leeterboard-Password-Audit" },
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) return false;
+    const body = await res.text();
+    const lines = body.split("\r\n");
+    for (const line of lines) {
+      const [hashSuffix, countStr] = line.split(":");
+      if (hashSuffix && hashSuffix.trim().toUpperCase() === suffix) {
+        const count = Number(countStr?.trim());
+        if (count > 0) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false; // Fail open
+  }
+}
+
+/**
+ * SEC-08: Creates an HMAC-signed device recognition token for a successfully logged in user.
+ * Valid for 30 days. Used to bypass targeted-DoS lockout for known-good devices.
+ */
+export function signDeviceToken(userId: string): string {
+  const payload = `${userId}:${Date.now()}`;
+  const sig = crypto.createHmac("sha256", JWT_SECRET!).update(payload).digest("hex");
+  return `${payload}.${sig}`;
+}
+
+/**
+ * SEC-08: Verifies an HMAC-signed device recognition token.
+ */
+export function verifyDeviceToken(token: string, userId: string): boolean {
+  if (!token || typeof token !== "string") return false;
+  const parts = token.split(".");
+  if (parts.length !== 2) return false;
+  const [payload, sig] = parts;
+  const [tokenUserId, timestampStr] = payload.split(":");
+  if (tokenUserId !== userId) return false;
+  const expectedSig = crypto.createHmac("sha256", JWT_SECRET!).update(payload).digest("hex");
+  if (sig.length !== expectedSig.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expectedSig))) {
+    return false;
+  }
+  const ts = Number(timestampStr);
+  return Number.isFinite(ts) && Date.now() - ts < 30 * 24 * 60 * 60 * 1000;
+}
+
 /* ---------- Sessions ---------- */
 
 // The body of every 401 that means "there is no valid session" (never signed
@@ -115,6 +192,9 @@ export interface SessionPayload {
   // sessionStamp). Absent on tokens issued before passwords existed and on
   // tokens of members who have no password (they sign in with Google / GitHub).
   ps?: string;
+  // Version counter of the user's session. Stored in users.session_version.
+  // Incrementing it revokes all previously issued sessions across devices.
+  sv?: number;
 }
 
 // Who is an admin.
@@ -181,17 +261,27 @@ function safeEqual(a: string, b: string): boolean {
   return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }
 
+export const IS_SECURE_ENV = process.env.NODE_ENV === "production" || !!process.env.VERCEL;
+export const SESSION_COOKIE_NAME = IS_SECURE_ENV ? "__Host-session" : "session";
+
 const cookieBase = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: IS_SECURE_ENV,
   path: "/"
 };
 
-export function setSessionCookie(res: Response, user: { id: string; loginUsername: string }, passwordHash: string): void {
+export function setSessionCookie(
+  res: Response,
+  user: { id: string; loginUsername: string; sessionVersion?: number },
+  passwordHash: string,
+  sessionVersion?: number
+): void {
+  const sv = sessionVersion ?? user.sessionVersion ?? 0;
   const payload: SessionPayload = {
     id: user.id,
-    loginUsername: user.loginUsername
+    loginUsername: user.loginUsername,
+    sv
   };
   // A member with no password (created through Google / GitHub) has nothing to
   // fingerprint. Their token carries no `ps`, which resolveSession accepts only
@@ -200,15 +290,24 @@ export function setSessionCookie(res: Response, user: { id: string; loginUsernam
   // session would be refused on the very next request.
   if (isPasswordHash(passwordHash)) payload.ps = sessionStamp(passwordHash);
   const token = jwt.sign(payload, JWT_SECRET!, { algorithm: "HS256", expiresIn: SESSION_TTL });
-  res.cookie(COOKIE_NAME, token, { ...cookieBase, maxAge: SESSION_MAX_AGE_MS });
+  res.cookie(SESSION_COOKIE_NAME, token, { ...cookieBase, maxAge: SESSION_MAX_AGE_MS });
+  if (SESSION_COOKIE_NAME !== "session") {
+    res.clearCookie("session", { ...cookieBase, secure: false });
+  }
 }
 
 export function clearSessionCookie(res: Response): void {
-  res.clearCookie(COOKIE_NAME, cookieBase);
+  res.clearCookie(SESSION_COOKIE_NAME, cookieBase);
+  if (SESSION_COOKIE_NAME !== "session") {
+    res.clearCookie("session", { ...cookieBase, secure: false });
+  }
 }
 
 export function readSession(req: Request): SessionPayload | null {
-  const token = req.cookies?.[COOKIE_NAME];
+  const token =
+    req.cookies?.[SESSION_COOKIE_NAME] ??
+    req.cookies?.["__Host-session"] ??
+    req.cookies?.["session"];
   if (!token || typeof token !== "string") return null;
   try {
     // Pin the algorithm so a forged "alg: none" token can never verify.
@@ -228,7 +327,8 @@ export function readSession(req: Request): SessionPayload | null {
     return {
       id: decoded.id,
       loginUsername: name,
-      ps: typeof decoded.ps === "string" ? decoded.ps : undefined
+      ps: typeof decoded.ps === "string" ? decoded.ps : undefined,
+      sv: typeof decoded.sv === "number" ? decoded.sv : undefined
     };
   } catch {
     return null; // expired or tampered — treat as logged out
@@ -236,7 +336,8 @@ export function readSession(req: Request): SessionPayload | null {
 }
 
 // Reads the cookie AND checks it against the database: the account must still
-// exist and the password must not have changed since the token was issued.
+// exist, the password must not have changed since the token was issued, and the
+// session version must match the current database value.
 // Tokens from before passwords existed (no `ps`) stay valid only until the
 // account is claimed with a password.
 export async function resolveSession(req: Request): Promise<{ user: User; isAdmin: boolean } | null> {
@@ -253,6 +354,10 @@ export async function resolveSession(req: Request): Promise<{ user: User; isAdmi
       : !hasPassword;
   if (!valid) return null;
 
+  if (session.sv !== undefined && record.auth.sessionVersion !== undefined) {
+    if (session.sv !== record.auth.sessionVersion) return null;
+  }
+
   return { user: record.user, isAdmin: isAdminUser(record.user) };
 }
 
@@ -262,7 +367,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     const resolved = await resolveSession(req);
     if (!resolved) return res.status(401).json(SESSION_REQUIRED_BODY);
-    (req as any).user = {
+    req.user = {
       id: resolved.user.id,
       loginUsername: resolved.user.loginUsername,
       isAdmin: resolved.isAdmin
@@ -280,7 +385,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     const resolved = await resolveSession(req);
     if (!resolved) return res.status(401).json(SESSION_REQUIRED_BODY);
     if (!resolved.isAdmin) return res.status(403).json({ error: "Admin access required." });
-    (req as any).user = { id: resolved.user.id, loginUsername: resolved.user.loginUsername };
+    req.user = { id: resolved.user.id, loginUsername: resolved.user.loginUsername, isAdmin: true };
     next();
   } catch (err) {
     next(err);

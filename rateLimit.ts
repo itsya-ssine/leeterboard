@@ -22,30 +22,26 @@ function blocked(limiter: string) {
 // same; on serverless only the shared ones hold across instances.
 
 // General ceiling applied to every /api/* request. The frontend polls
-// /api/users and /api/trends every 15s, so this needs to stay generous
-// for normal usage while still stopping scripted abuse.
+// /api/users and /api/trends every 15s. Raised to 1200 / 15m (SEC-04) so multiple
+// users/tabs sharing a school or campus NAT IP are not starved of requests.
 export const apiLimiter = rateLimit({
   handler: blocked("api"),
   windowMs: 15 * 60 * 1000,
-  limit: 300,
+  limit: 1200,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests from this IP. Please slow down and try again shortly." }
+  message: { error: "Too many requests from this network. Please slow down and try again shortly." }
 });
 
 // Page loads: the production fallback that serves index.html for any path that
-// isn't a built asset or an /api route. The app routes with the URL hash, so a
-// real visitor loads this once per visit; the ceiling is far above that and
-// only stops scripts hammering the file-serving route. In memory on purpose
-// (no database write for a static file), and separate from apiLimiter so page
-// loads never use up a member's API allowance.
+// isn't a built asset or an /api route.
 export const pageLimiter = rateLimit({
   handler: blocked("page"),
   windowMs: 15 * 60 * 1000,
-  limit: 300,
+  limit: 1200,
   standardHeaders: true,
   legacyHeaders: false,
-  message: "Too many requests from this IP. Please slow down and try again shortly."
+  message: "Too many requests from this network. Please slow down and try again shortly."
 });
 
 // Password logins. Only failed attempts count, so normal use never hits it.
@@ -110,12 +106,22 @@ export const refreshLimiter = rateLimit({
   message: { error: "Too many refresh requests. Please wait a minute and try again." }
 });
 
+export function accountKeyGenerator(req: Request): string {
+  const userId = req.user?.id;
+  const ip = req.ip || "unknown";
+  return userId ? `user:${userId}:${ip}` : ip;
+}
+
 // Account settings: password checks, profile edits and account deletion.
+// Keyed by compound user account + IP (SEC-04) so one member on a shared network
+// cannot exhaust rate limits for other accounts on the same IP.
 export const accountLimiter = rateLimit({
   store: new DbRateLimitStore("account"),
   handler: blocked("account"),
+  keyGenerator: accountKeyGenerator,
+  validate: { keyGeneratorIpFallback: false },
   windowMs: 15 * 60 * 1000,
-  limit: 20,
+  limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many account requests. Please wait a few minutes and try again." }

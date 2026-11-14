@@ -19,7 +19,9 @@ import {
   CheckCheck,
   TrendingUp,
   Crown,
-  Lock
+  Lock,
+  AlertTriangle,
+  WifiOff
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -31,6 +33,8 @@ import Podium from "./Podium.js";
 import SchoolTag from "./SchoolTag.js";
 import RankMovement from "./RankMovement.js";
 import ThemeToggle from "./ThemeToggle.js";
+import LanguageSelector from "./LanguageSelector.js";
+import { useI18n } from "./i18n.js";
 import NotificationBell from "./NotificationBell.js";
 import AccountButton from "./AccountButton.js";
 import { chartColors, useTheme } from "./theme.js";
@@ -76,8 +80,11 @@ const rankColor = (rank: number) =>
 
 const HOT_STREAK_THRESHOLD = 12;
 
-// Polling cadence while the tab is visible. Hidden tabs don't poll at all.
-const POLL_INTERVAL_MS = 15_000;
+// Polling cadence while the tab is visible. Sized to 60s (UX-01 / SEC-04) with
+// adaptive backoff to reduce battery, data usage, and avoid 429 rate limits on shared networks.
+const POLL_INTERVAL_MS = 60_000;
+const BASE_POLL_INTERVAL_MS = POLL_INTERVAL_MS;
+const MAX_POLL_INTERVAL_MS = 120_000;
 
 // A member whose last successful LeetCode fetch is older than this gets a
 // "stale" badge. The server syncs every 30 minutes, so a full day without an
@@ -99,6 +106,17 @@ function nextRoundStartMs(nowMs: number): number {
   return today + (7 - sinceMonday) * 86_400_000;
 }
 
+function formatLocalReset(nextMs: number): string {
+  try {
+    const d = new Date(nextMs);
+    const day = d.toLocaleDateString(undefined, { weekday: "short" });
+    const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+    return `${day} ${time} your time (Mon 00:00 UTC)`;
+  } catch {
+    return "Monday 00:00 UTC";
+  }
+}
+
 function isoWeek(nowMs: number): number {
   const d = new Date(nowMs);
   const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -115,19 +133,24 @@ function RoundTimer() {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
-  const left = Math.max(0, nextRoundStartMs(nowMs) - nowMs);
+  const targetMs = nextRoundStartMs(nowMs);
+  const left = Math.max(0, targetMs - nowMs);
   const days = Math.floor(left / 86_400_000);
   const hms = [Math.floor(left / 3_600_000) % 24, Math.floor(left / 60_000) % 60, Math.floor(left / 1000) % 60]
     .map((n) => String(n).padStart(2, "0"))
     .join(":");
+  const localReset = formatLocalReset(targetMs);
   return (
     <div
       className="flex items-center gap-2 rounded-full bg-ink-900/70 px-3 py-1.5 font-mono text-sm ring-1 ring-line"
-      title="The weekly round closes Monday 00:00 UTC"
+      title={`Weekly round resets on ${localReset}`}
     >
       <Timer className="size-3.5 text-amber-300" aria-hidden="true" />
       <span className="text-xs uppercase tracking-widest text-mist-500">Round ends</span>
-      <span className="font-semibold tabular-nums text-strong">
+      <span
+        className="font-semibold tabular-nums text-strong"
+        aria-label={`Round ends in ${days} days, ${hms}. Resets on ${localReset}`}
+      >
         {days}d {hms}
       </span>
     </div>
@@ -250,28 +273,45 @@ function NavLinks({
   labelFrom?: keyof typeof NAV_LABEL_CLASS;
   fill?: boolean;
 }) {
+  const { t } = useI18n();
   const items = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
+
+  const getNavLabel = (p: string, defaultLabel: string) => {
+    switch (p) {
+      case "leaderboard": return t.leaderboard;
+      case "codeforces": return t.codeforces;
+      case "codingame": return t.codingame;
+      case "stats": return t.stats;
+      case "compare": return t.compare;
+      case "admin": return t.syncHealth;
+      default: return defaultLabel;
+    }
+  };
+
   return (
     <nav aria-label="Main" className={`items-center gap-1 ${className}`}>
-      {items.map(({ page: p, href, label, Icon }) => (
-        <a
-          key={p}
-          href={href}
-          aria-current={page === p ? "page" : undefined}
-          aria-label={label}
-          title={label}
-          className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
-            NAV_PADDING_CLASS[labelFrom]
-          } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
-            page === p
-              ? "bg-ink-800 text-strong shadow-[inset_0_-2px_0_0_var(--color-teal-400)] ring-1 ring-line"
-              : "text-mist-400 hover:bg-tint hover:text-strong"
-          }`}
-        >
-          <Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span className={NAV_LABEL_CLASS[labelFrom]}>{label}</span>
-        </a>
-      ))}
+      {items.map(({ page: p, href, label, Icon }) => {
+        const navLabel = getNavLabel(p, label);
+        return (
+          <a
+            key={p}
+            href={href}
+            aria-current={page === p ? "page" : undefined}
+            aria-label={navLabel}
+            title={navLabel}
+            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
+              NAV_PADDING_CLASS[labelFrom]
+            } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
+              page === p
+                ? "bg-ink-800 text-strong shadow-[inset_0_-2px_0_0_var(--color-teal-400)] ring-1 ring-line"
+                : "text-mist-400 hover:bg-tint hover:text-strong"
+            }`}
+          >
+            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            <span className={NAV_LABEL_CLASS[labelFrom]}>{navLabel}</span>
+          </a>
+        );
+      })}
     </nav>
   );
 }
@@ -466,6 +506,26 @@ function GroupGrowthChart({
         </p>
       ) : (
         <div className="h-56 w-full">
+          {/* Accessible data table for screen readers (WCAG 2.2 AA / UX-02) */}
+          <div className="sr-only">
+            <table>
+              <caption>Group growth history</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Date</th>
+                  <th scope="col">Problems solved</th>
+                </tr>
+              </thead>
+              <tbody>
+                {series.map((pt) => (
+                  <tr key={pt.date}>
+                    <td>{shortDate(pt.date)}</td>
+                    <td>{pt.solved.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <defs>
@@ -536,6 +596,17 @@ function GroupGrowthChart({
 
 /* ---------- App ---------- */
 
+const PAGE_TITLES: Record<Page, string> = {
+  leaderboard: "Weekly Sprint — Leeterboard",
+  stats: "Roster Analytics — Leeterboard",
+  compare: "Head to Head — Leeterboard",
+  codeforces: "Codeforces Standings — Leeterboard",
+  codingame: "CodinGame Arena — Leeterboard",
+  account: "Account Settings — Leeterboard",
+  admin: "Sync Health & Admin — Leeterboard",
+  profile: "Member Profile — Leeterboard"
+};
+
 export default function App() {
   const { user: currentUser } = useAuth();
   const [isAccountOpen, setIsAccountOpen] = useState(false);
@@ -555,6 +626,51 @@ export default function App() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [page, setPage] = useState<Page>(readPage);
   const [profileName, setProfileName] = useState<string | null>(readProfileName);
+
+  const [offline, setOffline] = useState(typeof navigator !== "undefined" ? !navigator.onLine : false);
+  const [rateLimitMessage, setRateLimitMessage] = useState<string | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const lastSyncSeenRef = useRef<string>("");
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const currentIntervalRef = useRef<number>(BASE_POLL_INTERVAL_MS);
+
+  const { t } = useI18n();
+  const [selectedCohort, setSelectedCohort] = useState<string>("");
+
+  // Keyboard shortcut: '/' focuses the search input on the leaderboard (UX-10)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const target = e.target as HTMLElement | null;
+        const tagName = target?.tagName?.toLowerCase();
+        if (
+          tagName === "input" ||
+          tagName === "textarea" ||
+          tagName === "select" ||
+          target?.isContentEditable
+        ) {
+          return;
+        }
+        const searchInput = document.getElementById("leaderboard-search") as HTMLInputElement | null;
+        if (searchInput) {
+          e.preventDefault();
+          searchInput.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Sync document title and accessibility focus on page/profile change (UX-02)
+  useEffect(() => {
+    if (page === "profile" && profileName) {
+      document.title = `${profileName}'s Profile — Leeterboard`;
+    } else {
+      document.title = PAGE_TITLES[page] ?? "Leeterboard";
+    }
+    mainRef.current?.focus();
+  }, [page, profileName]);
 
   // Follow the hash (nav clicks, back/forward) and start each page at the top.
   useEffect(() => {
@@ -579,16 +695,34 @@ export default function App() {
 
   // Fetch users and metrics
   const loadData = async () => {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setOffline(true);
+      setLoading(false);
+      return;
+    }
+    setOffline(false);
     try {
       const usersRes = await fetch("/api/users");
+      if (usersRes.status === 429) {
+        const retryAfter = usersRes.headers.get("Retry-After");
+        const secs = retryAfter ? parseInt(retryAfter, 10) : 60;
+        setRateLimitMessage(`You're going fast — try again in ${secs}s.`);
+        return;
+      }
+      if (!usersRes.ok) throw new Error(`HTTP ${usersRes.status}`);
+      setRateLimitMessage(null);
       const usersData = await usersRes.json();
       setMembers(usersData.users || []);
-      setLastSyncAll(usersData.lastSyncAll || "");
+      const syncVal = usersData.lastSyncAll || "";
+      setLastSyncAll(syncVal);
+      lastSyncSeenRef.current = syncVal;
       setWinners(usersData.winners || []);
 
       const trendsRes = await fetch("/api/trends");
-      const trendsData = await trendsRes.json();
-      setTrendData(trendsData);
+      if (trendsRes.ok) {
+        const trendsData = await trendsRes.json();
+        setTrendData(trendsData);
+      }
     } catch (err) {
       console.error("Error loading data from server:", err);
     } finally {
@@ -624,39 +758,99 @@ export default function App() {
   };
 
   useEffect(() => {
-    // Poll for updates so everyone sees new stats without a manual reload —
-    // the server also runs a real background sync every 30 minutes (or, on
-    // Vercel, syncs when someone visits; see autoSyncIfStale). Polling
-    // only runs while the tab is visible: a hidden tab stops hitting
-    // /api/users and /api/trends, and catches up with one fetch the moment
-    // it becomes visible again.
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const startPolling = () => {
-      if (timer === undefined) timer = setInterval(loadData, POLL_INTERVAL_MS);
-    };
-    const stopPolling = () => {
-      if (timer !== undefined) {
-        clearInterval(timer);
-        timer = undefined;
+    // Polling with adaptive backoff (UX-01 / SEC-04):
+    // Polls /api/version and fetches the full board only when data changed.
+    // Backs off from 60s to 120s when data does not change; resets to 60s
+    // on user activity (clicks, keys) and tab visibility.
+    const pollTick = async () => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        scheduleNext(BASE_POLL_INTERVAL_MS);
+        return;
       }
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      try {
+        const verRes = await fetch("/api/version");
+        if (verRes.ok) {
+          const verData = await verRes.json();
+          if (verData.lastSyncAll && verData.lastSyncAll !== lastSyncSeenRef.current) {
+            // New sync on server: refresh full board immediately & reset cadence
+            await loadData();
+            currentIntervalRef.current = BASE_POLL_INTERVAL_MS;
+          } else {
+            // Board unchanged: back off adaptively
+            currentIntervalRef.current = Math.min(MAX_POLL_INTERVAL_MS, currentIntervalRef.current * 1.5);
+          }
+        }
+      } catch {
+        // Network hitch or server restart: back off
+        currentIntervalRef.current = Math.min(MAX_POLL_INTERVAL_MS, currentIntervalRef.current * 1.5);
+      }
+
+      scheduleNext(currentIntervalRef.current);
     };
+
+    const scheduleNext = (delayMs: number) => {
+      if (pollTimerRef.current !== undefined) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = setTimeout(pollTick, delayMs);
+    };
+
+    const resetAndPoll = () => {
+      currentIntervalRef.current = BASE_POLL_INTERVAL_MS;
+      scheduleNext(BASE_POLL_INTERVAL_MS);
+    };
+
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         loadData();
         autoSyncIfStale();
-        startPolling();
-      } else {
-        stopPolling();
+        resetAndPoll();
+      } else if (pollTimerRef.current !== undefined) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = undefined;
       }
     };
 
-    loadData(); // always load once, even if the tab was opened in the background
-    autoSyncIfStale(); // refresh the board if it has gone stale
-    if (document.visibilityState === "visible") startPolling();
+    const onOnline = () => {
+      setOffline(false);
+      loadData();
+      resetAndPoll();
+    };
+
+    const onOffline = () => {
+      setOffline(true);
+      if (pollTimerRef.current !== undefined) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = undefined;
+      }
+    };
+
+    // Reset backoff to base interval on user interaction
+    const onUserActivity = () => {
+      currentIntervalRef.current = BASE_POLL_INTERVAL_MS;
+    };
+
+    loadData();
+    autoSyncIfStale();
+    if (document.visibilityState === "visible") {
+      scheduleNext(BASE_POLL_INTERVAL_MS);
+    }
+
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("pointerdown", onUserActivity, { passive: true });
+    window.addEventListener("keydown", onUserActivity, { passive: true });
+
     return () => {
-      stopPolling();
+      if (pollTimerRef.current !== undefined) clearTimeout(pollTimerRef.current);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("pointerdown", onUserActivity);
+      window.removeEventListener("keydown", onUserActivity);
     };
   }, []);
 
@@ -740,9 +934,23 @@ export default function App() {
     }
   };
 
+  // Distinct cohorts from registered members
+  const cohorts = useMemo(() => {
+    const set = new Set<string>();
+    users.forEach((u) => {
+      const s = u.school?.trim();
+      if (s) set.add(s);
+    });
+    return Array.from(set).sort();
+  }, [users]);
+
   // Filter and sort user list
-  const filteredUsers = users.filter(u => {
+  const filteredUsers = users.filter((u) => {
+    if (selectedCohort && (u.school ?? "").trim().toLowerCase() !== selectedCohort.toLowerCase()) {
+      return false;
+    }
     const q = searchQuery.toLowerCase();
+    if (!q) return true;
     return (
       u.displayName.toLowerCase().includes(q) ||
       u.loginUsername.toLowerCase().includes(q) ||
@@ -969,6 +1177,12 @@ export default function App() {
 
   return (
     <div className="relative flex min-h-screen flex-col bg-ink-950 text-mist-100">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-ink-900 focus:px-4 focus:py-2 focus:font-mono focus:text-sm focus:font-medium focus:text-teal-300 focus:shadow-xl focus:ring-2 focus:ring-teal-400"
+      >
+        Skip to main content
+      </a>
       <div className="aurora-bg" aria-hidden="true" />
       {/* ---------- Top bar ---------- */}
       <header className="glass sticky top-0 z-30 border-b border-line">
@@ -1005,6 +1219,7 @@ export default function App() {
               </button>
             )}
 
+            <LanguageSelector />
             <ThemeToggle />
 
             {/* Notifications — signed-in members only. Keyed by member so
@@ -1037,7 +1252,71 @@ export default function App() {
 
       {page === "leaderboard" && !loading && <SubmissionTicker users={users} />}
 
-      <main className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-10 md:px-8 md:pt-14">
+      <main
+        ref={mainRef}
+        id="main-content"
+        tabIndex={-1}
+        className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-10 focus:outline-none md:px-8 md:pt-14"
+      >
+        {/* Offline status notice (UX-04) */}
+        {offline && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-6 flex items-center justify-between gap-3 rounded-xl bg-amber-500/10 p-4 text-sm text-amber-300 ring-1 ring-amber-400/20"
+          >
+            <div className="flex items-center gap-2.5">
+              <WifiOff className="size-4 shrink-0" aria-hidden="true" />
+              <span>You are currently offline. Displaying cached data.</span>
+            </div>
+            <button
+              type="button"
+              onClick={loadData}
+              className="rounded-lg bg-amber-400/20 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/30 hover:bg-amber-400/30"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Rate limit warning banner (UX-04) */}
+        {rateLimitMessage && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="mb-6 flex items-center gap-2.5 rounded-xl bg-rose-500/10 p-4 text-sm text-rose-300 ring-1 ring-rose-400/20"
+          >
+            <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+            <span>{rateLimitMessage}</span>
+          </div>
+        )}
+
+        {/* Upstream sync notice (UX-09) */}
+        {page === "leaderboard" && !loading && boardStale && (
+          <div
+            role="region"
+            aria-label="Upstream sync notice"
+            className="mb-6 flex flex-col justify-between gap-3 rounded-xl bg-amber-500/10 p-4 text-sm text-amber-200 ring-1 ring-amber-400/20 sm:flex-row sm:items-center"
+          >
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden="true" />
+              <div>
+                <p className="font-semibold text-amber-100">LeetCode sync notice</p>
+                <p className="mt-0.5 text-xs text-amber-300/90">
+                  Standings were last updated {formatAge(lastSyncAll, now)}. Upstream LeetCode services may be experiencing rate limits or delays; showing cached standings.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={autoSyncIfStale}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-400/20 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/30 hover:bg-amber-400/30"
+            >
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              Check now
+            </button>
+          </div>
+        )}
         {/* ---------- Intro (the profile and account pages have their own header) ---------- */}
         {page !== "profile" && page !== "account" && (
         <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -1318,7 +1597,8 @@ export default function App() {
         {page === "leaderboard" && (
         <section
           id="leaderboard-panel"
-          aria-label="Leaderboard"
+          role="table"
+          aria-label="LeetCode weekly leaderboard"
           className="card-aurora animate-rise overflow-hidden"
         >
           {/* Toolbar */}
@@ -1327,14 +1607,46 @@ export default function App() {
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-mist-500" />
               <input
                 type="text"
-                placeholder="Search by name, username or school"
+                placeholder={t.searchPlaceholder}
                 aria-label="Search members"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className={`${inputCls} pl-9`}
+                className={`${inputCls} pl-9 pr-12`}
                 id="leaderboard-search"
               />
+              <kbd
+                title={t.pressSlashToSearch}
+                aria-hidden="true"
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center justify-center h-5 px-1.5 font-mono text-[10px] font-semibold text-mist-400 bg-ink-800 border border-line rounded"
+              >
+                /
+              </kbd>
             </div>
+
+            {cohorts.length > 0 && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <label htmlFor="cohort-filter" className="sr-only">
+                  {t.filterCohort}
+                </label>
+                <select
+                  id="cohort-filter"
+                  aria-label={t.filterCohort}
+                  value={selectedCohort}
+                  onChange={(e) => setSelectedCohort(e.target.value)}
+                  className="h-8 rounded-lg border border-line bg-ink-950/80 px-2.5 text-xs font-medium text-mist-300 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                >
+                  <option value="">{t.allCohorts} ({users.length})</option>
+                  {cohorts.map((c) => {
+                    const count = users.filter((u) => (u.school ?? "").trim().toLowerCase() === c.toLowerCase()).length;
+                    return (
+                      <option key={c} value={c}>
+                        {c} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
 
             <div
               role="group"
@@ -1343,9 +1655,9 @@ export default function App() {
             >
               {(
                 [
-                  { key: "weekly", label: "This week", id: "sort-weekly-btn" },
-                  { key: "allTime", label: "All time", id: "sort-alltime-btn" },
-                  { key: "rating", label: "Contest", id: "sort-rating-btn" }
+                  { key: "weekly", label: t.thisWeek, id: "sort-weekly-btn" },
+                  { key: "allTime", label: t.allTime, id: "sort-alltime-btn" },
+                  { key: "rating", label: t.contestRating, id: "sort-rating-btn" }
                 ] as const
               ).map((opt) => (
                 <button
@@ -1371,14 +1683,16 @@ export default function App() {
           )}
 
           {/* Column labels */}
-          <div className="hidden grid-cols-12 gap-x-4 border-b border-line bg-ink-950/40 px-5 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:grid">
-            <div className="col-span-1">#</div>
-            <div className="col-span-3">Handle</div>
-            <div className="col-span-4">
-              {sortBy === "weekly" ? "Tests passed (25)" : "Problems  E · M · H"}
+          <div role="rowgroup" className="hidden border-b border-line bg-ink-950/40 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:block">
+            <div role="row" className="grid grid-cols-12 gap-x-4 px-5 py-2.5">
+              <div role="columnheader" aria-sort="none" className="col-span-1">#</div>
+              <div role="columnheader" aria-sort="none" className="col-span-3">Handle</div>
+              <div role="columnheader" aria-sort={sortBy === "weekly" ? "descending" : "none"} className="col-span-4">
+                {sortBy === "weekly" ? "Tests passed (25)" : "Problems  E · M · H"}
+              </div>
+              <div role="columnheader" aria-sort={sortBy === "rating" ? "descending" : "none"} className="col-span-2">Rating</div>
+              <div role="columnheader" aria-sort={sortBy === "allTime" ? "descending" : "none"} className="col-span-2 pr-14 text-right">&Sigma; Solved</div>
             </div>
-            <div className="col-span-2">Rating</div>
-            <div className="col-span-2 pr-14 text-right">&Sigma; Solved</div>
           </div>
 
           {loading ? (
@@ -1394,7 +1708,7 @@ export default function App() {
               ))}
             </div>
           ) : (
-            <div className="divide-y divide-line">
+            <div role="rowgroup" className="divide-y divide-line">
               <AnimatePresence mode="popLayout">
                 {sortedUsers.length === 0 ? (
                   <motion.div
@@ -1405,15 +1719,15 @@ export default function App() {
                     <EmptyState
                       bare
                       icon={<Search className="size-5" aria-hidden="true" />}
-                      title={searchQuery ? "No members match your search" : "No members on the board yet"}
+                      title={searchQuery || selectedCohort ? "No members match your filter" : "No members on the board yet"}
                       description={
-                        searchQuery
-                          ? "Try a different name or LeetCode username."
+                        searchQuery || selectedCohort
+                          ? "Try a different search term or cohort filter."
                           : "Link your LeetCode account in Account settings to join this board."
                       }
                       action={
-                        searchQuery
-                          ? { label: "Clear search", onClick: () => setSearchQuery("") }
+                        searchQuery || selectedCohort
+                          ? { label: "Clear filters", onClick: () => { setSearchQuery(""); setSelectedCohort(""); } }
                           : { label: "Link LeetCode", href: "#/account" }
                       }
                     />
@@ -1429,6 +1743,7 @@ export default function App() {
                       <motion.div
                         key={user.id}
                         layoutId={user.id}
+                        role="row"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -1441,7 +1756,7 @@ export default function App() {
                         id={`member-row-${user.id}`}
                       >
                         {/* Rank */}
-                        <div className="flex flex-col items-start gap-1 md:col-span-1">
+                        <div role="cell" className="flex flex-col items-start gap-1 md:col-span-1">
                           <span
                             className={`grid size-8 place-items-center rounded-full font-mono text-sm font-bold leading-none tabular-nums ${rankColor(actualRank ?? 0)} ${
                               actualRank != null && actualRank <= 3
@@ -1456,38 +1771,40 @@ export default function App() {
                         </div>
 
                         {/* Member — opens the full profile */}
-                        <button
-                          type="button"
-                          onClick={() => setSelectedUser(user)}
-                          title="View full profile"
-                          className={`group/member flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left transition-transform active:scale-[0.97] md:col-span-3 ${focusRing}`}
-                        >
-                          <TierAvatar user={user} className="size-11 transition duration-300 group-hover/member:scale-105" />
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="truncate font-medium text-strong transition-colors group-hover/member:text-teal-300">
-                                {user.displayName}
-                              </span>
-                              {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
-                              <RankMovement movement={movements[user.id]} />
-                            </div>
-                            <div className="truncate text-sm text-mist-500">@{user.loginUsername}</div>
-                            <SchoolTag school={user.school} className="mt-1" />
-                            {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
-                              <div
-                                className="mt-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1.5 py-0.5 text-xs text-amber-300 ring-1 ring-amber-300/20"
-                                title={`Last successful LeetCode fetch: ${new Date(user.lastUpdated).toLocaleString()}. The board synced more recently, so LeetCode's API may be failing for this account.`}
-                              >
-                                <Clock className="size-3" aria-hidden="true" />
-                                Updated {formatAge(user.lastUpdated, now)}
+                        <div role="cell" className="min-w-0 md:col-span-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedUser(user)}
+                            title="View full profile"
+                            className={`group/member flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left transition-transform active:scale-[0.97] ${focusRing}`}
+                          >
+                            <TierAvatar user={user} className="size-11 transition duration-300 group-hover/member:scale-105" />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate font-medium text-strong transition-colors group-hover/member:text-teal-300">
+                                  {user.displayName}
+                                </span>
+                                {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
+                                <RankMovement movement={movements[user.id]} />
                               </div>
-                            )}
-                          </div>
-                        </button>
+                              <div className="truncate text-sm text-mist-500">@{user.loginUsername}</div>
+                              <SchoolTag school={user.school} className="mt-1" />
+                              {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
+                                <div
+                                  className="mt-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1.5 py-0.5 text-xs text-amber-300 ring-1 ring-amber-300/20"
+                                  title={`Last successful LeetCode fetch: ${new Date(user.lastUpdated).toLocaleString()}. The board synced more recently, so LeetCode's API may be failing for this account.`}
+                                >
+                                  <Clock className="size-3" aria-hidden="true" />
+                                  Updated {formatAge(user.lastUpdated, now)}
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        </div>
 
                         {/* Progress — weekly bar when sorted by week, difficulty split otherwise.
                             Drops below the member on small screens. */}
-                        <div className="order-last col-span-3 md:order-none md:col-span-4 md:pr-4">
+                        <div role="cell" className="order-last col-span-3 md:order-none md:col-span-4 md:pr-4">
                           {sortBy === "weekly" ? (
                             <div className="flex w-full items-center gap-3">
                               <div
@@ -1523,7 +1840,7 @@ export default function App() {
 
                         {/* Contest rating — number + contests entered; "Unrated" when none.
                             Drops below the progress bar on small screens. */}
-                        <div className="order-last col-span-3 flex items-baseline gap-2 md:order-none md:col-span-2 md:block">
+                        <div role="cell" className="order-last col-span-3 flex items-baseline gap-2 md:order-none md:col-span-2 md:block">
                           <span className="text-xs text-mist-500 md:hidden">Contest rating</span>
                           {user.contestRating != null ? (
                             <>
@@ -1546,7 +1863,7 @@ export default function App() {
                         </div>
 
                         {/* Total & controls */}
-                        <div className="flex items-center justify-end gap-1 md:col-span-2">
+                        <div role="cell" className="flex items-center justify-end gap-1 md:col-span-2">
                           <div className="pr-2 text-right leading-none">
                             <div className="font-mono text-xl font-bold tabular-nums text-strong">{user.allTimeSolved}</div>
                             <div className="mt-1 font-mono text-[10px] font-bold tracking-widest text-emerald-400">AC</div>

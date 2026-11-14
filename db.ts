@@ -276,7 +276,26 @@ const OAUTH_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_pending_oauth_signups_expires ON pending_oauth_signups(expires_at)`
 ];
 
+/* ---------- Distributed leases ----------
+ * Holds short-lived leases in the database stopping concurrent tasks across
+ * serverless instances.
+ */
+const LEASE_DDL = [
+  `CREATE TABLE IF NOT EXISTS leases (
+    name TEXT PRIMARY KEY,
+    holder TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  ) WITHOUT ROWID`
+];
+
 export async function initDb(): Promise<void> {
+  if (url.startsWith("file:")) {
+    try {
+      await client.execute("PRAGMA busy_timeout = 5000;");
+    } catch {
+      // Ignore if pragma unsupported
+    }
+  }
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
   await client.batch(
@@ -312,8 +331,10 @@ export async function initDb(): Promise<void> {
         current_streak INTEGER,
         longest_streak INTEGER,
         password_hash TEXT NOT NULL DEFAULT '',
+        session_version INTEGER NOT NULL DEFAULT 0,
         failed_logins INTEGER NOT NULL DEFAULT 0,
         locked_until TEXT,
+        password_reset_at TEXT,
         email TEXT,
         email_verified_at TEXT
       )`,
@@ -382,7 +403,8 @@ export async function initDb(): Promise<void> {
       ...PLATFORM_DDL,
       ...RATE_LIMIT_DDL,
       ...FEEDBACK_DDL,
-      ...OAUTH_DDL
+      ...OAUTH_DDL,
+      ...LEASE_DDL
     ],
     "write"
   );
@@ -421,7 +443,10 @@ const MIGRATIONS: Migration[] = [
   { version: 16, name: "platform_reset_freeze", up: migratePlatformResetFreeze },
   { version: 17, name: "email_verification", up: migrateEmailVerification },
   { version: 18, name: "oauth_sign_in", up: migrateOAuthSignIn },
-  { version: 19, name: "drop_pending_email_codes", up: migrateDropPendingEmailCodes }
+  { version: 19, name: "drop_pending_email_codes", up: migrateDropPendingEmailCodes },
+  { version: 20, name: "leases", up: migrateLeases },
+  { version: 21, name: "user_session_version", up: migrateUserSessionVersion },
+  { version: 22, name: "password_reset_at", up: migratePasswordResetAt }
 ];
 
 export async function getAppliedMigrations(): Promise<{ version: number; name: string; appliedAt: string }[]> {
@@ -672,6 +697,23 @@ async function migrateOAuthSignIn(): Promise<void> {
 // once (IF EXISTS).
 async function migrateDropPendingEmailCodes(): Promise<void> {
   await client.execute("DROP TABLE IF EXISTS pending_email_codes");
+}
+
+// v20 — distributed leases for background and scheduled sync tasks.
+async function migrateLeases(): Promise<void> {
+  await client.batch(LEASE_DDL, "write");
+}
+
+// v21 — revocable sessions via session_version counter on users.
+async function migrateUserSessionVersion(): Promise<void> {
+  if (await columnExists("users", "session_version")) return;
+  await client.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0");
+}
+
+// v22 — track when passwords are reset via recovery for cooldown and audit.
+async function migratePasswordResetAt(): Promise<void> {
+  if (await columnExists("users", "password_reset_at")) return;
+  await client.execute("ALTER TABLE users ADD COLUMN password_reset_at TEXT");
 }
 
 // v16 — the same sticky "this handle stopped resolving" marker LeetCode has
@@ -989,6 +1031,8 @@ export interface UserAuth {
   passwordHash: string;
   failedLogins: number;
   lockedUntil: string | null;
+  sessionVersion: number;
+  passwordResetAt: string | null;
 }
 
 export interface UserWithAuth {
@@ -1002,7 +1046,9 @@ async function rowToUserWithAuth(row: Record<string, unknown>): Promise<UserWith
     auth: {
       passwordHash: (row.password_hash as string) || "",
       failedLogins: Number(row.failed_logins ?? 0),
-      lockedUntil: (row.locked_until as string) || null
+      lockedUntil: (row.locked_until as string) || null,
+      sessionVersion: Number(row.session_version ?? 0),
+      passwordResetAt: (row.password_reset_at as string) || null
     }
   };
 }
@@ -2209,12 +2255,29 @@ export async function createSecurityNotice(userId: string, title: string, body: 
 
 /* ---------- Credentials + login throttling ---------- */
 
-// Setting a password also clears any lockout: whoever can prove they own the
-// LeetCode account is allowed back in.
+// Setting a password also clears any lockout and increments the session version,
+// invalidating all prior active sessions across devices.
 export async function setPasswordHash(id: string, passwordHash: string): Promise<void> {
   await client.execute({
-    sql: "UPDATE users SET password_hash = ?, failed_logins = 0, locked_until = NULL WHERE id = ?",
+    sql: "UPDATE users SET password_hash = ?, session_version = session_version + 1, failed_logins = 0, locked_until = NULL WHERE id = ?",
     args: [passwordHash, id]
+  });
+}
+
+// Bumps the session version of a user, instantly invalidating all active sessions.
+export async function bumpSessionVersion(id: string): Promise<number> {
+  const res = await client.execute({
+    sql: "UPDATE users SET session_version = session_version + 1 WHERE id = ? RETURNING session_version",
+    args: [id]
+  });
+  return Number(res.rows[0]?.session_version ?? 0);
+}
+
+// Records the timestamp of a completed password reset via recovery.
+export async function recordPasswordReset(id: string): Promise<void> {
+  await client.execute({
+    sql: "UPDATE users SET password_reset_at = ? WHERE id = ?",
+    args: [new Date().toISOString(), id]
   });
 }
 
@@ -2250,6 +2313,50 @@ export async function setMeta(key: string, value: string): Promise<void> {
           ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     args: [key, value]
   });
+}
+
+/* ---------- Distributed leases ----------
+ * Short-lived leases in the database stopping concurrent tasks (e.g. background
+ * or scheduled syncs) across serverless instances or processes.
+ */
+export async function acquireLease(name: string, ttlMs: number, holder: string = randomUUID()): Promise<string | null> {
+  const now = Date.now();
+  const expiresAt = now + ttlMs;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await client.execute({
+        sql: `INSERT INTO leases (name, holder, expires_at)
+              VALUES (?, ?, ?)
+              ON CONFLICT(name) DO UPDATE SET
+                holder = excluded.holder,
+                expires_at = excluded.expires_at
+              WHERE leases.expires_at < ?`,
+        args: [name, holder, expiresAt, now]
+      });
+      return (res.rowsAffected ?? 0) > 0 ? holder : null;
+    } catch (err: any) {
+      if ((err?.code === "SQLITE_BUSY" || err?.message?.includes("database is locked")) && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return null;
+}
+
+export async function releaseLease(name: string, holder?: string): Promise<void> {
+  if (holder) {
+    await client.execute({
+      sql: "DELETE FROM leases WHERE name = ? AND holder = ?",
+      args: [name, holder]
+    });
+  } else {
+    await client.execute({
+      sql: "DELETE FROM leases WHERE name = ?",
+      args: [name]
+    });
+  }
 }
 
 /* ---------- E-mail addresses ----------

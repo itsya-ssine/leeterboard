@@ -144,6 +144,7 @@ describe("members", () => {
 // requireAuth or requireAdmin. Adding a route here is a decision to make it
 // public; review it as one.
 const PUBLIC_ROUTES = new Set([
+  "GET /api/health",
   "POST /api/auth/login",
   "GET /api/auth/oauth/:provider/start",
   "GET /api/auth/oauth/:provider/callback",
@@ -153,7 +154,8 @@ const PUBLIC_ROUTES = new Set([
   "POST /api/auth/reset/verify",
   "POST /api/logout",
   "GET /api/auth/session",
-  "POST /api/feedback"
+  "POST /api/feedback",
+  "POST /api/cron/sync"
 ]);
 
 interface RouteDef {
@@ -195,7 +197,7 @@ describe("route inventory", () => {
 
   it("covers the data routes explicitly", () => {
     const byKey = new Map(all.flatMap((f) => f.routes).map((r) => [r.key, r]));
-    for (const key of ["GET /api/users", "GET /api/trends", "POST /api/sync-if-stale"]) {
+    for (const key of ["GET /api/users", "GET /api/version", "GET /api/trends", "POST /api/sync-if-stale"]) {
       assert.match(byKey.get(key)?.middleware ?? "", /\brequireAuth\b/, key);
     }
   });

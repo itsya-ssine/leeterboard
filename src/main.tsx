@@ -7,6 +7,7 @@ import LegalGate from './LegalGate.tsx';
 import SessionGate from './SessionGate.tsx';
 import { AuthProvider } from './AuthContext.tsx';
 import { ThemeProvider } from './theme.tsx';
+import { I18nProvider } from './i18n.tsx';
 import { ToastProvider } from './Toast.tsx';
 import './index.css';
 
@@ -14,17 +15,19 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">
       <ThemeProvider>
-        <LegalGate>
-          <AuthProvider>
-            <ToastProvider>
-              <Gate>
-                <SessionGate>
-                  <App />
-                </SessionGate>
-              </Gate>
-            </ToastProvider>
-          </AuthProvider>
-        </LegalGate>
+        <I18nProvider>
+          <LegalGate>
+            <AuthProvider>
+              <ToastProvider>
+                <Gate>
+                  <SessionGate>
+                    <App />
+                  </SessionGate>
+                </Gate>
+              </ToastProvider>
+            </AuthProvider>
+          </LegalGate>
+        </I18nProvider>
       </ThemeProvider>
     </MotionConfig>
   </StrictMode>,

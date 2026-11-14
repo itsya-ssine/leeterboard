@@ -61,8 +61,10 @@ CREATE TABLE users (
 
   -- Credentials and brute-force protection. Never exposed through the API.
   password_hash      TEXT NOT NULL DEFAULT '',
+  session_version    INTEGER NOT NULL DEFAULT 0,
   failed_logins      INTEGER NOT NULL DEFAULT 0,
   locked_until       TEXT,
+  password_reset_at  TEXT,
 
   -- Private e-mail address (migration 17). Never part of the public member
   -- payload: read it only through a dedicated query. It is the address Google or
@@ -122,6 +124,13 @@ CREATE TABLE meta (
   key    TEXT PRIMARY KEY,
   value  TEXT
 );
+
+-- Distributed leases for background and scheduled operations.
+CREATE TABLE leases (
+  name        TEXT PRIMARY KEY,
+  holder      TEXT NOT NULL,
+  expires_at  INTEGER NOT NULL
+) WITHOUT ROWID;
 
 -- Which migrations have been applied (see MIGRATIONS in db.ts).
 CREATE TABLE schema_migrations (
