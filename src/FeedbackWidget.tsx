@@ -72,19 +72,10 @@ export default function FeedbackWidget() {
 
   return (
     <>
-      <div className="fixed bottom-4 right-4 z-40 flex items-center gap-2 sm:bottom-6 sm:right-6">
-        <a
-          href={REPO_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Star leeterboard on GitHub"
-          className={`${floatBtn} w-11 bg-ink-900 text-mist-100 ring-1 ring-line hover:bg-ink-800 hover:ring-line-strong sm:w-auto sm:px-4`}
-        >
-          <Star className="size-4 text-amber-300" aria-hidden="true" />
-          <span className="hidden sm:inline">Star on GitHub</span>
-          <span className="sr-only sm:hidden">Star on GitHub</span>
-          <span className="sr-only">(opens in a new tab)</span>
-        </a>
+      <div
+        className="fixed z-40 flex items-center gap-2 right-4 sm:right-6"
+        style={{ bottom: "calc(1rem + env(safe-area-inset-bottom, 0px))" }}
+      >
         <button
           type="button"
           onClick={openDialog}
