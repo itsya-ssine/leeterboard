@@ -28,6 +28,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 - [API](#api)
 - [Rate limits](#rate-limits)
 - [Scripts](#scripts)
+- [Architecture](#architecture)
 - [Project structure](#project-structure)
 - [Deployment](#deployment)
 - [License](#license)
@@ -505,6 +506,36 @@ Limits are per IP. The sensitive limiters (login, OAuth, verification, refresh, 
 | `npx tsx scripts/seed-dev-users.ts` | Development only: add two fake members to the local database (`--reset` re-creates them) |
 | `npx tsx scripts/probe-codingame.ts <handle>` | Print what CodinGame returns for one handle, to check the field names the adapter reads |
 
+## Architecture
+
+The project has been refactored into a scalable, feature-based frontend and a modular backend with pure domain logic and standardized platform adapters. See [docs/architecture.md](docs/architecture.md) for full architectural documentation.
+
+### Frontend (Feature-Based)
+The frontend in `src/` organizes code by business domain:
+- **`src/app/`**: Application providers (`AuthProvider`, `ThemeProvider`, `I18nProvider`, `ToastProvider`) and route/auth gates (`SessionGate`, `LegalGate`, `Gate`).
+- **`src/features/`**: Feature domains encapsulating components, hooks, utilities, and API calls:
+  - `leaderboard/`: Rankings, top-3 podium, round timer, recent submission ticker.
+  - `profile/`: Member profiles, activity heatmap, badge lists.
+  - `compare/`: Head-to-head comparison and PNG card exporter.
+  - `auth/`: Sign-in dialogs, OAuth callbacks, signup verification.
+  - `account/`: Account settings, platform linking, password management.
+  - `admin/`: Admin maintenance, sync health, member removal, feedback inbox.
+  - `platforms/`: Codeforces and CodinGame boards.
+  - `notifications/`: In-app notification bell and achievement alerts.
+  - `legal/`: Privacy Policy, Terms of Service, FAQ scoring guide.
+  - `share-card/`: Canvas-drawn social share cards.
+  - `statistics/`: Group growth and difficulty distribution charts.
+- **`src/components/`**: Reusable shared UI primitives (`ui/`), common layout elements (`common/`), navigation controls (`navigation/`), and feedback components (`feedback/`).
+
+### Backend (Modular)
+The server architecture in `server/` separates HTTP concerns, business logic, domain algorithms, and data access:
+- **`server/config/`**: Centralized configuration, environment definitions, and security parameters.
+- **`server/middleware/`**: Authentication, CSRF guards, rate limiters, security headers, and error handling.
+- **`server/domain/`**: Pure domain logic and calculations (`ranking.ts`, `progress.ts`, `streaks.ts`).
+- **`server/modules/`**: Modular feature endpoints and business services (`auth/`, `oauth/`, `users/`, `platforms/`, `sync/`, `leaderboard/`, `admin/`, `health/`).
+- **`server/platforms/`**: Standardized `PlatformAdapter` interface and integrations for LeetCode, Codeforces, and CodinGame.
+- **`server/app.ts` & `server/server.ts`**: Application assembly and server lifecycle bootstrap.
+
 ## Project structure
 
 ```
@@ -515,52 +546,29 @@ leeterboard/
 ├── CODE_OF_CONDUCT.md      community standards and conduct
 ├── CHANGELOG.md            release notes and change history
 ├── db/schema.sql           annotated current schema
+├── docs/                   architecture and operations documentation
+│   ├── architecture.md     in-depth architecture guide
+│   └── security-operations.md
 ├── platforms/              Codeforces and CodinGame adapters, shared types and the registry
 ├── scripts/                migrate, seed-dev-users, probe-codingame, check-security-config, verify-backup
-├── src/                    React app
-│   ├── App.tsx             app shell, navbar, leaderboard and stats pages
-│   ├── ProfilePage.tsx     member profile
-│   ├── ComparePage.tsx     head-to-head view
-│   ├── CodeforcesPage.tsx  Codeforces board
-│   ├── CodinGamePage.tsx   CodinGame board
-│   ├── AccountPage.tsx     account settings and linked accounts (a card per platform)
-│   ├── linkedAccounts.ts   who counts as linked, and the LeetCode board's members
-│   ├── SessionGate.tsx     shows only the sign-in screen without a session; LoginModal.tsx is its form
-│   ├── AdminDashboard.tsx  sync health, messages and the feedback inbox
-│   ├── FeedbackWidget.tsx  floating Star on GitHub and Feedback buttons
-│   ├── Podium.tsx, WinnerBanner.tsx, ActivityHeatmap.tsx, TierAvatar.tsx, ...
-│   ├── achievements.ts, tiers.ts, movement.ts, winners.ts, activity.ts, compare.ts
-│   ├── shareCard.ts, compareCard.ts   canvas-drawn PNG cards
-│   ├── theme.tsx, ThemeToggle.tsx, index.css
-│   ├── legal.ts            legal settings (owner fills in) and the /privacy, /terms route
-│   ├── LegalGate.tsx, LegalPages.tsx   Privacy Policy and Terms pages (LegalPages.tsx also holds the shared page shell)
-│   ├── faq.ts, FaqPage.tsx  the /faq "How scoring works" route and page
-│   ├── SiteFooter.tsx      the footer shared by the app, landing and legal pages
-│   └── NotificationBell.tsx, Toast.tsx, Modal.tsx, ...
-├── server.ts               Express app: auth, account, sync and trend routes
-├── auth.ts                 sessions, password hashing, admin check
-├── accountExport.ts        the member's own data as one JSON document (Download my data)
-├── usernames.ts            rules for choosing a username
-├── emails.ts               rules for an email address (format, allowed domains, masking)
-├── oauth.ts                pure OAuth helpers (PKCE, state validation, provider endpoints, URL validation)
-├── oauthProviders.ts       OAuth token exchange and user info fetchers (GitHub, Google, fake dev provider)
-├── db.ts                   database access and MIGRATIONS
-├── platformSync.ts         sync for linked platform accounts
-├── platformTrends.ts       group trend for a linked platform
-├── notifications.ts        award ledger and notification creation
-├── notificationRoutes.ts   notification endpoints
-├── feedbackRoutes.ts       feedback endpoints
-├── rateLimit.ts            rate limiters
-├── rateLimitStore.ts       database-backed counter store for the sensitive limiters
-├── csrf.ts                 cross-site request checks for state-changing routes
-├── runtimeEnv.ts           first import of server.ts: makes sure production mode is on (applies runtimeEnvPolicy.ts)
-├── runtimeEnvPolicy.ts     the production-mode rules and the served-folder check
-├── securityHeaders.ts      CSP and other response headers (mirrored in vercel.json)
-├── securityLog.ts          structured, redacted security-event logging
-├── tests/                  security regression tests (npm test)
-├── docs/                   security-operations.md: alerts, incident response, restore drills
-├── .github/                CI workflows (tests, audit, secret scan, CodeQL) and Dependabot
-├── streaks.ts              streak maths for LeetCode's submission calendar
+├── server/                 Modular server architecture
+│   ├── app.ts              Express app factory
+│   ├── server.ts           server entrypoint & listener
+│   ├── config/             configuration, constants, environment validation
+│   ├── domain/             pure domain algorithms (ranking, progress, streaks)
+│   ├── middleware/         auth, CSRF, rate-limiting, error handling, security headers
+│   ├── modules/            feature modules (auth, users, sync, platforms, admin, etc.)
+│   ├── platforms/          standardized PlatformAdapter interface and adapters
+│   └── utils/              email, username, avatar, and security logging utilities
+├── src/                    Feature-based React app
+│   ├── app/                app shell, providers (Auth, Theme, I18n, Toast), gates
+│   ├── components/         shared components (ui/, common/, navigation/, feedback/)
+│   ├── features/           feature modules (leaderboard/, profile/, compare/, auth/, account/, etc.)
+│   ├── App.tsx             app shell and hash routing
+│   ├── main.tsx            client bootstrap
+│   └── index.css           Tailwind and custom styling
+├── server.ts               root Express route definitions and production bundle entry
+├── tests/                  regression test suites (npm test)
 └── vercel.json             Vercel build and routing
 ```
 
