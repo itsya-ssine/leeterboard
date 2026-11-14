@@ -47,7 +47,7 @@ const router = Router();
 
 router.get("/notifications", requireAuth, async (req, res, next) => {
   try {
-    const { id } = (req as any).user;
+    const { id } = req.user!;
     res.json(await listNotifications(id));
   } catch (error: any) {
     next(error);
@@ -56,7 +56,7 @@ router.get("/notifications", requireAuth, async (req, res, next) => {
 
 router.post("/notifications/read", requireAuth, async (req, res, next) => {
   try {
-    const { id } = (req as any).user;
+    const { id } = req.user!;
     const { ids, all } = req.body ?? {};
 
     if (all === true) {
@@ -78,7 +78,7 @@ router.post("/notifications/read", requireAuth, async (req, res, next) => {
 
 router.post("/notifications/clear-read", requireAuth, async (req, res, next) => {
   try {
-    const { id } = (req as any).user;
+    const { id } = req.user!;
     await dismissReadNotifications(id);
     res.json(await listNotifications(id));
   } catch (error: any) {
@@ -88,7 +88,7 @@ router.post("/notifications/clear-read", requireAuth, async (req, res, next) => 
 
 router.delete("/notifications/:notificationId", requireAuth, async (req, res, next) => {
   try {
-    const { id } = (req as any).user;
+    const { id } = req.user!;
     const removed = await dismissNotification(id, req.params.notificationId as string);
     if (!removed) return res.status(404).json({ error: "Notification not found." });
     res.json(await listNotifications(id));
@@ -109,7 +109,7 @@ router.get("/admin/notifications", requireAdmin, async (_req, res, next) => {
 
 router.post("/admin/notifications", accountLimiter, requireAdmin, async (req, res, next) => {
   try {
-    const sender = (req as any).user;
+    const sender = req.user!;
     const { to, title, message } = req.body ?? {};
 
     const cleanTitle = cleanText(title, MAX_TITLE_LENGTH, false);

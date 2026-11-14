@@ -366,7 +366,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   try {
     const resolved = await resolveSession(req);
     if (!resolved) return res.status(401).json(SESSION_REQUIRED_BODY);
-    (req as any).user = {
+    req.user = {
       id: resolved.user.id,
       loginUsername: resolved.user.loginUsername,
       isAdmin: resolved.isAdmin
@@ -384,7 +384,7 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     const resolved = await resolveSession(req);
     if (!resolved) return res.status(401).json(SESSION_REQUIRED_BODY);
     if (!resolved.isAdmin) return res.status(403).json({ error: "Admin access required." });
-    (req as any).user = { id: resolved.user.id, loginUsername: resolved.user.loginUsername };
+    req.user = { id: resolved.user.id, loginUsername: resolved.user.loginUsername, isAdmin: true };
     next();
   } catch (err) {
     next(err);

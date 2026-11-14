@@ -107,7 +107,7 @@ export const refreshLimiter = rateLimit({
 });
 
 export function accountKeyGenerator(req: Request): string {
-  const userId = (req as any).user?.id;
+  const userId = req.user?.id;
   const ip = req.ip || "unknown";
   return userId ? `user:${userId}:${ip}` : ip;
 }

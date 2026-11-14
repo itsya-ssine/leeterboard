@@ -184,7 +184,7 @@ app.use((req, res, next) => {
     incoming && typeof incoming === "string" && incoming.length <= 128
       ? incoming
       : crypto.randomUUID();
-  (req as any).id = requestId;
+  req.id = requestId;
   res.setHeader("x-request-id", requestId);
   next();
 });
@@ -713,8 +713,8 @@ app.get("/api/health", async (_req, res) => {
 // not public, so there is always a signed-in viewer here.
 app.get("/api/users", requireAuth, async (req, res, next) => {
   try {
-    const { id, isAdmin } = (req as any).user as { id: string; isAdmin: boolean };
-    const viewer: Viewer = { id, isAdmin };
+    const { id, isAdmin } = req.user!;
+    const viewer: Viewer = { id, isAdmin: !!isAdmin };
     res.vary("Cookie"); // the answer depends on who is asking
     const users = (await listUsers()).map((u) => withVisiblePlatforms(u, viewer));
     sortAndRankUsers(users);
@@ -1563,7 +1563,7 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
 // Answers { url }: the page then does location.assign(url).
 app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, isAdmin } = (req as any).user as { id: string; isAdmin?: boolean };
+    const { id, isAdmin } = req.user!;
     // Admin accounts keep password login only; nothing is connected to them.
     if (isAdmin) {
       logSecurityEvent("oauth_failed", { ip: req.ip, userId: id, reason: "admin_refused", route: "link" });
@@ -1615,7 +1615,7 @@ app.post("/api/account/oauth/:provider/start", accountLimiter, requireAuth, asyn
 // DELETE — disconnect a provider, unless it is the member's last way to sign in.
 app.delete("/api/account/oauth/:provider", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const provider = req.params.provider;
     if (!isOAuthProvider(provider)) return res.status(404).json({ error: "That sign-in method doesn't exist." });
 
@@ -1781,7 +1781,7 @@ app.post("/api/logout", (_req, res) => {
 // POST /api/auth/logout-all — signs out all devices by incrementing the user's session_version (SEC-05).
 app.post("/api/auth/logout-all", requireAuth, accountLimiter, async (req, res, next) => {
   try {
-    const user = (req as any).user as { id: string; loginUsername: string };
+    const user = req.user!;
     await bumpSessionVersion(user.id);
     clearSessionCookie(res);
     logSecurityEvent("session_revoked_all", { ip: req.ip, userId: user.id, username: user.loginUsername }, "info");
@@ -1923,7 +1923,7 @@ async function checkAccountDeletion(userId: string, body: any, ip: string | unde
 // member's LeetCode account.
 app.patch("/api/account/profile", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const body = req.body ?? {};
     const hasName = body.displayName !== undefined;
     const hasSchool = body.school !== undefined;
@@ -2013,7 +2013,7 @@ async function userJson(id: string) {
 // code to put in its profile.
 app.post("/api/account/platforms/:platform/start", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const platform = resolveLinkPlatform(req.params.platform, res);
     if (!platform) return;
 
@@ -2069,7 +2069,7 @@ app.post("/api/account/platforms/:platform/start", accountLimiter, requireAuth, 
 // account, runs its first sync and returns the updated member.
 app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const platform = resolveLinkPlatform(req.params.platform, res);
     if (!platform) return;
 
@@ -2140,7 +2140,7 @@ app.post("/api/account/platforms/:platform/verify", verifyLimiter, requireAuth, 
 // member's main account and isn't handled here.
 app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     if (!isPlatformId(req.params.platform)) return res.status(404).json({ error: "Unknown platform." });
     const platform = PLATFORMS[req.params.platform];
 
@@ -2165,7 +2165,7 @@ app.delete("/api/account/platforms/:platform", accountLimiter, requireAuth, asyn
 // POST start: pick the username, get the code.
 app.post("/api/account/leetcode/start", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const handle = parseLeetCodeUsername((req.body as any)?.leetcodeUsername);
     if (!handle) {
       return res.status(400).json({ error: "Enter a valid LeetCode username (letters, numbers, _ . - only)." });
@@ -2216,7 +2216,7 @@ app.post("/api/account/leetcode/start", accountLimiter, requireAuth, async (req,
 // starts tracking from now.
 app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const pending = await getPendingLink(id, "leetcode");
     if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
       if (pending) await deletePendingLink(id, "leetcode");
@@ -2321,7 +2321,7 @@ app.post("/api/account/leetcode/verify", verifyLimiter, requireAuth, async (req,
 // member, their other linked accounts and their settings stay.
 app.delete("/api/account/leetcode", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     if (!(await unlinkLeetcodeAccount(id))) {
       return res.status(404).json({ error: "You don't have a LeetCode account linked." });
     }
@@ -2338,7 +2338,7 @@ app.delete("/api/account/leetcode", accountLimiter, requireAuth, async (req, res
 // PATCH — show or hide a linked account from other members. Body: { hidden: boolean }.
 app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     if (!isPlatformId(req.params.platform)) return res.status(404).json({ error: "Unknown platform." });
     const platform = PLATFORMS[req.params.platform];
 
@@ -2361,7 +2361,7 @@ app.patch("/api/account/platforms/:platform", accountLimiter, requireAuth, async
 // session and keeps this one signed in with a fresh cookie.
 app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, loginUsername } = (req as any).user as { id: string; loginUsername: string };
+    const { id, loginUsername } = req.user!;
     const { currentPassword, newPassword } = req.body ?? {};
 
     const check = await checkCurrentPassword(id, currentPassword, "password_change", req.ip);
@@ -2391,7 +2391,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
 // (the log line aside), and a cross-site page can't read the response.
 app.get("/api/account/export", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id, loginUsername } = (req as any).user as { id: string; loginUsername: string };
+    const { id, loginUsername } = req.user!;
     const now = new Date();
     const data = await buildAccountExport(id, now);
     if (!data) return res.status(404).json({ error: "Account not found." });
@@ -2413,7 +2413,7 @@ app.get("/api/account/export", accountLimiter, requireAuth, async (req, res) => 
 // than DELETE so the body always survives proxies.
 app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) => {
   try {
-    const { id } = (req as any).user as { id: string };
+    const { id } = req.user!;
     const check = await checkAccountDeletion(id, req.body, req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
@@ -2438,7 +2438,7 @@ app.post("/api/account/delete", accountLimiter, requireAuth, async (req, res) =>
 // the account page, which requires their password.
 app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   const id = req.params.id as string;
-  const session = (req as any).user as { id: string; loginUsername: string };
+  const session = req.user!;
 
   try {
     const target = await getUserById(id);
@@ -2472,7 +2472,7 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 // only caller is the admin dashboard; visitors rely on /api/sync-if-stale.
 app.post("/api/users/:id/refresh", refreshLimiter, requireAdmin, async (req, res, next) => {
   const id = req.params.id as string;
-  const admin = (req as any).user as { id: string; loginUsername: string };
+  const admin = req.user!;
   logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "member", targetId: id }, "info");
 
   try {
@@ -2875,7 +2875,7 @@ app.use("/api", feedbackRoutes);
 
 // POST refresh all users — admin only
 app.post("/api/refresh-all", refreshLimiter, requireAdmin, async (req, res, next) => {
-  const admin = (req as any).user as { id: string; loginUsername: string };
+  const admin = req.user!;
   logSecurityEvent("admin_refresh", { ip: req.ip, adminId: admin.id, admin: admin.loginUsername, scope: "all" }, "info");
   try {
     const result = await syncAllUsers();
@@ -2974,7 +2974,7 @@ app.get("/api/trends", requireAuth, async (req, res, next) => {
 
 // Central error handler: never leak raw driver / internal error messages to clients.
 app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const reqId = (req as any).id || crypto.randomUUID();
+  const reqId = req.id || crypto.randomUUID();
   const rawStatus = (err as any)?.status ?? (err as any)?.statusCode;
   const status = typeof rawStatus === "number" && rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
 
