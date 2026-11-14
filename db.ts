@@ -289,6 +289,13 @@ const LEASE_DDL = [
 ];
 
 export async function initDb(): Promise<void> {
+  if (url.startsWith("file:")) {
+    try {
+      await client.execute("PRAGMA busy_timeout = 5000;");
+    } catch {
+      // Ignore if pragma unsupported
+    }
+  }
   // Final schema for brand-new databases. On an existing database every
   // statement is a no-op and the migrations below bring it up to date.
   await client.batch(
@@ -2315,16 +2322,27 @@ export async function setMeta(key: string, value: string): Promise<void> {
 export async function acquireLease(name: string, ttlMs: number, holder: string = randomUUID()): Promise<string | null> {
   const now = Date.now();
   const expiresAt = now + ttlMs;
-  const res = await client.execute({
-    sql: `INSERT INTO leases (name, holder, expires_at)
-          VALUES (?, ?, ?)
-          ON CONFLICT(name) DO UPDATE SET
-            holder = excluded.holder,
-            expires_at = excluded.expires_at
-          WHERE leases.expires_at < ?`,
-    args: [name, holder, expiresAt, now]
-  });
-  return (res.rowsAffected ?? 0) > 0 ? holder : null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await client.execute({
+        sql: `INSERT INTO leases (name, holder, expires_at)
+              VALUES (?, ?, ?)
+              ON CONFLICT(name) DO UPDATE SET
+                holder = excluded.holder,
+                expires_at = excluded.expires_at
+              WHERE leases.expires_at < ?`,
+        args: [name, holder, expiresAt, now]
+      });
+      return (res.rowsAffected ?? 0) > 0 ? holder : null;
+    } catch (err: any) {
+      if ((err?.code === "SQLITE_BUSY" || err?.message?.includes("database is locked")) && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  return null;
 }
 
 export async function releaseLease(name: string, holder?: string): Promise<void> {
