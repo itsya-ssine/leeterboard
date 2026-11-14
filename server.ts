@@ -726,6 +726,16 @@ app.get("/api/users", requireAuth, async (req, res, next) => {
   }
 });
 
+// GET lightweight version token for adaptive client polling (UX-01). Members only.
+app.get("/api/version", requireAuth, async (req, res, next) => {
+  try {
+    const lastSyncAll = (await getMeta("lastSyncAll")) || "";
+    res.json({ lastSyncAll });
+  } catch (error: any) {
+    next(error);
+  }
+});
+
 /* ---------- Auth: LeetCode username + password ---------- */
 //
 // Accounts are keyed by a username the member picks and protected by a password

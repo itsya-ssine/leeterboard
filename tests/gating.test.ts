@@ -197,7 +197,7 @@ describe("route inventory", () => {
 
   it("covers the data routes explicitly", () => {
     const byKey = new Map(all.flatMap((f) => f.routes).map((r) => [r.key, r]));
-    for (const key of ["GET /api/users", "GET /api/trends", "POST /api/sync-if-stale"]) {
+    for (const key of ["GET /api/users", "GET /api/version", "GET /api/trends", "POST /api/sync-if-stale"]) {
       assert.match(byKey.get(key)?.middleware ?? "", /\brequireAuth\b/, key);
     }
   });
