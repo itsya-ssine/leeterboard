@@ -133,9 +133,7 @@ export function mergeWinnerArchive(stored: WeeklyWinner[], computed: WeeklyWinne
   const byWeek = new Map<string, WeeklyWinner>();
   for (const w of computed) byWeek.set(w.weekStart, w);
   for (const w of stored) byWeek.set(w.weekStart, w);
-  return [...byWeek.values()]
-    .sort((a, b) => b.weekStart.localeCompare(a.weekStart))
-    .slice(0, ARCHIVE_LIMIT);
+  return [...byWeek.values()].sort((a, b) => b.weekStart.localeCompare(a.weekStart)).slice(0, ARCHIVE_LIMIT);
 }
 
 // Reads the archive back from its JSON form, dropping anything malformed.

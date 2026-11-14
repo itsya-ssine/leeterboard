@@ -1,17 +1,25 @@
 {
-  "name": "react-example",
+  "name": "leeterboard",
   "private": true,
   "license": "MIT",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@10.9.9",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build --outDir dist/client && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --define:__PRODUCTION_BUNDLE__=true --outfile=server-dist/server.cjs",
     "vercel-build": "vite build",
     "start": "node server-dist/server.cjs",
     "clean": "rm -rf dist server-dist server.js",
-    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --quiet && tsc --noEmit",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:check-schema": "tsx --test tests/schema-sync.test.ts",
     "admin": "tsx scripts/admin-account.ts",
     "security:check": "tsx scripts/check-security-config.ts",
     "legal:check": "tsx scripts/check-legal-config.ts",
@@ -38,6 +46,7 @@
     "vite": "^8.3.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/cookie-parser": "^1.4.7",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.7",
@@ -46,9 +55,16 @@
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.6.2",
     "esbuild": "^0.28.2",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.10.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~7.0.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.2",
     "vite": "^8.3.5"
+  },
+  "overrides": {
+    "minimatch": "^11.0.8"
   }
 }

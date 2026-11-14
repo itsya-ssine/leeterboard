@@ -36,11 +36,7 @@ describe("domain: progress calculations", () => {
 
   it("calculates exact progress over a standard window", () => {
     // 7 days ago: 100, now: 115
-    const history = [
-      makeRecord("2026-11-06", 100),
-      makeRecord("2026-11-07", 102),
-      makeRecord("2026-11-12", 110)
-    ];
+    const history = [makeRecord("2026-11-06", 100), makeRecord("2026-11-07", 102), makeRecord("2026-11-12", 110)];
     const now = Date.parse("2026-11-13T12:00:00Z");
     const progress = computeProgressFromHistory(history, 115, 7, now);
     // Target is end of today (2026-11-13T23:59:59.999Z) - 7 days = 2026-11-06T23:59:59.999Z
@@ -50,10 +46,7 @@ describe("domain: progress calculations", () => {
 
   it("interpolates linearly across history snapshot gaps", () => {
     // User had 100 on Nov 01 and 120 on Nov 11 (gap between Nov 01 and Nov 11)
-    const history = [
-      makeRecord("2026-11-01", 100),
-      makeRecord("2026-11-11", 120)
-    ];
+    const history = [makeRecord("2026-11-01", 100), makeRecord("2026-11-11", 120)];
     // Window: 7 days before Nov 13 = Nov 06.
     // Nov 06 is halfway between Nov 01 (100) and Nov 11 (120) -> baseline ≈ 110
     const now = Date.parse("2026-11-13T23:59:59.999Z");
@@ -64,10 +57,7 @@ describe("domain: progress calculations", () => {
 
   it("measures progress from joined baseline when user joined inside the window", () => {
     // Member joined 3 days ago with 50 solved
-    const history = [
-      makeRecord("2026-11-11", 52),
-      makeRecord("2026-11-12", 55)
-    ];
+    const history = [makeRecord("2026-11-11", 52), makeRecord("2026-11-12", 55)];
     const now = Date.parse("2026-11-13T12:00:00Z");
     const joined = { date: "2026-11-10", solved: 50 };
     // 7-day window reaches back before joined date
@@ -92,9 +82,7 @@ describe("domain: progress calculations", () => {
   it("resets weekly progress on Monday 00:00 UTC", () => {
     // Sunday 2026-11-08: 200 solved.
     // Monday 2026-11-09 00:01 UTC: still 200 solved.
-    const history = [
-      makeRecord("2026-11-08", 200)
-    ];
+    const history = [makeRecord("2026-11-08", 200)];
     const mondayMorning = Date.parse("2026-11-09T00:01:00Z");
     const weeklyProgress = computeWeeklyProgressFromHistory(history, 200, mondayMorning);
     assert.equal(weeklyProgress, 0);
@@ -107,11 +95,7 @@ describe("domain: progress calculations", () => {
 
   it("handles leap year dates seamlessly", () => {
     // 2024 was a leap year (2024-02-29 exists)
-    const history = [
-      makeRecord("2024-02-28", 50),
-      makeRecord("2024-02-29", 54),
-      makeRecord("2024-03-01", 58)
-    ];
+    const history = [makeRecord("2024-02-28", 50), makeRecord("2024-02-29", 54), makeRecord("2024-03-01", 58)];
     const now = Date.parse("2024-03-02T12:00:00Z");
     const progress = computeProgressFromHistory(history, 60, 2, now);
     assert.equal(progress, 6); // from 2024-02-29 (54) to 60 -> 6

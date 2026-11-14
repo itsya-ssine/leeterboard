@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  DAY_SECONDS,
-  parseSubmissionCalendar,
-  streaksFromDays
-} from "../server/domain/streaks.js";
+import { DAY_SECONDS, parseSubmissionCalendar, streaksFromDays } from "../server/domain/streaks.js";
 
 describe("domain: streaks calculations", () => {
   it("parses valid submission calendar JSON string into day indexes", () => {
@@ -57,10 +53,16 @@ describe("domain: streaks calculations", () => {
     const today = 20000;
     const days = [
       // Old 5-day streak
-      19900, 19901, 19902, 19903, 19904,
+      19900,
+      19901,
+      19902,
+      19903,
+      19904,
       // Gap
       // Current 3-day streak
-      today - 2, today - 1, today
+      today - 2,
+      today - 1,
+      today
     ];
     const streak = streaksFromDays(days, today);
     assert.equal(streak.current, 3);

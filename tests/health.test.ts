@@ -20,7 +20,7 @@ describe("GET /api/health (CQ-08 / PRO-07)", () => {
     const cc = res.headers.get("cache-control") || "";
     assert.ok(cc.includes("no-store"), `Expected Cache-Control: no-store, got "${cc}"`);
 
-    const body = await res.json() as {
+    const body = (await res.json()) as {
       ok: boolean;
       uptime: number;
       timestamp: string;

@@ -305,7 +305,7 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
           const medium = acSubmissions.find((x: any) => x.difficulty === "Medium")?.count || 0;
           const hard = acSubmissions.find((x: any) => x.difficulty === "Hard")?.count || 0;
 
-          let avatarUrl = safeAvatar(matchedUser?.profile?.userAvatar);
+          const avatarUrl = safeAvatar(matchedUser?.profile?.userAvatar);
 
           return {
             allTimeSolved: all,
@@ -342,7 +342,7 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
       if (data?.errors) {
         confirmedNotFound = true;
       } else if (typeof data.totalSolved === "number") {
-        let avatarUrl = safeAvatar(data.avatar);
+        const avatarUrl = safeAvatar(data.avatar);
         return {
           allTimeSolved: data.totalSolved || 0,
           easySolved: data.easySolved || 0,

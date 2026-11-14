@@ -144,6 +144,7 @@ describe("members", () => {
 // requireAuth or requireAdmin. Adding a route here is a decision to make it
 // public; review it as one.
 const PUBLIC_ROUTES = new Set([
+  "GET /api/health",
   "POST /api/auth/login",
   "GET /api/auth/oauth/:provider/start",
   "GET /api/auth/oauth/:provider/callback",

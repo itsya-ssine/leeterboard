@@ -116,14 +116,7 @@ describe("domain: weekly winners and archiving", () => {
     const now = Date.parse("2026-11-11T12:00:00Z");
     // Week: 2026-11-02 to 2026-11-08.
     // Charlie joined on 2026-11-04 with baseline 30, and reached 50 by Sunday 2026-11-08
-    const charlie = makeUser(
-      "u3",
-      "Charlie",
-      50,
-      [{ date: "2026-11-08", solvedCount: 50 }],
-      "2026-11-04",
-      30
-    );
+    const charlie = makeUser("u3", "Charlie", 50, [{ date: "2026-11-08", solvedCount: 50 }], "2026-11-04", 30);
 
     const winners = computeWeeklyWinners([charlie], now, 1);
     assert.equal(winners.length, 1);
@@ -149,7 +142,7 @@ describe("domain: weekly winners and archiving", () => {
     // Computed might have different data for 2026-10-26 due to trimmed snapshots, but stored must win
     const computed: WeeklyWinner[] = [
       { weekStart: "2026-10-26", userId: "u3", gained: 5 }, // Stored u2 should win
-      { weekStart: "2026-11-02", userId: "u1", gained: 25 }  // New week
+      { weekStart: "2026-11-02", userId: "u1", gained: 25 } // New week
     ];
 
     const merged = mergeWinnerArchive(stored, computed);
