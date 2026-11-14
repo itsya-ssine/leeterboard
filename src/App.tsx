@@ -33,6 +33,8 @@ import Podium from "./Podium.js";
 import SchoolTag from "./SchoolTag.js";
 import RankMovement from "./RankMovement.js";
 import ThemeToggle from "./ThemeToggle.js";
+import LanguageSelector from "./LanguageSelector.js";
+import { useI18n } from "./i18n.js";
 import NotificationBell from "./NotificationBell.js";
 import AccountButton from "./AccountButton.js";
 import { chartColors, useTheme } from "./theme.js";
@@ -271,28 +273,45 @@ function NavLinks({
   labelFrom?: keyof typeof NAV_LABEL_CLASS;
   fill?: boolean;
 }) {
+  const { t } = useI18n();
   const items = isAdmin ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
+
+  const getNavLabel = (p: string, defaultLabel: string) => {
+    switch (p) {
+      case "leaderboard": return t.leaderboard;
+      case "codeforces": return t.codeforces;
+      case "codingame": return t.codingame;
+      case "stats": return t.stats;
+      case "compare": return t.compare;
+      case "admin": return t.syncHealth;
+      default: return defaultLabel;
+    }
+  };
+
   return (
     <nav aria-label="Main" className={`items-center gap-1 ${className}`}>
-      {items.map(({ page: p, href, label, Icon }) => (
-        <a
-          key={p}
-          href={href}
-          aria-current={page === p ? "page" : undefined}
-          aria-label={label}
-          title={label}
-          className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
-            NAV_PADDING_CLASS[labelFrom]
-          } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
-            page === p
-              ? "bg-ink-800 text-strong shadow-[inset_0_-2px_0_0_var(--color-teal-400)] ring-1 ring-line"
-              : "text-mist-400 hover:bg-tint hover:text-strong"
-          }`}
-        >
-          <Icon className="size-4 shrink-0" aria-hidden="true" />
-          <span className={NAV_LABEL_CLASS[labelFrom]}>{label}</span>
-        </a>
-      ))}
+      {items.map(({ page: p, href, label, Icon }) => {
+        const navLabel = getNavLabel(p, label);
+        return (
+          <a
+            key={p}
+            href={href}
+            aria-current={page === p ? "page" : undefined}
+            aria-label={navLabel}
+            title={navLabel}
+            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
+              NAV_PADDING_CLASS[labelFrom]
+            } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
+              page === p
+                ? "bg-ink-800 text-strong shadow-[inset_0_-2px_0_0_var(--color-teal-400)] ring-1 ring-line"
+                : "text-mist-400 hover:bg-tint hover:text-strong"
+            }`}
+          >
+            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            <span className={NAV_LABEL_CLASS[labelFrom]}>{navLabel}</span>
+          </a>
+        );
+      })}
     </nav>
   );
 }
@@ -615,6 +634,34 @@ export default function App() {
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const currentIntervalRef = useRef<number>(BASE_POLL_INTERVAL_MS);
 
+  const { t } = useI18n();
+  const [selectedCohort, setSelectedCohort] = useState<string>("");
+
+  // Keyboard shortcut: '/' focuses the search input on the leaderboard (UX-10)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const target = e.target as HTMLElement | null;
+        const tagName = target?.tagName?.toLowerCase();
+        if (
+          tagName === "input" ||
+          tagName === "textarea" ||
+          tagName === "select" ||
+          target?.isContentEditable
+        ) {
+          return;
+        }
+        const searchInput = document.getElementById("leaderboard-search") as HTMLInputElement | null;
+        if (searchInput) {
+          e.preventDefault();
+          searchInput.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   // Sync document title and accessibility focus on page/profile change (UX-02)
   useEffect(() => {
     if (page === "profile" && profileName) {
@@ -887,9 +934,23 @@ export default function App() {
     }
   };
 
+  // Distinct cohorts from registered members
+  const cohorts = useMemo(() => {
+    const set = new Set<string>();
+    users.forEach((u) => {
+      const s = u.school?.trim();
+      if (s) set.add(s);
+    });
+    return Array.from(set).sort();
+  }, [users]);
+
   // Filter and sort user list
-  const filteredUsers = users.filter(u => {
+  const filteredUsers = users.filter((u) => {
+    if (selectedCohort && (u.school ?? "").trim().toLowerCase() !== selectedCohort.toLowerCase()) {
+      return false;
+    }
     const q = searchQuery.toLowerCase();
+    if (!q) return true;
     return (
       u.displayName.toLowerCase().includes(q) ||
       u.loginUsername.toLowerCase().includes(q) ||
@@ -1158,6 +1219,7 @@ export default function App() {
               </button>
             )}
 
+            <LanguageSelector />
             <ThemeToggle />
 
             {/* Notifications — signed-in members only. Keyed by member so
@@ -1545,14 +1607,46 @@ export default function App() {
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-mist-500" />
               <input
                 type="text"
-                placeholder="Search by name, username or school"
+                placeholder={t.searchPlaceholder}
                 aria-label="Search members"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className={`${inputCls} pl-9`}
+                className={`${inputCls} pl-9 pr-12`}
                 id="leaderboard-search"
               />
+              <kbd
+                title={t.pressSlashToSearch}
+                aria-hidden="true"
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center justify-center h-5 px-1.5 font-mono text-[10px] font-semibold text-mist-400 bg-ink-800 border border-line rounded"
+              >
+                /
+              </kbd>
             </div>
+
+            {cohorts.length > 0 && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <label htmlFor="cohort-filter" className="sr-only">
+                  {t.filterCohort}
+                </label>
+                <select
+                  id="cohort-filter"
+                  aria-label={t.filterCohort}
+                  value={selectedCohort}
+                  onChange={(e) => setSelectedCohort(e.target.value)}
+                  className="h-8 rounded-lg border border-line bg-ink-950/80 px-2.5 text-xs font-medium text-mist-300 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                >
+                  <option value="">{t.allCohorts} ({users.length})</option>
+                  {cohorts.map((c) => {
+                    const count = users.filter((u) => (u.school ?? "").trim().toLowerCase() === c.toLowerCase()).length;
+                    return (
+                      <option key={c} value={c}>
+                        {c} ({count})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
 
             <div
               role="group"
@@ -1561,9 +1655,9 @@ export default function App() {
             >
               {(
                 [
-                  { key: "weekly", label: "This week", id: "sort-weekly-btn" },
-                  { key: "allTime", label: "All time", id: "sort-alltime-btn" },
-                  { key: "rating", label: "Contest", id: "sort-rating-btn" }
+                  { key: "weekly", label: t.thisWeek, id: "sort-weekly-btn" },
+                  { key: "allTime", label: t.allTime, id: "sort-alltime-btn" },
+                  { key: "rating", label: t.contestRating, id: "sort-rating-btn" }
                 ] as const
               ).map((opt) => (
                 <button
@@ -1625,15 +1719,15 @@ export default function App() {
                     <EmptyState
                       bare
                       icon={<Search className="size-5" aria-hidden="true" />}
-                      title={searchQuery ? "No members match your search" : "No members on the board yet"}
+                      title={searchQuery || selectedCohort ? "No members match your filter" : "No members on the board yet"}
                       description={
-                        searchQuery
-                          ? "Try a different name or LeetCode username."
+                        searchQuery || selectedCohort
+                          ? "Try a different search term or cohort filter."
                           : "Link your LeetCode account in Account settings to join this board."
                       }
                       action={
-                        searchQuery
-                          ? { label: "Clear search", onClick: () => setSearchQuery("") }
+                        searchQuery || selectedCohort
+                          ? { label: "Clear filters", onClick: () => { setSearchQuery(""); setSelectedCohort(""); } }
                           : { label: "Link LeetCode", href: "#/account" }
                       }
                     />
