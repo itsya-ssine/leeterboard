@@ -80,10 +80,18 @@ export default function NotificationBell() {
   useEffect(() => {
     load();
     const timer = setInterval(() => {
-      if (document.visibilityState === "visible") load();
+      if (document.visibilityState === "visible" && (typeof navigator === "undefined" || navigator.onLine)) {
+        load();
+      }
     }, POLL_MS);
     const onWake = () => {
-      if (document.visibilityState === "visible" && Date.now() - lastLoad.current > MIN_RELOAD_GAP_MS) load();
+      if (
+        document.visibilityState === "visible" &&
+        (typeof navigator === "undefined" || navigator.onLine) &&
+        Date.now() - lastLoad.current > MIN_RELOAD_GAP_MS
+      ) {
+        load();
+      }
     };
     window.addEventListener("focus", onWake);
     document.addEventListener("visibilitychange", onWake);
@@ -188,6 +196,9 @@ export default function NotificationBell() {
         className={`relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-ink-800/80 text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong ${focusRing}`}
       >
         <Bell className="size-4" aria-hidden="true" />
+        <span className="sr-only" aria-live="polite">
+          {unread > 0 ? `${unread} unread notifications` : "No unread notifications"}
+        </span>
         {unread > 0 && (
           <span
             aria-hidden="true"
