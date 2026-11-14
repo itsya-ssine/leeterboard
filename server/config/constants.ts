@@ -14,4 +14,8 @@ export const SYNC_LEASE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 // Password reset / proof TTL
 export const PENDING_ACTION_TTL_MS = 30 * 60 * 1000; // 30 minutes
-export const MAX_VERIFY_ATTEMPTS = 5;
+export const MAX_VERIFY_ATTEMPTS = 10;
+
+// Account lockout & failed logins (SEC-08)
+export const MAX_FAILED_LOGINS = 5;
+export const LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes

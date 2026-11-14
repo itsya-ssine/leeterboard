@@ -1,1 +1,1 @@
-export { requireAuth, requireAdmin } from "../../auth.js";
+export { requireAuth, requireAdmin, resolveSession } from "../../auth.js";
