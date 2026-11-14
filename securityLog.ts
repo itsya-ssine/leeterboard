@@ -50,7 +50,8 @@ export type SecurityEvent =
   | "oauth_unlinked"
   | "cron_sync_unauthorized"
   | "cron_sync_completed"
-  | "session_revoked_all";
+  | "session_revoked_all"
+  | "password_rehashed";
 
 // A field named exactly "email" is redacted too (anchored, so "maskedEmail" -
 // the form that is safe to log - is not caught by it).

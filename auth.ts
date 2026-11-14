@@ -32,7 +32,7 @@ if (
 const SCRYPT = { N: 2 ** 15, r: 8, p: 1, keyLen: 64 } as const;
 const HASH_PREFIX = "scrypt$";
 
-export const MIN_PASSWORD_LENGTH = 8;
+export const MIN_PASSWORD_LENGTH = 10;
 // Upper bound so nobody can make us hash megabytes of input.
 export const MAX_PASSWORD_LENGTH = 128;
 
@@ -87,6 +87,54 @@ let dummyHash: Promise<string> | null = null;
 export async function burnPasswordCheck(password: string): Promise<void> {
   dummyHash ??= hashPassword(crypto.randomBytes(16).toString("hex"));
   await verifyPassword(password, await dummyHash);
+}
+
+// SEC-07: Checks whether a stored password hash was computed with older/lower scrypt parameters
+// and should be upgraded transparently upon successful login.
+export function needsRehash(stored: string): boolean {
+  if (!isPasswordHash(stored)) return false;
+  const parts = stored.split("$");
+  if (parts.length !== 6) return false;
+  const [, nStr, rStr, pStr] = parts;
+  const N = Number(nStr);
+  const r = Number(rStr);
+  const p = Number(pStr);
+  return N < SCRYPT.N || r < SCRYPT.r || p < SCRYPT.p;
+}
+
+/**
+ * SEC-07: Checks whether a password appears in Have I Been Pwned's breached password database.
+ * Uses k-Anonymity (only the first 5 characters of SHA-1 are sent upstream).
+ * Fails open (returns false) if the API times out, returns an error, or is unreachable.
+ */
+export async function isBreachedPassword(password: string): Promise<boolean> {
+  if (process.env.SKIP_HIBP_CHECK === "true" || process.env.NODE_ENV === "test") return false;
+  try {
+    const sha1 = crypto.createHash("sha1").update(password).digest("hex").toUpperCase();
+    const prefix = sha1.slice(0, 5);
+    const suffix = sha1.slice(5);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, {
+      headers: { "Add-Padding": "true", "User-Agent": "Leeterboard-Password-Audit" },
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (!res.ok) return false;
+    const body = await res.text();
+    const lines = body.split("\r\n");
+    for (const line of lines) {
+      const [hashSuffix, countStr] = line.split(":");
+      if (hashSuffix && hashSuffix.trim().toUpperCase() === suffix) {
+        const count = Number(countStr?.trim());
+        if (count > 0) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false; // Fail open
+  }
 }
 
 /* ---------- Sessions ---------- */

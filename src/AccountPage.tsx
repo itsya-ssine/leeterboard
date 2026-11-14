@@ -960,8 +960,8 @@ export default function AccountPage({
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwNotice(null);
-    if (newPw.length < 8) {
-      setPwNotice({ kind: "error", message: "New password must be at least 8 characters." });
+    if (newPw.length < 10) {
+      setPwNotice({ kind: "error", message: "New password must be at least 10 characters." });
       return;
     }
     if (newPw !== confirmPw) {
@@ -1254,13 +1254,13 @@ export default function AccountPage({
               </div>
               <div>
                 <label htmlFor="acct-new-pw" className={labelCls}>
-                  New password <span className="font-normal text-mist-500">(8+ characters)</span>
+                  New password <span className="font-normal text-mist-500">(10+ characters)</span>
                 </label>
                 <input
                   id="acct-new-pw"
                   type="password"
                   autoComplete="new-password"
-                  minLength={8}
+                  minLength={10}
                   maxLength={128}
                   value={newPw}
                   onChange={(e) => setNewPw(e.target.value)}

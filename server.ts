@@ -109,6 +109,8 @@ import {
   verifyPassword,
   burnPasswordCheck,
   isPasswordHash,
+  needsRehash,
+  isBreachedPassword,
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH
 } from "./auth.js";
@@ -855,11 +857,14 @@ function parseLeetCodeUsername(value: unknown): string | null {
   return LEETCODE_USERNAME_RE.test(v) ? v : null;
 }
 
-function validatePassword(password: unknown, username: string): string | null {
+async function validatePassword(password: unknown, username: string): Promise<string | null> {
   if (typeof password !== "string") return "Password is required.";
   if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
   if (password.length > MAX_PASSWORD_LENGTH) return `Password must be at most ${MAX_PASSWORD_LENGTH} characters.`;
   if (password.toLowerCase() === username.toLowerCase()) return "Password can't be the same as your username.";
+  if (await isBreachedPassword(password)) {
+    return "This password has appeared in a known data breach. Please choose a different, more secure password.";
+  }
   return null;
 }
 
@@ -1082,7 +1087,7 @@ app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
     if (!platform) {
       return res.status(400).json({ error: "Choose the account you linked: LeetCode, Codeforces or CodinGame." });
     }
-    const passwordError = validatePassword(body.password, username);
+    const passwordError = await validatePassword(body.password, username);
     if (passwordError) {
       return res.status(400).json({ error: passwordError });
     }
@@ -1362,6 +1367,11 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     }
 
     if (auth.failedLogins > 0) await clearFailedLogins(user.id);
+    if (needsRehash(auth.passwordHash)) {
+      auth.passwordHash = await hashPassword(password);
+      await setPasswordHash(user.id, auth.passwordHash);
+      logSecurityEvent("password_rehashed", { userId: user.id, username: loginName }, "info");
+    }
     setSessionCookie(res, user, auth.passwordHash, auth.sessionVersion);
     res.json({ ...user, isAdmin: isAdminUser(user) });
   } catch (error: any) {
@@ -2407,7 +2417,7 @@ app.post("/api/account/password", accountLimiter, requireAuth, async (req, res) 
     const check = await checkCurrentPassword(id, currentPassword, "password_change", req.ip);
     if (!check.record) return res.status(check.status).json({ error: check.error, code: check.code });
 
-    const passwordError = validatePassword(newPassword, loginUsername);
+    const passwordError = await validatePassword(newPassword, loginUsername);
     if (passwordError) return res.status(400).json({ error: passwordError });
     if (newPassword === currentPassword) {
       return res.status(400).json({ error: "Your new password must be different from the current one." });
