@@ -125,6 +125,7 @@ import { checkUsername } from "./usernames.js";
 import { securityHeaders } from "./securityHeaders.js";
 import { logSecurityEvent } from "./securityLog.js";
 import { buildAccountExport, exportFileName } from "./accountExport.js";
+import { safeAvatar } from "./avatar.js";
 import { findServerCode } from "./runtimeEnvPolicy.js";
 import { apiLimiter, pageLimiter, loginLimiter, resetLimiter, verifyLimiter, accountLimiter, refreshLimiter, oauthLimiter } from "./rateLimit.js";
 
@@ -312,10 +313,7 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
           const medium = acSubmissions.find((x: any) => x.difficulty === "Medium")?.count || 0;
           const hard = acSubmissions.find((x: any) => x.difficulty === "Hard")?.count || 0;
 
-          let avatarUrl = matchedUser?.profile?.userAvatar;
-          if (avatarUrl && avatarUrl.startsWith("/")) {
-            avatarUrl = `https://leetcode.com${avatarUrl}`;
-          }
+          let avatarUrl = safeAvatar(matchedUser?.profile?.userAvatar);
 
           return {
             allTimeSolved: all,
@@ -350,10 +348,7 @@ async function scrapeLeetCodeProfile(username: string): Promise<{
       if (data?.errors) {
         confirmedNotFound = true;
       } else if (typeof data.totalSolved === "number") {
-        let avatarUrl = data.avatar;
-        if (avatarUrl && avatarUrl.startsWith("/")) {
-          avatarUrl = `https://leetcode.com${avatarUrl}`;
-        }
+        let avatarUrl = safeAvatar(data.avatar);
         return {
           allTimeSolved: data.totalSolved || 0,
           easySolved: data.easySolved || 0,

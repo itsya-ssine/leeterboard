@@ -1,4 +1,5 @@
 import { PlatformNotFoundError, PlatformUnavailableError, type PlatformProfile, type PlatformStats } from "./common.js";
+import { safeAvatar } from "../avatar.js";
 
 // Codeforces public API (https://codeforces.com/apiHelp). No key needed for
 // these methods. Codeforces allows about one request every two seconds, so every
@@ -157,7 +158,7 @@ export async function fetchCodeforcesStats(handle: string): Promise<PlatformStat
     maxRating: finiteOrNull(info.maxRating),
     rankTitle: typeof info.rank === "string" ? info.rank : null,
     contests,
-    avatarUrl: normalizeUrl(info.titlePhoto) ?? normalizeUrl(info.avatar),
+    avatarUrl: safeAvatar(normalizeUrl(info.titlePhoto) ?? normalizeUrl(info.avatar)),
     extra: { buckets: s.buckets, daily: s.daily }
   };
 }
