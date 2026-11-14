@@ -30,6 +30,7 @@ import {
   daysIntoWeek,
   computeWeeklyProgressFromHistory
 } from "./server/domain/progress.js";
+import { sortAndRankUsers } from "./server/domain/ranking.js";
 import { executeLeetCodeGraphQL } from "./leetcodeClient.js";
 import {
   initDb,
@@ -226,27 +227,6 @@ const dbReady = initDb();
 app.use((_req, _res, next) => {
   dbReady.then(() => next()).catch(next);
 });
-
-// Utility to calculate ranks and progress metrics
-function sortAndRankUsers(users: User[]) {
-  // The ranking is the LeetCode board, so only members with a LeetCode account
-  // take part: they come first, by Weekly Progress (to encourage active, weekly
-  // problem solving momentum!) and, in case of a tie, by All-Time solved counts.
-  // Members without LeetCode follow, unranked (rank 0) and never ahead of
-  // anyone, not even a linked member who has solved nothing yet.
-  users.sort((a, b) => {
-    if (a.leetcodeLinked !== b.leetcodeLinked) return a.leetcodeLinked ? -1 : 1;
-    if (b.weeklyProgress !== a.weeklyProgress) {
-      return b.weeklyProgress - a.weeklyProgress;
-    }
-    return b.allTimeSolved - a.allTimeSolved;
-  });
-
-  let rank = 0;
-  for (const u of users) {
-    u.rank = u.leetcodeLinked ? ++rank : 0;
-  }
-}
 
 // Fetches real solved-problem counts for a LeetCode username.
 // Throws LeetCodeUserNotFoundError when a source positively confirms the
@@ -863,7 +843,7 @@ function defaultAvatar(name: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-type AboutLookup =
+export type AboutLookup =
   | { status: "ok"; username: string; aboutMe: string }
   | { status: "not_found" }
   | { status: "unavailable" };
@@ -878,7 +858,7 @@ type AboutLookup =
 // fail closed: "unavailable" (callers return 503 and the user retries).
 // "not_found" is only reported when LeetCode positively says the user
 // doesn't exist.
-async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
+export async function fetchLeetCodeAbout(username: string): Promise<AboutLookup> {
   let notFound = false;
 
   // Official LeetCode GraphQL endpoint (the only trusted source)
