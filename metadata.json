@@ -1,6 +1,0 @@
-{
-  "name": "LeetCode Leaderboard",
-  "description": "A high-fidelity performance leaderboard built on LeetCode profiles, featuring automated progress scraping, rank updates, and monthly trends.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
