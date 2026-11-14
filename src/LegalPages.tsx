@@ -508,6 +508,11 @@ const TERMS: SectionDef[] = [
           Nothing in these terms excludes or limits liability that cannot be excluded by law, or consumer rights you have
           under the law where you live.
         </p>
+        <p>
+          <B>Trademark disclaimer.</B> {LEGAL.serviceName} is an independent project and is not affiliated with, endorsed by,
+          or sponsored by LeetCode, Codeforces, or CodinGame. All product names, logos, and brands are property of their
+          respective owners.
+        </p>
       </>
     )
   },
