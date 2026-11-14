@@ -691,6 +691,24 @@ function withVisiblePlatforms<T extends { id: string; platforms?: Partial<Record
   return { ...user, platforms };
 }
 
+// Uptime and system health check (CQ-08 / PRO-07)
+app.get("/api/health", async (_req, res) => {
+  try {
+    const lastSyncAll = await getMeta("lastSyncAll");
+    res.set("Cache-Control", "no-store").json({
+      ok: true,
+      uptime: Math.floor(process.uptime()),
+      timestamp: new Date().toISOString(),
+      lastSyncAll: lastSyncAll || null
+    });
+  } catch {
+    res.set("Cache-Control", "no-store").status(503).json({
+      ok: false,
+      error: "Database unavailable"
+    });
+  }
+});
+
 // GET all users (with automatic ranking update). Members only: the board is
 // not public, so there is always a signed-in viewer here.
 app.get("/api/users", requireAuth, async (req, res, next) => {
