@@ -1,0 +1,42 @@
+name: Backup Restore Drill
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Weekly Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drill:
+    name: Database Backup Restore Drill
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply all migrations to a clean database copy
+        run: TURSO_DATABASE_URL="file:./restore-drill.db" npx tsx scripts/migrate.ts
+
+      - name: Seed test accounts
+        run: TURSO_DATABASE_URL="file:./restore-drill.db" npx tsx scripts/seed-dev-users.ts
+
+      - name: Run backup integrity and consistency verification drill
+        run: npm run db:verify-backup -- --url file:./restore-drill.db
