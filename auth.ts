@@ -260,10 +260,13 @@ function safeEqual(a: string, b: string): boolean {
   return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }
 
+export const IS_SECURE_ENV = process.env.NODE_ENV === "production" || !!process.env.VERCEL;
+export const SESSION_COOKIE_NAME = IS_SECURE_ENV ? "__Host-session" : "session";
+
 const cookieBase = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: IS_SECURE_ENV,
   path: "/"
 };
 
@@ -286,15 +289,24 @@ export function setSessionCookie(
   // session would be refused on the very next request.
   if (isPasswordHash(passwordHash)) payload.ps = sessionStamp(passwordHash);
   const token = jwt.sign(payload, JWT_SECRET!, { algorithm: "HS256", expiresIn: SESSION_TTL });
-  res.cookie(COOKIE_NAME, token, { ...cookieBase, maxAge: SESSION_MAX_AGE_MS });
+  res.cookie(SESSION_COOKIE_NAME, token, { ...cookieBase, maxAge: SESSION_MAX_AGE_MS });
+  if (SESSION_COOKIE_NAME !== "session") {
+    res.clearCookie("session", { ...cookieBase, secure: false });
+  }
 }
 
 export function clearSessionCookie(res: Response): void {
-  res.clearCookie(COOKIE_NAME, cookieBase);
+  res.clearCookie(SESSION_COOKIE_NAME, cookieBase);
+  if (SESSION_COOKIE_NAME !== "session") {
+    res.clearCookie("session", { ...cookieBase, secure: false });
+  }
 }
 
 export function readSession(req: Request): SessionPayload | null {
-  const token = req.cookies?.[COOKIE_NAME];
+  const token =
+    req.cookies?.[SESSION_COOKIE_NAME] ??
+    req.cookies?.["__Host-session"] ??
+    req.cookies?.["session"];
   if (!token || typeof token !== "string") return null;
   try {
     // Pin the algorithm so a forged "alg: none" token can never verify.

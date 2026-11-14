@@ -113,6 +113,7 @@ import {
   isBreachedPassword,
   signDeviceToken,
   verifyDeviceToken,
+  IS_SECURE_ENV,
   MIN_PASSWORD_LENGTH,
   MAX_PASSWORD_LENGTH
 } from "./auth.js";
@@ -1040,12 +1041,12 @@ if (ALLOWED_EMAIL_DOMAINS.length > 0) {
 //   - an account whose linked name stopped resolving (it may now belong to
 //     someone else; an admin lifts that with `npm run admin -- approve-reset`),
 //   - an unknown username, or a platform the member hasn't linked.
-const RESET_COOKIE = "pwreset";
+const RESET_COOKIE = IS_SECURE_ENV ? "__Secure-pwreset" : "pwreset";
 const RESET_TTL_MS = 30 * 60 * 1000;
 const resetCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: IS_SECURE_ENV,
   path: "/api/auth"
 };
 const RESET_PLATFORMS: readonly RecoveryPlatform[] = ["leetcode", "codeforces", "codingame"];
@@ -1155,22 +1156,32 @@ app.post("/api/auth/reset/start", resetLimiter, async (req, res) => {
   }
 });
 
+function clearResetCookie(res: express.Response): void {
+  res.clearCookie(RESET_COOKIE, resetCookieOptions);
+  if (RESET_COOKIE !== "pwreset") {
+    res.clearCookie("pwreset", { ...resetCookieOptions, secure: false });
+  }
+}
+
 // POST — forgot password, step 2. Reads the linked account's public profile and,
 // if the code is there, sets the new password, signs the person in, signs out
 // everyone else and leaves the owner a notice.
 app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
   try {
-    const cookieValue = req.cookies?.[RESET_COOKIE];
+    const cookieValue =
+      req.cookies?.[RESET_COOKIE] ??
+      req.cookies?.["__Secure-pwreset"] ??
+      req.cookies?.["pwreset"];
     const pending =
       typeof cookieValue === "string" && /^[a-f0-9]{64}$/.test(cookieValue) ? await getPendingReset(cookieValue) : null;
     if (!pending || Date.parse(pending.expiresAt) < Date.now()) {
       if (pending) await deletePendingReset(pending.id);
-      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      clearResetCookie(res);
       return res.status(400).json({ error: "This reset request has expired. Please start again.", expired: true });
     }
     if (pending.attempts >= MAX_VERIFY_ATTEMPTS) {
       await deletePendingReset(pending.id);
-      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      clearResetCookie(res);
       return res.status(429).json({ error: "Too many failed checks. Please start again.", expired: true });
     }
 
@@ -1179,7 +1190,7 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
     const eligibility = user ? await resetEligibility(user, pending.platform) : null;
     if (!user || !eligibility || !eligibility.ok || eligibility.handle.toLowerCase() !== pending.handle.toLowerCase()) {
       await deletePendingReset(pending.id);
-      res.clearCookie(RESET_COOKIE, resetCookieOptions);
+      clearResetCookie(res);
       logSecurityEvent("ownership_blocked", {
         ip: req.ip,
         userId: pending.userId,
@@ -1202,6 +1213,7 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
       }
       if (lookup.status === "not_found") {
         await deletePendingReset(pending.id);
+        clearResetCookie(res);
         logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: "leetcode", reason: "name_not_found", stage: "verify" });
         return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
       }
@@ -1212,6 +1224,7 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
       } catch (err: any) {
         if (err instanceof PlatformNotFoundError) {
           await deletePendingReset(pending.id);
+          clearResetCookie(res);
           logSecurityEvent("ownership_blocked", { ip: req.ip, userId: user.id, platform: pending.platform, reason: "name_not_found", stage: "verify" });
           return res.status(404).json({ error: `That ${label} account no longer exists, so it can't be used to reset this password.` });
         }
@@ -1261,7 +1274,7 @@ app.post("/api/auth/reset/verify", verifyLimiter, async (req, res) => {
       hadPassword ? "warn" : "info"
     );
 
-    res.clearCookie(RESET_COOKIE, resetCookieOptions);
+    clearResetCookie(res);
     const updatedUserAuth = await getUserAuthById(user.id);
     setSessionCookie(res, user, pending.passwordHash, updatedUserAuth?.auth.sessionVersion);
     res.json({ ...user, isAdmin: isAdminUser(user) });
@@ -1291,7 +1304,7 @@ function readLoginCredentials(body: unknown): { username: string; password: stri
   return { username: trimmed.toLowerCase(), password };
 }
 
-const DEVICE_COOKIE = "known_device";
+const DEVICE_COOKIE = IS_SECURE_ENV ? "__Secure-known_device" : "known_device";
 const DEVICE_COOKIE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function setKnownDeviceCookie(res: express.Response, userId: string): void {
@@ -1299,7 +1312,7 @@ function setKnownDeviceCookie(res: express.Response, userId: string): void {
   res.cookie(DEVICE_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: IS_SECURE_ENV,
     path: "/api/auth",
     maxAge: DEVICE_COOKIE_TTL_MS
   });
@@ -1336,7 +1349,10 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
     const { user, auth } = record;
     let failuresBefore = auth.failedLogins;
 
-    const deviceCookie = req.cookies?.[DEVICE_COOKIE];
+    const deviceCookie =
+      req.cookies?.[DEVICE_COOKIE] ??
+      req.cookies?.["__Secure-known_device"] ??
+      req.cookies?.["known_device"];
     const isKnownDevice = typeof deviceCookie === "string" && verifyDeviceToken(deviceCookie, user.id);
 
     if (auth.lockedUntil) {
@@ -1419,11 +1435,11 @@ app.post("/api/auth/login", loginLimiter, async (req, res) => {
 // (provider, provider user id): the e-mail address is never used to find, sign in
 // or link anyone.
 // ---------------------------------------------------------------------------
-const OAUTH_STATE_COOKIE = "oauth_state";
+const OAUTH_STATE_COOKIE = IS_SECURE_ENV ? "__Secure-oauth_state" : "oauth_state";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_COOKIE_PATH = "/api/auth/oauth";
 // The verified identity waiting for a username (a pending_oauth_signups row).
-const OAUTH_SIGNUP_COOKIE = "oauth_signup";
+const OAUTH_SIGNUP_COOKIE = IS_SECURE_ENV ? "__Secure-oauth_signup" : "oauth_signup";
 const OAUTH_SIGNUP_TTL_MS = 15 * 60 * 1000;
 const OAUTH_SIGNUP_EXPIRED_MESSAGE = "This sign-up has expired. Please start again.";
 const OAUTH_EMAIL_IN_USE_MESSAGE =
@@ -1434,7 +1450,7 @@ const OAUTH_EMAIL_IN_USE_MESSAGE =
 const oauthCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: IS_SECURE_ENV,
   path: OAUTH_COOKIE_PATH
 };
 
@@ -1451,7 +1467,7 @@ const oauthSignupCookieOptions = { ...oauthCookieOptions, path: "/api/auth" };
 function setOAuthCookie(res: express.Response, name: string, value: string, path: string, maxAge: number): void {
   res.cookie(name, value, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: IS_SECURE_ENV,
     sameSite: "lax",
     path,
     maxAge
@@ -1523,7 +1539,11 @@ app.get("/api/auth/oauth/:provider/callback", oauthLimiter, async (req, res) => 
     //    the state id and it has to equal the `state` the provider sent back.
     //    Constant-time, and a missing, repeated or malformed value is just false.
     const stateId = req.query.state;
-    if (!stateMatches(req.cookies?.[OAUTH_STATE_COOKIE], stateId)) {
+    const incomingStateCookie =
+      req.cookies?.[OAUTH_STATE_COOKIE] ??
+      req.cookies?.["__Secure-oauth_state"] ??
+      req.cookies?.["oauth_state"];
+    if (!stateMatches(incomingStateCookie, stateId)) {
       return refuse("failed", "state_mismatch");
     }
 
@@ -1751,7 +1771,10 @@ function newMemberRecord(username: string, displayName: string): User {
 const PENDING_ID_RE = /^[0-9a-f]{32}$/;
 
 async function readPendingOAuthSignup(req: express.Request) {
-  const value = req.cookies?.[OAUTH_SIGNUP_COOKIE];
+  const value =
+    req.cookies?.[OAUTH_SIGNUP_COOKIE] ??
+    req.cookies?.["__Secure-oauth_signup"] ??
+    req.cookies?.["oauth_signup"];
   if (typeof value !== "string" || !PENDING_ID_RE.test(value)) return null;
   return getPendingOAuthSignup(value, new Date().toISOString());
 }
