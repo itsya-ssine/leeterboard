@@ -6,7 +6,7 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import "dotenv/config";
-import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./src/types.js";
+import { User, HistoryRecord, AdminSyncMember, AdminSyncReport, PlatformAccount, PlatformId } from "./shared/types.js";
 import { baselineNewMember, notifyNewAwards } from "./notifications.js";
 import notificationRoutes from "./notificationRoutes.js";
 import feedbackRoutes from "./feedbackRoutes.js";
@@ -22,8 +22,14 @@ import {
   type OAuthErrorCode
 } from "./oauth.js";
 import { maskEmail, parseAllowedDomains } from "./emails.js";
-import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./src/winners.js";
+import { computeWeeklyWinners, mergeWinnerArchive, parseWinnerArchive, type WeeklyWinner } from "./shared/winners.js";
 import { DAY_SECONDS, type StreakInfo, parseSubmissionCalendar, streaksFromDays } from "./streaks.js";
+import {
+  computeProgressFromHistory,
+  baselineOf,
+  daysIntoWeek,
+  computeWeeklyProgressFromHistory
+} from "./server/domain/progress.js";
 import {
   initDb,
   listUsers,
@@ -647,82 +653,7 @@ async function fetchStreaks(username: string, knownLongest: number | null): Prom
 //
 // For the weekly counter use computeWeeklyProgressFromHistory(), which resets
 // every Monday instead of rolling over the last 7 days.
-function computeProgressFromHistory(
-  history: HistoryRecord[],
-  currentTotal: number,
-  days: number,
-  now: number = Date.now(),
-  joined?: { date: string; solved: number }
-): number | null {
-  if (!history || history.length === 0) return null;
-
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const endOfToday = Math.floor(now / DAY_MS) * DAY_MS + DAY_MS - 1;
-  const target = endOfToday - days * DAY_MS;
-
-  // One point per date; a snapshot represents the total at the end of its
-  // UTC day (it is overwritten by later syncs that day), capped at `now`.
-  const byDate = new Map<string, { t: number; count: number }>();
-  for (const r of history) {
-    const t = Date.parse(`${r.date}T23:59:59.999Z`);
-    if (!Number.isFinite(t) || t > now) continue;
-    byDate.set(r.date, { t, count: r.solvedCount });
-  }
-  // The member's total when they joined is the earliest known point, taken at
-  // the start of their joining day. It is what a window that reaches back
-  // before they joined is measured from, so progress is exact from day one
-  // instead of waiting for a second snapshot.
-  if (joined && /^\d{4}-\d{2}-\d{2}$/.test(joined.date)) {
-    const t = Date.parse(`${joined.date}T00:00:00.000Z`);
-    if (Number.isFinite(t) && t <= now) byDate.set(`joined:${joined.date}`, { t, count: joined.solved });
-  }
-  const points = [...byDate.values()].sort((a, b) => a.t - b.t);
-  // The live total is the newest point. Keep it monotonic: a lower live total
-  // (LeetCode revoking solves) must not produce negative progress.
-  points.push({ t: now, count: currentTotal });
-
-  let before: { t: number; count: number } | null = null;
-  let after: { t: number; count: number } | null = null;
-  for (const p of points) {
-    if (p.t <= target) before = p;
-    else { after = p; break; }
-  }
-
-  let baseline: number;
-  if (!before) {
-    baseline = points[0].count; // tracking started inside the window
-  } else if (!after || after.t === before.t) {
-    baseline = before.count;
-  } else {
-    const ratio = (target - before.t) / (after.t - before.t);
-    baseline = before.count + (after.count - before.count) * ratio;
-  }
-
-  return Math.max(0, Math.round(currentTotal - baseline));
-}
-
-// A member's starting point for progress maths (see User.trackingStart).
-function baselineOf(user: User): { date: string; solved: number } {
-  return { date: user.trackingStart, solved: user.baselineSolved };
-}
-
-// Number of UTC days in the current Monday-to-Sunday week, up to and including
-// today: 1 on Monday, 7 on Sunday.
-function daysIntoWeek(now: number = Date.now()): number {
-  return ((new Date(now).getUTCDay() + 6) % 7) + 1;
-}
-
-// Problems solved so far in the current calendar week (Monday 00:00 UTC to
-// now). The baseline is the total at the end of last Sunday, so the counter
-// starts again from 0 for every member on Monday.
-function computeWeeklyProgressFromHistory(
-  history: HistoryRecord[],
-  currentTotal: number,
-  now: number = Date.now(),
-  joined?: { date: string; solved: number }
-): number | null {
-  return computeProgressFromHistory(history, currentTotal, daysIntoWeek(now), now, joined);
-}
+// Progress maths and weekly window calculations are in server/domain/progress.ts.
 
 // REST API Endpoints
 
