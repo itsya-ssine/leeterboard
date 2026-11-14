@@ -428,6 +428,8 @@ All endpoints live under `/api`.
 
 | Method | Endpoint | Access | Description |
 | --- | --- | --- | --- |
+| GET | `/api/health` | Public | System health and uptime monitoring check (`{ ok: true, uptime, lastSyncAll }`) |
+| POST | `/api/cron/sync` | Bearer token (`CRON_SECRET`) | Scheduled background sync with distributed database lease (`syncStaleMembers`) |
 | GET | `/api/users` | Members | Leaderboard data, ranks, weekly winners and the last full sync time. Members without LeetCode come last and unranked (`rank` 0). A linked account a member has hidden is flagged `hidden` and sent without its day-by-day series, unless the viewer is that member or an admin |
 | GET | `/api/trends` | Members | LeetCode group trend, difficulty breakdown and top solver of the week |
 | GET | `/api/trends?platform=codeforces` | Members | The same shape, built from linked Codeforces accounts |
@@ -489,8 +491,11 @@ Limits are per IP. The sensitive limiters (login, OAuth, verification, refresh, 
 | `npm run build` | Build the frontend into `dist/client/` and bundle the server into `server-dist/` (`dist/client/` is the only folder served over HTTP) |
 | `npm start` | Run the production build (always in production mode, no `NODE_ENV` needed) |
 | `npm run clean` | Delete `dist/` and `server-dist/` |
-| `npm run lint` | Type-check the project |
+| `npm run typecheck` | Type-check the project (`tsc --noEmit`) |
+| `npm run lint` | Lint the codebase with ESLint and type-check with TypeScript |
+| `npm run format` | Check code formatting with Prettier (`format:write` to format) |
 | `npm run db:migrate` | Back up the local database, then apply any pending schema migrations (a remote database also needs `-- --confirm-remote`) |
+| `npm run db:check-schema` | Verify that `db/schema.sql` and the migrations describe the exact same database |
 | `npm run admin` | Manage admin member IDs and passwords (`-- show-id <username>`, `-- set-password <username>`) |
 | `npm test` | Run the security regression tests against the real server (throwaway database) |
 | `npm run db:verify-backup` | Check that a restored copy of the database is complete and readable (`-- --url <copy>`) |
