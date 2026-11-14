@@ -41,7 +41,8 @@ async function hit(base: TestServer, route: string, cookie?: string) {
   if (cookie) headers.cookie = cookie;
   const res = await fetch(base.url + route, { redirect: "manual", headers });
   const setCookies = res.headers.getSetCookie();
-  const pick = (name: string) => setCookies.find((c) => c.startsWith(`${name}=`)) ?? null;
+  const pick = (name: string) =>
+    setCookies.find((c) => c.startsWith(`${name}=`) || c.startsWith(`__Host-${name}=`) || c.startsWith(`__Secure-${name}=`)) ?? null;
   return { status: res.status, location: res.headers.get("location") ?? "", pick };
 }
 

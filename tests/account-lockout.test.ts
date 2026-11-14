@@ -16,6 +16,7 @@ let server: TestServer;
 let api: ReturnType<typeof client>;
 let db: typeof import("../db.js");
 let userId = "";
+const savedNodeEnv = process.env.NODE_ENV;
 
 before(async () => {
   const secret = crypto.randomBytes(48).toString("hex");
@@ -45,6 +46,8 @@ before(async () => {
 });
 
 after(async () => {
+  if (savedNodeEnv !== undefined) process.env.NODE_ENV = savedNodeEnv;
+  else delete process.env.NODE_ENV;
   await server?.stop();
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
