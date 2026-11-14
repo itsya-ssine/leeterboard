@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  Clock,
   Copy,
   Download,
   ExternalLink,
@@ -15,6 +16,7 @@ import {
   LogOut,
   Plus,
   RefreshCw,
+  Sparkles,
   Trash2,
   UserRound
 } from "lucide-react";
@@ -239,18 +241,70 @@ function PlatformRow({
   const [step, setStep] = useState<"idle" | "handle" | "verify">("idle");
   const [handle, setHandle] = useState("");
   const [challenge, setChallenge] = useState<PlatformLinkChallenge | null>(null);
+  const [challengeExpiresAt, setChallengeExpiresAt] = useState<number>(0);
+  const [secondsLeft, setSecondsLeft] = useState<number>(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useNoticeState();
   const [copied, setCopied] = useState(false);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setStep("idle");
     setHandle("");
     setChallenge(null);
+    setChallengeExpiresAt(0);
     setNotice(null);
     setCopied(false);
-  };
+  }, [setNotice]);
+
+  // Live countdown for challenge expiration (UX-03)
+  useEffect(() => {
+    if (step !== "verify" || !challengeExpiresAt) return;
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.floor((challengeExpiresAt - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining === 0) {
+        setNotice({ kind: "error", message: "Verification code expired. Please generate a new code." });
+      }
+    };
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, [step, challengeExpiresAt, setNotice]);
+
+  // Background auto-check every 6 seconds while in Step 2 (UX-03)
+  useEffect(() => {
+    if (step !== "verify" || !challenge || busy || secondsLeft <= 0) return;
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    const autoTimer = setInterval(async () => {
+      if (cancelled || attempts >= maxAttempts) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      attempts++;
+      try {
+        const updated = platform === "leetcode" ? await verifyLeetcodeLink() : await verifyPlatformLink(platform);
+        if (cancelled) return;
+        const synced = platform === "leetcode" ? updated.lastUpdated : updated.platforms?.[platform]?.lastUpdated;
+        reset();
+        setNotice({
+          kind: "success",
+          message: synced
+            ? `${ui.label} linked successfully!`
+            : `${ui.label} linked. Your stats will show up after the next sync.`
+        });
+        onChanged?.();
+      } catch {
+        // Silent during auto-check: profile might still be saving on LeetCode
+      }
+    }, 6000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(autoTimer);
+    };
+  }, [step, challenge, busy, secondsLeft, platform, ui.label, verifyLeetcodeLink, verifyPlatformLink, reset, setNotice, onChanged]);
 
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -262,12 +316,32 @@ function PlatformRow({
     }
     setBusy(true);
     try {
-      setChallenge(
-        platform === "leetcode" ? await startLeetcodeLink(trimmed) : await startPlatformLink(platform, trimmed)
-      );
+      const nextChallenge =
+        platform === "leetcode" ? await startLeetcodeLink(trimmed) : await startPlatformLink(platform, trimmed);
+      setChallenge(nextChallenge);
+      setChallengeExpiresAt(Date.now() + (nextChallenge.expiresInMinutes || 30) * 60_000);
       setStep("verify");
     } catch (err: any) {
       setNotice({ kind: "error", message: err.message || `Couldn't start linking ${ui.label}.` });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRegenerateCode = async () => {
+    if (!challenge) return;
+    setNotice(null);
+    setBusy(true);
+    try {
+      const nextChallenge =
+        platform === "leetcode"
+          ? await startLeetcodeLink(challenge.handle)
+          : await startPlatformLink(platform, challenge.handle);
+      setChallenge(nextChallenge);
+      setChallengeExpiresAt(Date.now() + (nextChallenge.expiresInMinutes || 30) * 60_000);
+      setNotice({ kind: "success", message: "New verification code generated." });
+    } catch (err: any) {
+      setNotice({ kind: "error", message: err.message || "Couldn't generate a new code." });
     } finally {
       setBusy(false);
     }
@@ -292,8 +366,18 @@ function PlatformRow({
         // The request is gone on the server: back to the handle form.
         setChallenge(null);
         setStep("handle");
+        setNotice({ kind: "error", message: "The verification code expired. Enter your handle to try again." });
+      } else {
+        const raw = err.message || "";
+        const isNotFound = /not found|could not find|missing|code/i.test(raw);
+        setNotice({
+          kind: "error",
+          message:
+            isNotFound && platform === "leetcode"
+              ? "We found your LeetCode profile, but couldn't find the code in your Summary yet. LeetCode can take 15–30 seconds to reflect updates — please make sure you clicked Save and try again."
+              : raw || `Couldn't verify your ${ui.label} account.`
+        });
       }
-      setNotice({ kind: "error", message: err.message || `Couldn't verify your ${ui.label} account.` });
     } finally {
       setBusy(false);
     }
@@ -461,9 +545,47 @@ function PlatformRow({
         </div>
       )}
 
+      {/* 3-Step Wizard Indicator (UX-03) */}
+      {!account && step !== "idle" && (
+        <div className="mt-3 flex items-center justify-between border-t border-line pt-3 font-mono text-xs">
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`grid size-5 place-items-center rounded-full text-[10px] font-bold ${
+                step === "handle"
+                  ? "bg-teal-400 text-ink-950"
+                  : "bg-teal-400/20 text-teal-300 ring-1 ring-teal-400/30"
+              }`}
+            >
+              1
+            </span>
+            <span className={step === "handle" ? "font-semibold text-strong" : "text-mist-400"}>Handle</span>
+          </div>
+          <span className="mx-2 h-px flex-1 bg-line" aria-hidden="true" />
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`grid size-5 place-items-center rounded-full text-[10px] font-bold ${
+                step === "verify"
+                  ? "bg-teal-400 text-ink-950"
+                  : "bg-ink-800 text-mist-500 ring-1 ring-line"
+              }`}
+            >
+              2
+            </span>
+            <span className={step === "verify" ? "font-semibold text-strong" : "text-mist-500"}>Proof code</span>
+          </div>
+          <span className="mx-2 h-px flex-1 bg-line" aria-hidden="true" />
+          <div className="flex items-center gap-1.5">
+            <span className="grid size-5 place-items-center rounded-full bg-ink-800 text-[10px] font-bold text-mist-500 ring-1 ring-line">
+              3
+            </span>
+            <span className="text-mist-500">Connected</span>
+          </div>
+        </div>
+      )}
+
       {/* Step 1: handle */}
       {!account && step === "handle" && (
-        <form onSubmit={handleStart} className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
+        <form onSubmit={handleStart} className="mt-3 flex flex-col gap-3">
           <div>
             <label htmlFor={`acct-${platform}-handle`} className={labelCls}>
               {ui.label} handle
@@ -482,7 +604,7 @@ function PlatformRow({
               disabled={busy}
             />
             <p className="mt-1.5 text-xs text-mist-500">
-              Next you'll prove the account is yours by saving a short code on its profile.
+              Next you'll prove the account is yours by saving a short one-time code on its profile.
             </p>
           </div>
           <NoticeBox notice={notice} />
@@ -500,13 +622,13 @@ function PlatformRow({
 
       {/* Step 2: prove ownership */}
       {!account && step === "verify" && challenge && (
-        <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
+        <div className="mt-3 flex flex-col gap-3">
           <p className="text-sm text-mist-400">
             Proving that <span className="font-medium text-strong">@{challenge.handle}</span> is yours.
           </p>
 
           <ol className="list-decimal space-y-2 break-words pl-5 text-sm leading-relaxed text-mist-400">
-            <li>Copy this code:</li>
+            <li>Copy this one-time proof code:</li>
           </ol>
           <div className="flex items-center gap-2 rounded-lg bg-ink-900 p-2 pl-3 font-mono ring-1 ring-line">
             <code className="min-w-0 flex-1 select-all truncate font-mono text-xs text-teal-300 sm:text-sm">
@@ -536,11 +658,51 @@ function PlatformRow({
                 className={`inline-flex items-center gap-1 rounded font-medium text-teal-300 hover:underline ${focusRing}`}
               >
                 Open {ui.settingsLabel} <ExternalLink className="size-3" />
+                <span className="sr-only">(opens in a new tab)</span>
               </a>
             </li>
           </ol>
 
-          <p className="text-xs text-mist-500">The code expires in {challenge.expiresInMinutes} minutes.</p>
+          {/* Platform verification tip (UX-03) */}
+          <div className="rounded-lg bg-ink-950/60 p-3 text-xs leading-relaxed text-mist-400 ring-1 ring-line">
+            <div className="flex items-center gap-1.5 font-medium text-strong">
+              <Sparkles className="size-3.5 text-teal-300" aria-hidden="true" />
+              <span>How to verify on {ui.label}:</span>
+            </div>
+            <p className="mt-1 text-mist-400">
+              {platform === "leetcode"
+                ? "Paste the code into the Summary box on your LeetCode profile settings and click the green Save button. LeetCode can take 15–30 seconds to reflect public updates."
+                : "Paste the code into your profile social settings and click Save."}
+            </p>
+            <p className="mt-2 text-[11px] text-mist-500">
+              Note: Verification is tied to your active browser session. Please remain in this browser until completed.
+            </p>
+          </div>
+
+          {/* Countdown & new code action (UX-03) */}
+          <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 text-mist-400">
+              <Clock className="size-3.5 text-amber-300" aria-hidden="true" />
+              <span>
+                Code expires in:{" "}
+                <strong className="font-mono tabular-nums text-strong">
+                  {Math.floor(secondsLeft / 60)}:{(secondsLeft % 60).toString().padStart(2, "0")}
+                </strong>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleRegenerateCode}
+              disabled={busy}
+              className={`cursor-pointer font-medium text-teal-300 underline underline-offset-2 hover:text-teal-200 disabled:opacity-50 ${focusRing}`}
+            >
+              Generate new code
+            </button>
+          </div>
+
+          <p className="text-xs text-mist-500">
+            Auto-checking your profile every few seconds while this screen is open, or verify immediately below.
+          </p>
 
           <NoticeBox notice={notice} />
 
