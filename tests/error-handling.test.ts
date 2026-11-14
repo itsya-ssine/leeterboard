@@ -91,8 +91,25 @@ describe("SEC-03: Centralized error handling and information disclosure preventi
     const sessionCookie = loginRes.cookie;
     assert.ok(sessionCookie, "session cookie should be present");
 
-    // 2. Corrupt/drop the table to simulate database failure
-    await db.client.execute("DROP TABLE users");
+    // 2. Corrupt/drop the table to simulate database failure.
+    //    Use busy_timeout and retry loop to avoid SQLITE_BUSY in CI where the server process
+    //    may hold a concurrent read lock on the same file.
+    await db.client.execute("PRAGMA busy_timeout = 5000");
+    let dropped = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await db.client.execute("DROP TABLE users");
+        dropped = true;
+        break;
+      } catch (err: any) {
+        if (err?.code === "SQLITE_BUSY" && attempt < 4) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
+    assert.ok(dropped, "failed to drop table users");
 
     // 3. Call GET /api/users which attempts to query the dropped table
     const traceId = "forced-db-failure-trace-01";
