@@ -11,16 +11,8 @@ export default function DifficultyBar({
   hard: number;
   size?: "sm" | "lg";
 }) {
-  const total = Math.max(1, easy + medium + hard);
+  const totalSolved = easy + medium + hard;
   const lg = size === "lg";
-  const numBlocks = lg ? 20 : 14;
-
-  const easyBlocks = Math.round((easy / total) * numBlocks);
-  const medBlocks = Math.round((medium / total) * numBlocks);
-  const hardBlocks = Math.min(
-    numBlocks - (easyBlocks + medBlocks),
-    Math.round((hard / total) * numBlocks)
-  );
 
   const segments = [
     { label: "Easy", letter: "E", value: easy, text: "text-emerald-400", blockColor: "bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.6)]" },
@@ -34,28 +26,39 @@ export default function DifficultyBar({
       role="img"
       aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}
     >
-      {/* Segmented Pixel Bar */}
+      {/* 100% Proportional Pixel Bar - No trailing gaps */}
       <div
-        className={`flex w-full gap-[2px] bg-ink-950 p-[2px] border-2 border-ink-700 ${
+        className={`flex w-full overflow-hidden border-2 border-ink-700 bg-ink-950 p-[1px] shadow-[1px_1px_0_#000] ${
           lg ? "h-3.5" : "h-2.5"
         }`}
       >
-        {Array.from({ length: numBlocks }).map((_, i) => {
-          let bg = "bg-ink-800/80";
-          if (i < easyBlocks) {
-            bg = "bg-emerald-400";
-          } else if (i < easyBlocks + medBlocks) {
-            bg = "bg-amber-400";
-          } else if (i < easyBlocks + medBlocks + hardBlocks) {
-            bg = "bg-rose-500";
-          }
-          return (
-            <span
-              key={i}
-              className={`h-full flex-1 ${bg} transition-colors duration-200`}
-            />
-          );
-        })}
+        {totalSolved > 0 ? (
+          <div className="flex h-full w-full">
+            {easy > 0 && (
+              <div
+                className="h-full bg-emerald-400 border-r border-ink-950 last:border-r-0 transition-[width] duration-300"
+                style={{ width: `${(easy / totalSolved) * 100}%` }}
+                title={`${easy} Easy`}
+              />
+            )}
+            {medium > 0 && (
+              <div
+                className="h-full bg-amber-400 border-r border-ink-950 last:border-r-0 transition-[width] duration-300"
+                style={{ width: `${(medium / totalSolved) * 100}%` }}
+                title={`${medium} Medium`}
+              />
+            )}
+            {hard > 0 && (
+              <div
+                className="h-full bg-rose-500 border-r border-ink-950 last:border-r-0 transition-[width] duration-300"
+                style={{ width: `${(hard / totalSolved) * 100}%` }}
+                title={`${hard} Hard`}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="h-full w-full bg-ink-800/40" />
+        )}
       </div>
 
       {/* Numerical Indicators */}

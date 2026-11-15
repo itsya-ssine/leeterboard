@@ -301,7 +301,7 @@ export default function App() {
     } else {
       document.title = PAGE_TITLES[page] ?? "Leeterboard";
     }
-    mainRef.current?.focus();
+    mainRef.current?.focus({ preventScroll: true });
   }, [page, profileName]);
 
   // Follow the hash (nav clicks, back/forward) and start each page at the top.
@@ -310,7 +310,7 @@ export default function App() {
       setPage(readPage());
       setProfileName(readProfileName());
       setSelectedUser(null);
-      window.scrollTo(0, 0);
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -884,7 +884,7 @@ export default function App() {
         ref={mainRef}
         id="main-content"
         tabIndex={-1}
-        className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-10 focus:outline-none md:px-8 md:pt-14"
+        className="relative z-10 mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-8 sm:pt-10 focus:outline-none md:px-8 md:pt-12 scroll-mt-20 md:scroll-mt-24"
       >
         {/* Offline status notice (UX-04) */}
         {offline && (
@@ -1149,8 +1149,12 @@ export default function App() {
                             <span className="truncate font-sans font-bold text-strong">{user.displayName}</span>
                             {!isCg && weekly >= HOT_STREAK_THRESHOLD && <HotStreak />}
                           </div>
-                          <div className="truncate font-mono text-xs text-mist-500">@{handle}</div>
-                          <SchoolTag school={user.school} className="mt-1" />
+                          <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                            <span className="truncate font-mono text-xs text-mist-500">@{handle}</span>
+                            {user.school ? (
+                              <SchoolTag school={user.school} className="shrink-0 max-w-[120px]" />
+                            ) : null}
+                          </div>
                         </div>
                       </div>
 
@@ -1406,17 +1410,21 @@ export default function App() {
                                 {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
                                 <RankMovement movement={movements[user.id]} />
                               </div>
-                              <div className="truncate font-mono text-xs text-mist-500">@{user.loginUsername}</div>
-                              <SchoolTag school={user.school} className="mt-1" />
-                              {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
-                                <div
-                                  className="mt-1 inline-flex items-center gap-1 border border-amber-400/30 bg-amber-950/60 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
-                                  title={`Last successful LeetCode fetch: ${new Date(user.lastUpdated).toLocaleString()}. The board synced more recently, so LeetCode's API may be failing for this account.`}
-                                >
-                                  <Clock className="size-2.5" aria-hidden="true" />
-                                  {formatAge(user.lastUpdated, now)}
-                                </div>
-                              )}
+                              <div className="mt-0.5 flex min-w-0 items-center gap-2">
+                                <span className="truncate font-mono text-xs text-mist-500">@{user.loginUsername}</span>
+                                {user.school ? (
+                                  <SchoolTag school={user.school} className="shrink-0 max-w-[130px]" />
+                                ) : null}
+                                {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
+                                  <div
+                                    className="inline-flex shrink-0 items-center gap-1 border border-amber-400/30 bg-amber-950/60 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
+                                    title={`Last successful LeetCode fetch: ${new Date(user.lastUpdated).toLocaleString()}. The board synced more recently, so LeetCode's API may be failing for this account.`}
+                                  >
+                                    <Clock className="size-2.5" aria-hidden="true" />
+                                    {formatAge(user.lastUpdated, now)}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </button>
                         </div>

@@ -535,15 +535,7 @@ export function PixelDifficultyBar({
   hard: number;
   size?: "sm" | "lg";
 }) {
-  const total = Math.max(1, easy + medium + hard);
-  const totalSegments = size === "lg" ? 24 : 16;
-
-  const easySegs = Math.round((easy / total) * totalSegments);
-  const medSegs = Math.round((medium / total) * totalSegments);
-  const hardSegs = Math.min(
-    totalSegments - (easySegs + medSegs),
-    Math.round((hard / total) * totalSegments)
-  );
+  const totalSolved = easy + medium + hard;
 
   return (
     <div
@@ -551,14 +543,34 @@ export function PixelDifficultyBar({
       role="img"
       aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}
     >
-      <div className={`flex w-full gap-[2px] border-2 border-ink-700 bg-ink-950 p-[2px] ${size === "lg" ? "h-3.5" : "h-2"}`}>
-        {Array.from({ length: totalSegments }).map((_, i) => {
-          let bg = "bg-ink-800";
-          if (i < easySegs) bg = "bg-emerald-400";
-          else if (i < easySegs + medSegs) bg = "bg-amber-400";
-          else if (i < easySegs + medSegs + hardSegs) bg = "bg-rose-500";
-          return <span key={i} className={`h-full flex-1 ${bg}`} />;
-        })}
+      <div className={`flex w-full overflow-hidden border-2 border-ink-700 bg-ink-950 p-[1px] shadow-[1px_1px_0_#000] ${size === "lg" ? "h-3.5" : "h-2"}`}>
+        {totalSolved > 0 ? (
+          <div className="flex h-full w-full">
+            {easy > 0 && (
+              <div
+                className="h-full bg-emerald-400 border-r border-ink-950 last:border-r-0 transition-[width] duration-300"
+                style={{ width: `${(easy / totalSolved) * 100}%` }}
+                title={`${easy} Easy`}
+              />
+            )}
+            {medium > 0 && (
+              <div
+                className="h-full bg-amber-400 border-r border-ink-950 last:border-r-0 transition-[width] duration-300"
+                style={{ width: `${(medium / totalSolved) * 100}%` }}
+                title={`${medium} Medium`}
+              />
+            )}
+            {hard > 0 && (
+              <div
+                className="h-full bg-rose-500 border-r border-ink-950 last:border-r-0 transition-[width] duration-300"
+                style={{ width: `${(hard / totalSolved) * 100}%` }}
+                title={`${hard} Hard`}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="h-full w-full bg-ink-800/40" />
+        )}
       </div>
       <div className={`flex items-center justify-between font-mono font-bold ${size === "lg" ? "text-xs" : "text-[11px]"}`}>
         <span className="inline-flex items-center gap-1 text-emerald-400">

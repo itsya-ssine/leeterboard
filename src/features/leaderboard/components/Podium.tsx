@@ -208,7 +208,9 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
             <span className={`w-full truncate font-mono text-xs ${entry.handleClassName ?? "text-mist-500"}`}>
               {entry.handle}
             </span>
-            <SchoolTag school={entry.school} />
+            <span className="flex h-5 w-full items-center justify-center">
+              {entry.school ? <SchoolTag school={entry.school} /> : null}
+            </span>
             <span className={`mt-1 font-pixel text-sm font-bold tabular-nums sm:text-base ${style.text}`}>
               {entry.value} <span className="font-mono text-xs font-normal text-mist-500">{entry.label}</span>
             </span>
