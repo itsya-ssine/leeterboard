@@ -1,33 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a0d12" />
-    <script>
-      // Apply the saved (or system) theme before first paint so there's no
-      // flash of the wrong one. Keep in sync with src/theme.tsx.
-      (function () {
-        var theme = null;
-        try {
-          theme = localStorage.getItem("leeterboard:theme");
-        } catch (e) {}
-        if (theme !== "light" && theme !== "dark") {
-          theme =
-            window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
-              ? "light"
-              : "dark";
-        }
-        document.documentElement.setAttribute("data-theme", theme);
-        if (theme === "light") {
-          document.querySelector('meta[name="theme-color"]').setAttribute("content", "#f4f6f9");
-        }
-      })();
-    </script>
-    <meta
-      name="description"
-      content="Leeterboard — the weekly LeetCode leaderboard."
-    />
+    <meta name="description" content="Leeterboard — the weekly LeetCode leaderboard." />
     <link rel="canonical" href="https://leaderboard-leet.vercel.app/" />
 
     <!-- Social preview (Discord, LinkedIn, X, Slack...). The image and URLs must
@@ -44,10 +21,7 @@
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta
-      property="og:image:alt"
-      content="Leeterboard: the weekly LeetCode leaderboard."
-    />
+    <meta property="og:image:alt" content="Leeterboard: the weekly LeetCode leaderboard." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Leeterboard" />
     <meta
@@ -55,15 +29,8 @@
       content="Weekly ranks, streaks, badges and head-to-head comparisons for your LeetCode group."
     />
     <meta name="twitter:image" content="https://leaderboard-leet.vercel.app/og-image.png" />
-    <meta
-      name="twitter:image:alt"
-      content="Leeterboard: the weekly LeetCode leaderboard."
-    />
-    <link
-      rel="icon"
-      href="/favicon.svg"
-      type="image/svg+xml"
-    />
+    <meta name="twitter:image:alt" content="Leeterboard: the weekly LeetCode leaderboard." />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/site.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -7,12 +7,12 @@ import type { Request, Response, NextFunction } from "express";
 
 export const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
-// SHA-256 of the one inline <script> in index.html (the no-flash theme
-// bootstrap). Recompute with `npm run security:check` after editing it.
-export const INLINE_SCRIPT_HASHES = ["sha256-TqgtQQv0LmMkFvsx4MZg+fz9zxg5hHFwMtQN7qB36CI="];
+// SHA-256 of any inline <script> in index.html. Recompute with
+// `npm run security:check` after editing it.
+export const INLINE_SCRIPT_HASHES: string[] = [];
 
 // Content Security Policy for the production build.
-//  - script-src: only our own bundle plus the hashed theme bootstrap. No
+//  - script-src: only our own bundle plus any hashed inline scripts. No
 //    'unsafe-inline', no 'unsafe-eval', so an injected <script> won't run.
 //  - style-src keeps 'unsafe-inline' because React/motion write inline style
 //    attributes; styles can't execute code, and scripts stay locked down.
@@ -23,7 +23,9 @@ export const INLINE_SCRIPT_HASHES = ["sha256-TqgtQQv0LmMkFvsx4MZg+fz9zxg5hHFwMtQ
 //  - frame-ancestors 'none' is the modern equivalent of X-Frame-Options: DENY.
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  `script-src 'self' ${INLINE_SCRIPT_HASHES.map((h) => `'${h}'`).join(" ")}`,
+  INLINE_SCRIPT_HASHES.length > 0
+    ? `script-src 'self' ${INLINE_SCRIPT_HASHES.map((h) => `'${h}'`).join(" ")}`
+    : "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob: https:",

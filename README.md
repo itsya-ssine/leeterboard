@@ -75,7 +75,7 @@ A competitive-programming leaderboard for a group of friends, a class or a club.
 
 **Interface**
 
-- **Light and dark themes** with a toggle in the header; your choice is remembered, and it follows your system setting until you pick one
+- **Dark theme**: sleek retro-arcade dark palette
 - Responsive layout, keyboard-friendly controls and reduced-motion support
 
 ## Pages
@@ -278,15 +278,11 @@ Codeforces rank titles map onto the same colours and frames. CodinGame levels st
 
 ## Themes
 
-Dark is the default. A header toggle switches to light; the choice is saved in `localStorage` and, until you pick one, follows your system setting. An inline script in `index.html` applies the saved theme before first paint, so there is no flash of the wrong one.
+The website uses a retro-arcade dark mode driven by CSS variables in `src/index.css`:
 
-The theme is driven by CSS variables in `src/index.css`:
-
-- Surfaces (`ink-*`), text (`mist-*`), hairlines (`line`), the brand gradient (`aurora-*`) and rating tiers (`tier-*`) are redefined under `html[data-theme="light"]`.
-- The accent and status ramps (teal, emerald, amber, orange, rose, sky and more) are remapped for light surfaces, so gradients stay in one colour family.
+- Surfaces (`ink-*`), text (`mist-*`), hairlines (`line`), the brand gradient (`aurora-*`) and rating tiers (`tier-*`).
 - Gold, silver and bronze washes, rings and glows use dedicated `--medal-*` variables, and the two head-to-head sides use `--side-a` and `--side-b`.
 - Button glows and the modal backdrop follow `--btn-*` and `--modal-scrim`.
-- Light mode adds card elevation, softens the background glow and switches off neon glows.
 - Charts take their colours from `chartColors()` in `src/theme.tsx`, because Recharts needs plain values. Share and compare cards are drawn on a canvas with their own palettes and do not depend on the site theme.
 
 ## Security
@@ -307,7 +303,7 @@ The theme is driven by CSS variables in `src/index.css`:
 - Sessions are signed HTTP-only cookies. Resetting a password signs out all older sessions.
 - Ownership of every account (LeetCode, Codeforces, CodinGame) is proven with a one-time code read back from the public profile.
 - Request bodies are limited to 10 KB and usernames and handles are validated against allow-lists. Every `/api` response is sent with `Cache-Control: no-store`.
-- Production responses carry a Content Security Policy (own scripts only, plus the hashed theme bootstrap in `index.html`), `Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options`, a `Referrer-Policy`, a `Permissions-Policy` and `Cross-Origin-Opener-Policy`. They are defined once in `securityHeaders.ts` and mirrored in `vercel.json`, which serves the static frontend on Vercel. `npm run security:check` fails if the two drift apart or if the inline script in `index.html` changes without its CSP hash being updated; run it after editing either.
+- Production responses carry a Content Security Policy (own scripts only), `Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options`, a `Referrer-Policy`, a `Permissions-Policy` and `Cross-Origin-Opener-Policy`. They are defined once in `securityHeaders.ts` and mirrored in `vercel.json`, which serves the static frontend on Vercel. `npm run security:check` fails if the two drift apart; run it after editing either.
 - The sensitive rate limiters keep their counters in the database, so they hold across serverless instances (see [Rate limits](#rate-limits)).
 - Dependencies are audited with `npm run audit:prod`, and Dependabot keeps them and the CI actions current.
 - Security regressions are covered by `npm test`: the suite starts the real server on a throwaway database and checks authorization, forged tokens, CSRF, challenge replay, rate limits, validation, headers and log hygiene (it checks the database as well as the status codes). CI runs it on every push and pull request, alongside a dependency audit, a full-history secret scan and CodeQL (`.github/workflows`).
