@@ -44,6 +44,7 @@ import { useAuth } from "../../../AuthContext.js";
 import EmptyState from "../../../components/common/EmptyState.js";
 import TierAvatar from "../../../components/ui/TierAvatar.js";
 import SchoolTag from "../../../components/common/SchoolTag.js";
+import { PixelCrown, PixelTrophy } from "../../../pixelArt.js";
 import { tierOf, tierSummary } from "../../../tiers.js";
 import AnimatedNumber from "../../../components/ui/AnimatedNumber.js";
 import { useToast } from "../../../components/feedback/Toast.js";
@@ -234,6 +235,22 @@ function Hero({
   );
   const overall = stats.ranks[0];
   const hot = user.weeklyProgress >= HOT_STREAK_THRESHOLD;
+  const tier = tierOf(user);
+  const isPodium = Boolean(user.leetcodeLinked && overall.rank != null && overall.rank <= 3);
+  const podiumGlow = isPodium
+    ? overall.rank === 1
+      ? "bg-amber-400/25"
+      : overall.rank === 2
+        ? "bg-slate-300/20"
+        : "bg-orange-300/20"
+    : "";
+  const podiumText = isPodium
+    ? overall.rank === 1
+      ? "text-amber-300"
+      : overall.rank === 2
+        ? "text-slate-200"
+        : "text-orange-300"
+    : "text-mist-200";
 
   const copyLink = async () => {
     try {
@@ -262,18 +279,54 @@ function Hero({
       <div className="relative px-5 pb-6 md:px-8">
         {/* Row 1: avatar (overlapping the banner) on the left, actions on the right. */}
         <div className="-mt-12 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 md:-mt-14">
+          {/* Avatar & Rank Cadre (podium style) */}
           <div className="relative shrink-0">
-            <TierAvatar
-              user={user}
-              className="size-24 border-2 border-ink-700 bg-ink-950 p-1 shadow-[3px_3px_0_#000] md:size-28"
-              showGem
+            {/* Top crown / trophy for podium places */}
+            {isPodium && overall.rank === 1 && (
+              <div
+                aria-hidden="true"
+                className="animate-float pointer-events-none absolute -top-6 left-1/2 z-10 -translate-x-1/2 md:-top-7"
+              >
+                <PixelCrown size={26} />
+              </div>
+            )}
+            {isPodium && overall.rank === 2 && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-5 left-1/2 z-10 -translate-x-1/2 md:-top-6"
+              >
+                <PixelTrophy variant="silver" size={22} />
+              </div>
+            )}
+            {isPodium && overall.rank === 3 && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-5 left-1/2 z-10 -translate-x-1/2 md:-top-6"
+              >
+                <PixelTrophy variant="bronze" size={22} />
+              </div>
+            )}
+
+            {/* Ambient atmospheric glow halo behind the avatar */}
+            <span
+              aria-hidden="true"
+              className={`animate-glow pointer-events-none absolute inset-0 -z-0 scale-125 rounded-full blur-xl ${podiumGlow}`}
+              style={
+                !podiumGlow ? { backgroundColor: tier?.color ?? "rgba(45, 212, 191, 0.2)", opacity: 0.25 } : undefined
+              }
             />
-            {user.leetcodeLinked && overall.rank != null && overall.rank <= 3 && (
+
+            {/* Circular Framed Avatar */}
+            <TierAvatar user={user} className="size-24 rounded-full md:size-28" showGem />
+
+            {/* Bottom-right rank badge for podium places */}
+            {isPodium && (
               <span
-                className={`absolute -bottom-1 -right-1 grid size-8 place-items-center border-2 border-ink-950 bg-ink-900 shadow-[2px_2px_0_#000] ${rankColor(overall.rank)}`}
+                aria-hidden="true"
+                className={`absolute -bottom-1 -right-1 grid size-7 place-items-center border-2 border-ink-950 bg-ink-900 font-pixel text-[11px] font-bold tabular-nums shadow-[2px_2px_0_#000] md:size-8 md:text-xs ${podiumText}`}
                 title={`Rank ${overall.rank} on the board`}
               >
-                <Crown className="size-4" aria-hidden="true" />
+                #{overall.rank}
               </span>
             )}
           </div>
