@@ -112,7 +112,7 @@ leeterboard/
 │   │   │   └── index.ts
 │   │   └── providers/              # React context providers
 │   │       ├── AuthProvider.tsx    # AuthContext wrapper
-│   │       ├── ThemeProvider.tsx   # Light/dark theme provider
+│   │       ├── ThemeProvider.tsx   # Theme provider (dark mode)
 │   │       ├── I18nProvider.tsx    # Internationalization provider
 │   │       ├── ToastProvider.tsx   # Toast notification provider
 │   │       └── index.ts
@@ -178,7 +178,7 @@ Instead of sprawling single files, each feature domain is self-contained in `src
 ### 3.3 State Management & Providers
 - **Providers Pipeline**: Application contexts are neatly organized under `src/app/providers/`:
   - `AuthProvider`: Session management, OAuth sign-in state, and credential workflows.
-  - `ThemeProvider`: Synchronized dark/light theme with CSS variable mapping.
+  - `ThemeProvider`: Dark theme provider with CSS variable mapping.
   - `I18nProvider`: Multi-language dictionary and localized string formatting.
   - `ToastProvider`: Global non-blocking alert queue.
 - **Security & Route Gates** (`src/app/gates/`):

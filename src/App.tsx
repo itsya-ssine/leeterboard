@@ -32,11 +32,9 @@ import AccountPage from "./AccountPage.js";
 import Podium from "./Podium.js";
 import SchoolTag from "./SchoolTag.js";
 import RankMovement from "./RankMovement.js";
-import ThemeToggle from "./ThemeToggle.js";
 import { useI18n } from "./i18n.js";
 import NotificationBell from "./NotificationBell.js";
 import AccountButton from "./AccountButton.js";
-import { chartColors, useTheme } from "./theme.js";
 import { computeMovements } from "./movement.js";
 import Modal from "./Modal.js";
 import WinnerBanner from "./WinnerBanner.js";
@@ -855,8 +853,6 @@ export default function App() {
                 <span className="hidden lg:inline">{isSyncingAll ? "Syncing…" : "Sync all"}</span>
               </button>
             )}
-
-            <ThemeToggle />
 
             {/* Notifications — signed-in members only. Keyed by member so
                 switching accounts never shows the previous person's list. */}
