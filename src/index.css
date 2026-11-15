@@ -50,27 +50,55 @@
   --animate-marquee: marquee 38s linear infinite;
 
   @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-4px); }
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
   }
   @keyframes shimmer {
-    to { background-position: 200% center; }
+    to {
+      background-position: 200% center;
+    }
   }
   @keyframes rise {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   @keyframes glow {
-    0%, 100% { opacity: 0.6; }
-    50% { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 1;
+    }
   }
   @keyframes blink {
-    0%, 50% { opacity: 1; }
-    50.01%, 100% { opacity: 0; }
+    0%,
+    50% {
+      opacity: 1;
+    }
+    50.01%,
+    100% {
+      opacity: 0;
+    }
   }
   @keyframes marquee {
-    from { transform: translateX(0); }
-    to { transform: translateX(-50%); }
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
   }
 }
 
@@ -193,9 +221,17 @@ html[data-theme="light"] ::selection {
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(60rem 32rem at 12% -8%, color-mix(in srgb, var(--color-aurora-a) 16%, transparent), transparent 70%),
+    radial-gradient(
+      60rem 32rem at 12% -8%,
+      color-mix(in srgb, var(--color-aurora-a) 16%, transparent),
+      transparent 70%
+    ),
     radial-gradient(52rem 30rem at 92% 4%, color-mix(in srgb, var(--color-aurora-c) 14%, transparent), transparent 70%),
-    radial-gradient(44rem 26rem at 50% 108%, color-mix(in srgb, var(--color-aurora-b) 10%, transparent), transparent 70%);
+    radial-gradient(
+      44rem 26rem at 50% 108%,
+      color-mix(in srgb, var(--color-aurora-b) 10%, transparent),
+      transparent 70%
+    );
 }
 .aurora-bg::after {
   /* faint dot grid that fades out toward the bottom */
@@ -251,7 +287,9 @@ html[data-theme="light"] ::selection {
     transparent 62%,
     color-mix(in srgb, var(--color-aurora-c) 55%, transparent)
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -292,7 +330,9 @@ html[data-theme="light"] ::selection {
   height: 0.7rem;
   border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
   background: currentColor;
-  box-shadow: inset -2px -2px 0 rgb(0 0 0 / 0.18), inset 1.5px 1.5px 0 rgb(255 255 255 / 0.35);
+  box-shadow:
+    inset -2px -2px 0 rgb(0 0 0 / 0.18),
+    inset 1.5px 1.5px 0 rgb(255 255 255 / 0.35);
 }
 .balloon::after {
   content: "";
@@ -305,11 +345,51 @@ html[data-theme="light"] ::selection {
   opacity: 0.6;
 }
 
-/* Medal shimmer for the #1 spot. */
+/* Medal shimmer light sweep for the #1 podium spot — GPU-composited and buttery smooth */
 .gold-sheen {
-  background-image: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.28) 50%, transparent 70%);
-  background-size: 220% 100%;
-  animation: var(--animate-shimmer);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.gold-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 70%;
+  height: 100%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(254, 240, 138, 0.05) 20%,
+    rgba(255, 255, 255, 0.45) 50%,
+    rgba(254, 240, 138, 0.05) 80%,
+    transparent 100%
+  );
+  transform: translateX(-160%) skewX(-18deg);
+  will-change: transform, opacity;
+  animation: gold-pedestal-sweep 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes gold-pedestal-sweep {
+  0% {
+    transform: translateX(-160%) skewX(-18deg);
+    opacity: 0;
+  }
+  4% {
+    opacity: 1;
+  }
+  38% {
+    transform: translateX(260%) skewX(-18deg);
+    opacity: 1;
+  }
+  42%,
+  100% {
+    transform: translateX(260%) skewX(-18deg);
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -325,8 +405,14 @@ html[data-theme="light"] ::selection {
 
 /* Landing page: confetti pieces fly out from the Enter button. */
 @keyframes burst {
-  from { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
-  to { transform: translate(var(--dx), var(--dy)) rotate(540deg) scale(0.2); opacity: 0; }
+  from {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--dx), var(--dy)) rotate(540deg) scale(0.2);
+    opacity: 0;
+  }
 }
 
 /* ==========================================================================
@@ -351,7 +437,9 @@ html[data-theme="light"] ::selection {
 .pixel-card-gold {
   background: var(--color-ink-900);
   border: 2px solid rgba(251, 191, 36, 0.75);
-  box-shadow: 3px 3px 0px rgba(180, 83, 9, 0.9), 0 0 16px rgba(251, 191, 36, 0.12);
+  box-shadow:
+    3px 3px 0px rgba(180, 83, 9, 0.9),
+    0 0 16px rgba(251, 191, 36, 0.12);
 }
 
 .pixel-card-silver {
@@ -377,7 +465,10 @@ html[data-theme="light"] ::selection {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 700;
-  transition: transform 0.06s ease, box-shadow 0.06s ease, filter 0.1s ease;
+  transition:
+    transform 0.06s ease,
+    box-shadow 0.06s ease,
+    filter 0.1s ease;
   cursor: pointer;
   user-select: none;
 }
@@ -410,7 +501,7 @@ html[data-theme="light"] ::selection {
 
 /* Pixel grid background */
 .pixel-grid-bg {
-  background-image: 
+  background-image:
     linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
   background-size: 24px 24px;
@@ -418,10 +509,7 @@ html[data-theme="light"] ::selection {
 
 /* CRT Scanlines */
 .pixel-scanlines {
-  background: linear-gradient(
-    rgba(18, 16, 16, 0) 50%, 
-    rgba(0, 0, 0, 0.18) 50%
-  );
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.18) 50%);
   background-size: 100% 4px;
 }
 
@@ -436,5 +524,7 @@ html[data-theme="light"] ::selection {
 .pixel-input:focus {
   outline: none;
   border-color: var(--color-aurora-a);
-  box-shadow: 2px 2px 0px #000 inset, 0 0 0 1px var(--color-aurora-a);
+  box-shadow:
+    2px 2px 0px #000 inset,
+    0 0 0 1px var(--color-aurora-a);
 }

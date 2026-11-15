@@ -252,9 +252,9 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
               className={`relative grid w-full place-items-center overflow-hidden ${style.block} ${style.blockHeight}`}
               aria-hidden="true"
             >
-              {i === 0 && <div className="gold-sheen absolute inset-0" />}
+              {i === 0 && <div className="gold-sheen absolute inset-0 pointer-events-none" />}
               <span
-                className={`relative font-pixel text-3xl sm:text-4xl font-bold tabular-nums opacity-90 ${style.text}`}
+                className={`relative z-10 font-pixel text-3xl sm:text-4xl font-bold tabular-nums opacity-90 ${style.text}`}
               >
                 {i + 1}
               </span>
