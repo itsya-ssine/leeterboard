@@ -47,28 +47,51 @@ export default function Landing({ onEnter }: { onEnter: (animated: boolean) => v
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[420px] [background:radial-gradient(ellipse_at_top,rgb(56_189_248/0.12),transparent_70%)]" />
 
       <div className="relative mx-auto flex min-h-dvh max-w-4xl flex-col px-6 py-8 sm:px-10">
-        <header className="animate-rise font-logo text-lg font-semibold tracking-tight text-white">Leeterboard</header>
+        <header className="animate-rise font-pixel text-base font-bold tracking-wider text-white">
+          <span className="text-emerald-400">&gt; </span>LEETERBOARD<span className="animate-blink text-emerald-400">_</span>
+        </header>
 
-        <section className="flex flex-1 flex-col items-center justify-center py-16 text-center">
-          <h1 className="animate-rise font-logo text-4xl font-bold leading-[1.1] tracking-tight text-white sm:text-6xl" style={{ animationDelay: "80ms" }}>
+        <section className="flex flex-1 flex-col items-center justify-center py-12 text-center">
+          <h1 className="animate-rise font-pixel text-2xl font-bold leading-normal tracking-tight text-white sm:text-4xl" style={{ animationDelay: "80ms" }}>
             Compete, learn and{" "}
-            <span className={`bg-gradient-to-r ${ACCENT} bg-clip-text text-transparent`}>climb together</span>
+            <span className="text-emerald-400 underline decoration-4 decoration-emerald-500/60">climb together</span>
           </h1>
-          <p className="mt-5 max-w-xl animate-rise text-base leading-relaxed text-[#a3acbb] sm:text-lg" style={{ animationDelay: "160ms" }}>
+          <p className="mt-5 max-w-xl animate-rise font-mono text-sm leading-relaxed text-[#a3acbb] sm:text-base" style={{ animationDelay: "160ms" }}>
             A live weekly leaderboard. Track progress across LeetCode, Codeforces and CodinGame.
           </p>
 
-          <div className="mt-9 flex animate-rise flex-col items-center gap-3" style={{ animationDelay: "240ms" }}>
+          <div className="mt-8 flex animate-rise flex-col items-center gap-3" style={{ animationDelay: "240ms" }}>
             <button
               onClick={enter}
-              className={`group inline-flex h-12 cursor-pointer items-center gap-2 rounded-full bg-gradient-to-r ${ACCENT} px-8 text-base font-semibold text-[#0a0d12] transition hover:brightness-110 active:scale-[0.98] ${focusRing}`}
+              className={`group pixel-btn pixel-btn-primary inline-flex h-12 cursor-pointer items-center gap-3 px-8 font-pixel text-xs uppercase tracking-wider text-ink-950 shadow-[3px_3px_0_#000] active:translate-x-[1px] active:translate-y-[1px] ${focusRing}`}
             >
-              Enter the board
-              <ArrowRight size={18} aria-hidden="true" className="transition-transform group-hover:translate-x-1" />
+              <span>PRESS START</span>
+              <ArrowRight size={16} aria-hidden="true" className="transition-transform group-hover:translate-x-1" />
             </button>
-            <span className="hidden text-xs text-[#7d8799] sm:block">
-              or press <kbd className="rounded border border-white/20 px-1.5 py-0.5 font-mono">↵</kbd>
+            <span className="hidden font-mono text-xs text-[#7d8799] sm:block">
+              or press <kbd className="border border-white/20 bg-ink-950 px-2 py-0.5 font-pixel text-[9px] text-emerald-400 shadow-[1px_1px_0_#000]">ENTER ↵</kbd>
             </span>
+          </div>
+
+          <div className="mt-12 grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
+            {HIGHLIGHTS.map((h, i) => {
+              const Icon = h.icon;
+              return (
+                <div
+                  key={h.title}
+                  className="pixel-card p-4 text-left"
+                  style={{ animationDelay: `${320 + i * 80}ms` }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-7 place-items-center border border-ink-700 bg-ink-950 text-emerald-400">
+                      <Icon className="size-4" aria-hidden="true" />
+                    </span>
+                    <h3 className="font-pixel text-[9px] font-bold uppercase tracking-wide text-strong">{h.title}</h3>
+                  </div>
+                  <p className="mt-2 font-mono text-xs leading-relaxed text-[#a3acbb]">{h.text}</p>
+                </div>
+              );
+            })}
           </div>
         </section>
 

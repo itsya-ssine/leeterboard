@@ -4,17 +4,18 @@ import { AlertTriangle, Bug, CheckCircle2, Lightbulb, MessageCircle, MessageSqua
 import Modal from "../ui/Modal.js";
 import { useAuth } from "../../AuthContext.js";
 import type { FeedbackCategory } from "../../types.js";
+import { PixelCheck, PixelSkull } from "../../pixelArt.js";
 
 const MIN_LENGTH = 3;
 const MAX_LENGTH = 1000;
 
 const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400";
 
-const floatBtn = `inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full text-sm font-medium shadow-lg shadow-black/30 transition-colors ${focusRing}`;
+const floatBtn = `inline-flex h-10 shrink-0 cursor-pointer items-center justify-center gap-2 border-2 border-emerald-600 bg-emerald-400 text-ink-950 font-pixel text-xs font-bold uppercase shadow-[3px_3px_0_#022c22] transition-transform hover:brightness-110 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${focusRing}`;
 
-const btnPrimary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-teal-400 text-sm font-medium text-ink-950 transition-colors hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnSecondary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 ${focusRing}`;
+const btnPrimary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 border-2 border-emerald-600 bg-emerald-400 text-ink-950 font-pixel text-xs font-bold uppercase shadow-[2px_2px_0_#022c22] transition-transform hover:brightness-110 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSecondary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 border-2 border-ink-700 bg-ink-800 text-mist-100 font-pixel text-xs font-bold uppercase shadow-[2px_2px_0_#000] transition-transform hover:border-mist-400 hover:bg-ink-700 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${focusRing}`;
 
 const CATEGORIES: { value: FeedbackCategory; label: string; Icon: typeof Bug; placeholder: string }[] = [
   { value: "bug", label: "Bug", Icon: Bug, placeholder: "What happened, and what did you expect to happen?" },
@@ -72,9 +73,9 @@ export default function FeedbackWidget() {
           onClick={openDialog}
           aria-haspopup="dialog"
           title="Send feedback"
-          className={`${floatBtn} w-11 bg-teal-400 text-ink-950 hover:bg-teal-300 sm:w-auto sm:px-4`}
+          className={`${floatBtn} px-3 sm:px-4`}
         >
-          <MessageSquare className="size-4" aria-hidden="true" />
+          <MessageSquare className="size-4 shrink-0" aria-hidden="true" />
           <span className="hidden sm:inline">Feedback</span>
           <span className="sr-only sm:hidden">Send feedback</span>
         </button>
@@ -82,15 +83,17 @@ export default function FeedbackWidget() {
 
       <AnimatePresence>
         {open && (
-          <Modal onClose={() => setOpen(false)} label="Send feedback">
+          <Modal onClose={() => setOpen(false)} label="Feedback Terminal">
             {status === "sent" ? (
               <div className="flex flex-col items-center gap-4 py-4 text-center" role="status">
-                <CheckCircle2 className="size-10 text-teal-300" aria-hidden="true" />
-                <div>
-                  <h3 className="text-lg font-semibold tracking-tight text-strong">Feedback sent</h3>
-                  <p className="mt-1 text-sm text-mist-400">Thanks, the admins will see it on their Admin page.</p>
+                <div className="grid size-12 place-items-center border-2 border-emerald-500/80 bg-emerald-950/60 shadow-[3px_3px_0_#022c22]">
+                  <PixelCheck size={20} className="text-emerald-400" />
                 </div>
-                <div className="flex w-full flex-col gap-2">
+                <div>
+                  <h3 className="font-pixel text-sm uppercase tracking-wide text-strong">Feedback Received</h3>
+                  <p className="mt-1.5 text-sm text-mist-400 font-sans">Thanks, the admins will see it on their Admin page.</p>
+                </div>
+                <div className="flex w-full flex-col gap-2.5 mt-2">
                   <button type="button" onClick={() => setOpen(false)} className={btnPrimary}>
                     Close
                   </button>
@@ -102,24 +105,26 @@ export default function FeedbackWidget() {
             ) : (
               <form onSubmit={submit} className="flex flex-col gap-4">
                 <div>
-                  <h3 className="pr-10 text-lg font-semibold tracking-tight text-strong">Send feedback</h3>
-                  <p className="mt-1 text-sm leading-relaxed text-mist-400">
-                    Report a bug, suggest an idea, or say what you think. It goes straight to the admins.
+                  <h3 className="pr-10 font-pixel text-xs uppercase tracking-wider text-strong">Report / Suggest</h3>
+                  <p className="mt-1 text-xs text-mist-400 font-sans">
+                    Report a bug, suggest an idea, or send feedback straight to the admins.
                   </p>
                 </div>
 
-                <div role="group" aria-label="Kind of feedback" className="grid grid-cols-3 gap-1 rounded-lg bg-ink-950 p-1 ring-1 ring-line">
+                <div role="group" aria-label="Kind of feedback" className="grid grid-cols-3 gap-1.5 border-2 border-ink-700 bg-ink-950 p-1.5">
                   {CATEGORIES.map(({ value, label, Icon }) => (
                     <button
                       key={value}
                       type="button"
                       aria-pressed={category === value}
                       onClick={() => setCategory(value)}
-                      className={`inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors ${focusRing} ${
-                        category === value ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+                      className={`inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 font-pixel text-[10px] uppercase tracking-wider transition-colors ${focusRing} ${
+                        category === value
+                          ? "border border-teal-400 bg-ink-800 text-teal-300 shadow-[1px_1px_0_#000]"
+                          : "border border-transparent text-mist-400 hover:text-mist-100"
                       }`}
                     >
-                      <Icon className="size-3.5" aria-hidden="true" />
+                      <Icon className="size-3" aria-hidden="true" />
                       {label}
                     </button>
                   ))}
@@ -127,10 +132,10 @@ export default function FeedbackWidget() {
 
                 <div>
                   <div className="mb-1.5 flex items-baseline justify-between">
-                    <label htmlFor="feedback-message" className="text-sm font-medium text-mist-400">
-                      Your message
+                    <label htmlFor="feedback-message" className="font-pixel text-[10px] uppercase tracking-wider text-mist-400">
+                      Message
                     </label>
-                    <span className="text-xs tabular-nums text-mist-500" aria-hidden="true">
+                    <span className="font-mono text-xs tabular-nums text-mist-500" aria-hidden="true">
                       {message.length}/{MAX_LENGTH}
                     </span>
                   </div>
@@ -139,13 +144,13 @@ export default function FeedbackWidget() {
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     maxLength={MAX_LENGTH}
-                    rows={6}
+                    rows={5}
                     autoFocus
                     disabled={status === "sending"}
                     placeholder={current.placeholder}
-                    className="w-full resize-y rounded-lg bg-ink-950 px-3 py-2.5 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50"
+                    className="w-full resize-y border-2 border-ink-700 bg-ink-950 p-3 font-sans text-sm text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400 disabled:opacity-50"
                   />
-                  <p className="mt-1.5 text-xs text-mist-500">
+                  <p className="mt-1.5 font-mono text-[11px] text-mist-500">
                     {user
                       ? `Sent as ${user.displayName} (@${user.loginUsername}).`
                       : "You're not signed in, so this will be sent anonymously."}
@@ -155,16 +160,16 @@ export default function FeedbackWidget() {
                 {error && (
                   <div
                     role="alert"
-                    className="flex items-start gap-2 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300 ring-1 ring-rose-400/20"
+                    className="flex items-start gap-2 border-2 border-rose-500/80 bg-rose-950/60 p-3 text-xs text-rose-300 shadow-[2px_2px_0_#4c0519]"
                   >
-                    <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                    <PixelSkull size={14} className="mt-0.5 shrink-0" color="#f43f5e" />
                     <span>{error}</span>
                   </div>
                 )}
 
                 <button type="submit" disabled={!canSend} className={btnPrimary}>
-                  <Send className="size-4" aria-hidden="true" />
-                  {status === "sending" ? "Sending…" : "Send feedback"}
+                  <Send className="size-3.5" aria-hidden="true" />
+                  {status === "sending" ? "Transmitting…" : "Transmit"}
                 </button>
               </form>
             )}

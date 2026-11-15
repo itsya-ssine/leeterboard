@@ -36,19 +36,19 @@ const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 const inputCls =
-  "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
+  "h-10 w-full border-2 border-ink-700 bg-ink-950 px-3 font-mono text-xs text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none disabled:opacity-50";
 
-const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnPrimary = `${btnBase} w-full bg-gradient-to-r from-teal-400 to-sky-400 text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] hover:brightness-110 active:scale-[0.97]`;
-const btnSecondary = `${btnBase} w-full bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
-const btnDanger = `${btnBase} w-full bg-rose-500 text-white shadow-[0_6px_20px_-8px_rgb(244_63_94/0.6)] hover:bg-rose-400 active:scale-[0.97]`;
+const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 px-4 font-pixel text-[10px] uppercase tracking-wider transition-transform active:translate-x-[1px] active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnPrimary = `${btnBase} w-full border-2 border-teal-400 bg-teal-400 font-bold text-ink-950 shadow-[2px_2px_0_#000] hover:bg-teal-300 active:shadow-none`;
+const btnSecondary = `${btnBase} w-full border-2 border-ink-700 bg-ink-900 text-mist-100 shadow-[2px_2px_0_#000] hover:border-teal-400 hover:text-teal-300 active:shadow-none`;
+const btnDanger = `${btnBase} w-full border-2 border-rose-500 bg-rose-600 font-bold text-white shadow-[2px_2px_0_#000] hover:bg-rose-500 active:shadow-none`;
 // Header actions: a square icon button on phones, icon plus label from sm.
-const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800/80 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] sm:w-auto sm:px-4 ${focusRing}`;
+const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 border-2 border-ink-700 bg-ink-900 font-pixel text-[9px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none sm:w-auto sm:px-3 ${focusRing}`;
 
 // Compact button for the rows in the Linked accounts card.
-const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-ink-800/80 px-3 text-xs font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 border-2 border-ink-700 bg-ink-900 px-3 font-pixel text-[9px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 
-const labelCls = "mb-1.5 block font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500";
+const labelCls = "mb-1.5 block font-pixel text-[9px] font-bold uppercase tracking-wider text-mist-400";
 
 type Notice = { kind: "error" | "success"; message: string } | null;
 
@@ -73,10 +73,10 @@ function NoticeBox({ notice }: { notice: Notice }) {
   return (
     <div
       role={isError ? "alert" : "status"}
-      className={`flex items-start gap-2 rounded-lg p-3 text-sm ring-1 ${
+      className={`flex items-start gap-2 border-2 p-3 font-mono text-xs shadow-[2px_2px_0_#000] ${
         isError
-          ? "bg-rose-500/10 text-rose-300 ring-rose-400/20"
-          : "bg-teal-400/10 text-teal-300 ring-teal-400/20"
+          ? "border-rose-500/60 bg-rose-950/40 text-rose-300"
+          : "border-teal-500/60 bg-teal-950/40 text-teal-300"
       }`}
     >
       {isError ? <AlertTriangle className="mt-0.5 size-4 shrink-0" /> : <Check className="mt-0.5 size-4 shrink-0" />}
@@ -99,19 +99,18 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} aria-label={title} className="card-aurora min-w-0 animate-rise overflow-hidden p-4 sm:p-5">
-      <div className="flex items-center gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line" aria-hidden="true">
+    <section id={id} aria-label={title} className="pixel-card min-w-0 animate-rise overflow-hidden p-4 sm:p-5">
+      <div className="flex items-center gap-3 border-b-2 border-ink-700/80 pb-3">
+        <span className="grid size-8 shrink-0 place-items-center border border-ink-700 bg-ink-950 text-teal-300 shadow-[1px_1px_0_#000]" aria-hidden="true">
           {icon}
         </span>
-        <h2 className="min-w-0 font-mono text-[11px] font-semibold uppercase tracking-widest text-strong">
-          <span aria-hidden="true" className="text-aurora-a">{"// "}</span>
+        <h2 className="min-w-0 font-pixel text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+          <span aria-hidden="true" className="text-teal-400">{"// "}</span>
           {title}
         </h2>
       </div>
-      {description && <p className="mt-3 text-sm text-mist-400">{description}</p>}
+      {description && <p className="mt-3 font-mono text-xs text-mist-400">{description}</p>}
       <div className="mt-4">{children}</div>
-      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-teal-300/70 to-transparent" />
     </section>
   );
 }
@@ -428,7 +427,7 @@ function PlatformRow({
   };
 
   return (
-    <div id={`account-platform-${platform}`} className="min-w-0 rounded-xl bg-ink-950/80 p-3 ring-1 ring-line">
+    <div id={`account-platform-${platform}`} className="min-w-0 border-2 border-ink-700 bg-ink-950 p-3 shadow-[2px_2px_0_#000]">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-strong">{ui.label}</p>
@@ -630,14 +629,14 @@ function PlatformRow({
           <ol className="list-decimal space-y-2 break-words pl-5 text-sm leading-relaxed text-mist-400">
             <li>Copy this one-time proof code:</li>
           </ol>
-          <div className="flex items-center gap-2 rounded-lg bg-ink-900 p-2 pl-3 font-mono ring-1 ring-line">
+          <div className="flex items-center gap-2 border-2 border-ink-700 bg-ink-900 p-2 pl-3 font-mono shadow-[2px_2px_0_#000]">
             <code className="min-w-0 flex-1 select-all truncate font-mono text-xs text-teal-300 sm:text-sm">
               {challenge.code}
             </code>
             <button
               type="button"
               onClick={copyCode}
-              className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-ink-800 px-2.5 text-xs font-medium text-mist-100 ring-1 ring-line hover:bg-ink-700 ${focusRing}`}
+              className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 border border-ink-700 bg-ink-800 px-2.5 font-pixel text-[8px] uppercase tracking-wider text-mist-100 shadow-[1px_1px_0_#000] hover:border-teal-400 hover:text-teal-300 ${focusRing}`}
             >
               {copied ? <Check className="size-3.5 text-teal-300" /> : <Copy className="size-3.5" />}
               {copied ? "Copied" : "Copy"}
@@ -1226,7 +1225,7 @@ export default function AccountPage({
         }
       />
 
-      <div className="card-aurora flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
+      <div className="pixel-card flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
         <TierAvatar user={user} className="size-14" showGem gemSize="sm" />
         <div className="min-w-0">
           <p className="truncate font-mono text-sm font-bold text-strong">@{user.loginUsername}</p>
@@ -1317,7 +1316,7 @@ export default function AccountPage({
                   placeholder="A line or two about you"
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  className="w-full resize-y rounded-lg bg-ink-950 px-3 py-2 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50"
+                  className="w-full resize-y border-2 border-ink-700 bg-ink-950 px-3 py-2 font-mono text-xs text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none disabled:opacity-50"
                   disabled={aboutBusy}
                 />
               </div>

@@ -86,8 +86,6 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", dismi
     };
   }, []);
 
-  // Rendered into <body> so a transformed or clipped ancestor (an animated
-  // card, say) can't turn `fixed` into "fixed inside that card".
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <motion.div
@@ -96,11 +94,7 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", dismi
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15 }}
         onClick={dismissible ? onClose : undefined}
-        className="absolute inset-0 backdrop-blur-sm"
-        style={{
-          background:
-            "radial-gradient(48rem 26rem at 12% 0%, color-mix(in srgb, var(--color-aurora-a) 16%, transparent), transparent 70%), radial-gradient(44rem 24rem at 92% 100%, color-mix(in srgb, var(--color-aurora-c) 14%, transparent), transparent 70%), rgb(0 0 0 / 0.72)"
-        }}
+        className="absolute inset-0 bg-ink-950/80 backdrop-blur-sm"
       />
 
       <motion.div
@@ -110,27 +104,33 @@ export default function Modal({ onClose, label, id, maxWidth = "max-w-md", dismi
         aria-label={label}
         id={id}
         tabIndex={-1}
-        initial={{ opacity: 0, y: 14, scale: 0.97 }}
+        initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 14, scale: 0.97 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
-        className={`relative z-10 w-full ${maxWidth} shadow-2xl shadow-black/60 focus:outline-none`}
+        exit={{ opacity: 0, y: 10, scale: 0.98 }}
+        transition={{ duration: 0.15, ease: "easeOut" }}
+        className={`relative z-10 w-full ${maxWidth} border-2 border-ink-600 bg-ink-900 shadow-[6px_6px_0_#000] focus:outline-none`}
       >
-        <div className="card-aurora flex max-h-[90vh] flex-col overflow-hidden">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-teal-400/10 via-sky-400/[0.04] to-transparent"
-          />
-          {dismissible && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="absolute right-3 top-3 z-10 grid size-8 cursor-pointer place-items-center rounded-lg bg-tint text-mist-400 ring-1 ring-line transition-colors hover:text-strong hover:ring-line-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
-              aria-label="Close dialog"
-            >
-              <X className="size-4" />
-            </button>
-          )}
+        <div className="flex max-h-[90vh] flex-col overflow-hidden">
+          {/* Retro window header strip */}
+          <div className="relative flex items-center justify-between border-b-2 border-ink-700 bg-ink-950 px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="size-2 bg-emerald-400 shadow-[0_0_4px_#34d399]" />
+              <span className="font-pixel text-[11px] font-bold uppercase tracking-wider text-mist-400">
+                {label}
+              </span>
+            </div>
+            {dismissible && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="grid size-7 cursor-pointer place-items-center border-2 border-ink-700 bg-ink-800 text-mist-400 shadow-[1px_1px_0_#000] transition-colors hover:border-mist-400 hover:bg-ink-700 hover:text-mist-100 focus-visible:outline-2 focus-visible:outline-teal-400"
+                aria-label="Close dialog"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+
           <div className="relative min-h-0 flex-1 overflow-y-auto p-6">{children}</div>
         </div>
       </motion.div>

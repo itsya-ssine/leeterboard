@@ -55,27 +55,28 @@ import { ratingTier } from "./tiers.js";
 import AnimatedNumber from "./AnimatedNumber.js";
 import { CompareSkeleton, ProfileSkeleton } from "./Skeleton.js";
 import CodeforcesPage, { codeforcesBuckets, codeforcesMembers, compareCodeforces } from "./CodeforcesPage.js";
+import { PixelCrown, PixelTrophy, PixelFlame, PixelRankBadge, PixelLed, PixelCheck } from "./pixelArt.js";
 
 /* ---------- Shared style tokens ---------- */
 
 const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400";
 
-const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnPrimary = `${btn} bg-gradient-to-r from-teal-400 to-sky-400 text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] hover:brightness-110 active:scale-[0.97]`;
-const btnSecondary = `${btn} bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
+const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 px-3.5 text-xs font-pixel font-bold uppercase transition-all disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnPrimary = `${btn} border-2 border-emerald-600 bg-emerald-400 text-ink-950 shadow-[2px_2px_0_#022c22] hover:brightness-110 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none`;
+const btnSecondary = `${btn} border-2 border-ink-700 bg-ink-800 text-mist-100 shadow-[2px_2px_0_#000] hover:border-mist-400 hover:bg-ink-700 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none`;
 
 const inputCls =
-  "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
+  "h-10 w-full border-2 border-ink-700 bg-ink-950 px-3 font-sans text-sm text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none focus:ring-1 focus:ring-teal-400 disabled:opacity-50";
 
 const rankColor = (rank: number) =>
   rank === 1
     ? "text-amber-300"
     : rank === 2
-      ? "text-slate-300"
+      ? "text-slate-200"
       : rank === 3
         ? "text-orange-300"
-        : "text-mist-500";
+        : "text-mist-400";
 
 const HOT_STREAK_THRESHOLD = 12;
 
@@ -215,10 +216,10 @@ function isStale(iso: string, now: number): boolean {
 const shortDate = (isoDate: string) =>
   new Date(`${isoDate}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
 
-function HotStreak({ className = "size-3.5" }: { className?: string }) {
+function HotStreak({ className = "" }: { className?: string }) {
   return (
-    <span title="Hot solve streak" className="shrink-0">
-      <Flame className={`${className} animate-glow fill-amber-400/40 text-amber-400 drop-shadow-[0_0_6px_rgb(251_191_36/0.7)]`} />
+    <span title="Hot solve streak" className={`inline-flex shrink-0 ${className}`}>
+      <PixelFlame size={14} className="animate-glow" />
     </span>
   );
 }
@@ -816,16 +817,13 @@ export default function App() {
       </a>
       <div className="aurora-bg" aria-hidden="true" />
       {/* ---------- Top bar ---------- */}
-      <header className="glass sticky top-0 z-30 border-b border-line">
+      <header className="glass sticky top-0 z-30 border-b-2 border-ink-700 bg-ink-950/90 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
           <div className="flex min-w-0 items-center gap-4 lg:gap-6">
-            <a href="#/" className={`flex shrink-0 items-center rounded-lg ${focusRing}`} aria-label="Leeterboard home">
-              {/* Wordmark: "Leet" large in the accent colour, "erboard" in the
-                  strong text colour (white in dark mode, near-black in light mode
-                  so it stays readable on both themes). */}
+            <a href="#/" className={`flex shrink-0 items-center ${focusRing}`} aria-label="Leeterboard home">
               <span className="flex items-baseline font-logo font-bold leading-none tracking-tight">
-                <span className="text-aurora text-2xl sm:text-[1.75rem]">Leet</span>
-                <span className="text-base text-strong sm:text-lg">erboard</span>
+                <span className="text-aurora font-pixel text-xl sm:text-2xl">Leet</span>
+                <span className="font-pixel text-xs sm:text-sm text-strong ml-0.5">erboard</span>
               </span>
             </a>
             <NavLinks
@@ -845,7 +843,7 @@ export default function App() {
                 className={btnSecondary}
                 id="sync-all-btn"
               >
-                <RefreshCw className={`size-4 ${isSyncingAll ? "animate-spin" : ""}`} />
+                <RefreshCw className={`size-3.5 ${isSyncingAll ? "animate-spin" : ""}`} />
                 <span className="hidden lg:inline">{isSyncingAll ? "Syncing…" : "Sync all"}</span>
               </button>
             )}
@@ -870,7 +868,7 @@ export default function App() {
           </div>
         </div>
       </header>
-      <div className="glass sticky top-16 z-20 border-b border-line md:hidden">
+      <div className="glass sticky top-16 z-20 border-b-2 border-ink-700 bg-ink-950/90 md:hidden">
         <NavLinks
           page={page}
           isAdmin={!!currentUser?.isAdmin}
@@ -966,7 +964,7 @@ export default function App() {
               </span>
               <span className="animate-blink inline-block h-3.5 w-1.5 bg-teal-400" />
             </div>
-            <h1 className="animate-rise font-logo text-3xl font-bold tracking-tight text-strong md:text-5xl">
+            <h1 className="animate-rise font-pixel text-2xl font-bold tracking-tight text-strong md:text-4xl">
               {page === "admin"
                 ? "Sync health"
                 : page === "compare"
@@ -979,7 +977,7 @@ export default function App() {
                         ? "CodinGame"
                         : "Weekly LeetCode sprint"}
             </h1>
-            <p className="mt-2 max-w-xl text-base text-mist-400">
+            <p className="mt-2 max-w-xl text-sm md:text-base text-mist-400 font-sans">
               {page === "admin"
                 ? "Who failed to sync, when everyone was last updated, and which LeetCode accounts have gone missing."
                 : page === "compare"
@@ -989,18 +987,15 @@ export default function App() {
                   : "9raa wziid 9ra."}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
           {page === "leaderboard" && <RoundTimer />}
-          <div className="flex items-center gap-2 rounded-full bg-ink-900/70 px-3 py-1.5 text-sm text-mist-400 ring-1 ring-line">
-            <span
-              className={`size-2 rounded-full ${boardStale ? "bg-amber-400" : "animate-glow bg-teal-400 shadow-[0_0_8px_var(--color-teal-400)]"}`}
-              aria-hidden="true"
-            />
+          <div className="flex items-center gap-2 border-2 border-ink-700 bg-ink-950 px-3 py-1 font-mono text-xs text-mist-400 shadow-[2px_2px_0_#000]">
+            <PixelLed status={boardStale ? "warning" : "online"} size={8} />
             {boardStale ? (
-              <span className="text-amber-300">Last synced {formatAge(lastSyncAll, now)}</span>
+              <span className="text-amber-300 font-mono">Last synced {formatAge(lastSyncAll, now)}</span>
             ) : syncTime ? (
               <span>
-                Last synced at <span className="font-medium tabular-nums text-mist-100">{syncTime}</span>
+                Last synced at <span className="font-semibold tabular-nums text-mist-100">{syncTime}</span>
               </span>
             ) : (
               <span>Waiting for first sync</span>
@@ -1051,13 +1046,13 @@ export default function App() {
         <div
           role="group"
           aria-label="Stats platform"
-          className="mb-6 inline-flex rounded-xl bg-ink-950/80 p-1 ring-1 ring-line"
+          className="mb-6 inline-flex border-2 border-ink-700 bg-ink-950 p-1 shadow-[2px_2px_0_#000]"
         >
           {(
             [
               { key: "leetcode", label: "LeetCode", dot: "bg-amber-400", id: "stats-platform-leetcode-btn" },
               { key: "codeforces", label: "Codeforces", dot: "bg-sky-400", id: "stats-platform-codeforces-btn" },
-              { key: "codingame", label: "CodinGame", dot: "bg-lime-400", id: "stats-platform-codingame-btn" }
+              { key: "codingame", label: "CodinGame", dot: "bg-emerald-400", id: "stats-platform-codingame-btn" }
             ] as const
           ).map((opt) => (
             <button
@@ -1066,14 +1061,14 @@ export default function App() {
               onClick={() => setStatsPlatform(opt.key)}
               aria-pressed={statsPlatform === opt.key}
               id={opt.id}
-              className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg px-4 font-mono text-xs font-semibold uppercase tracking-wider transition-colors ${focusRing} ${
+              className={`inline-flex h-8 cursor-pointer items-center gap-2 px-3 font-pixel text-[10px] uppercase tracking-wider transition-colors ${focusRing} ${
                 statsPlatform === opt.key
-                  ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong ring-1 ring-line-strong"
-                  : "text-mist-400 hover:text-strong"
+                  ? "border border-teal-400 bg-ink-800 text-teal-300 shadow-[1px_1px_0_#000]"
+                  : "border border-transparent text-mist-400 hover:text-mist-100"
               }`}
             >
               <span
-                className={`size-2 rounded-full ${opt.dot} ${statsPlatform === opt.key ? "" : "opacity-50"}`}
+                className={`size-2 shrink-0 ${opt.dot} ${statsPlatform === opt.key ? "shadow-[0_0_6px_currentColor]" : "opacity-50"}`}
                 aria-hidden="true"
               />
               {opt.label}
@@ -1092,24 +1087,24 @@ export default function App() {
             return (
               <div
                 key={s.label}
-                className="card-aurora group relative min-w-0 animate-rise overflow-hidden p-5 transition-transform duration-300 hover:-translate-y-0.5"
+                className="pixel-card group relative min-w-0 animate-rise p-5 transition-transform duration-200 hover:-translate-y-0.5"
                 style={{ animationDelay: `${i * 80}ms` }}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">{s.label}</div>
-                  <span className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${text}`}>
+                  <div className="font-pixel text-[10px] uppercase tracking-widest text-mist-500">{s.label}</div>
+                  <span className={`grid size-8 shrink-0 place-items-center border border-ink-700 bg-ink-950 ${text}`}>
                     <Icon className="size-4" aria-hidden="true" />
                   </span>
                 </div>
                 <div
-                  className={`mt-3 truncate font-mono font-bold tracking-tight tabular-nums ${
-                    s.isName ? "text-xl leading-9" : "text-3xl"
+                  className={`mt-3 truncate font-pixel font-bold tracking-tight tabular-nums ${
+                    s.isName ? "text-lg leading-9" : "text-2xl"
                   } ${s.accent ? "text-aurora" : "text-strong"}`}
                 >
                   {s.isName ? s.value : <AnimatedNumber value={s.value} />}
                 </div>
-                <div className="mt-1 truncate text-sm text-mist-500">{s.hint}</div>
-                <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${bar} to-transparent`} />
+                <div className="mt-1 truncate font-sans text-xs text-mist-500">{s.hint}</div>
+                <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r ${bar} to-transparent`} />
               </div>
             );
           })}
@@ -1119,8 +1114,8 @@ export default function App() {
         {!loading && topCards.length > 0 && (
           <section aria-label={isCg ? "Top XP earners this week" : "Top solvers this week"} className="mb-8">
             <div className="mb-3">
-              <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// standings.top3</div>
-              <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">
+              <div className="font-pixel text-[10px] uppercase tracking-widest text-mist-500">// standings.top3</div>
+              <h2 className="mt-1 font-pixel text-base font-bold uppercase tracking-wider text-strong">
                 {isCg ? "Top XP earners this week" : "Top solvers this week"}
               </h2>
             </div>
@@ -1134,14 +1129,15 @@ export default function App() {
                     key={user.id}
                     type="button"
                     onClick={() => setSelectedUser(user)}
-                    className={`card-aurora flex animate-rise cursor-pointer flex-col overflow-hidden text-left transition-transform duration-300 hover:-translate-y-1 active:scale-[0.98] ${focusRing}`}
+                    className={`pixel-card flex animate-rise cursor-pointer flex-col overflow-hidden text-left transition-transform duration-200 hover:-translate-y-1 active:translate-x-[1px] active:translate-y-[1px] ${focusRing}`}
                     style={{ animationDelay: `${i * 100}ms` }}
                   >
                     <div
-                      className={`flex items-center justify-between border-b border-line bg-gradient-to-r ${medal.strip} to-transparent px-4 py-2 font-mono text-[11px] font-bold uppercase tracking-widest ${medal.text}`}
+                      className={`flex items-center justify-between border-b-2 border-ink-700 bg-ink-950 px-4 py-2.5 font-pixel text-[10px] font-bold uppercase tracking-wider ${medal.text}`}
                     >
-                      <span className="inline-flex items-center gap-2">
-                        <span className="balloon" aria-hidden="true" />#{i + 1} {medal.label}
+                      <span className="inline-flex items-center gap-1.5">
+                        {i === 0 ? <PixelCrown size={14} /> : <PixelTrophy variant={i === 1 ? "silver" : "bronze"} size={14} />}
+                        #{i + 1} {medal.label}
                       </span>
                       <span>+{weekly.toLocaleString()} {weeklyUnit}</span>
                     </div>
@@ -1150,10 +1146,10 @@ export default function App() {
                         <TierAvatar user={user} className="size-12" />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate font-semibold text-strong">{user.displayName}</span>
+                            <span className="truncate font-sans font-bold text-strong">{user.displayName}</span>
                             {!isCg && weekly >= HOT_STREAK_THRESHOLD && <HotStreak />}
                           </div>
-                          <div className="truncate font-mono text-sm text-mist-500">@{handle}</div>
+                          <div className="truncate font-mono text-xs text-mist-500">@{handle}</div>
                           <SchoolTag school={user.school} className="mt-1" />
                         </div>
                       </div>
@@ -1161,7 +1157,7 @@ export default function App() {
                       {isCg ? (
                         <div className="flex items-center gap-3">
                           <LevelBadge level={level} />
-                          <span className="font-mono text-[10px] uppercase tracking-widest text-mist-500">
+                          <span className="font-pixel text-[9px] uppercase tracking-widest text-mist-500">
                             CodinGame level
                           </span>
                         </div>
@@ -1174,20 +1170,20 @@ export default function App() {
                           <span>vs leader</span>
                           <span>{vsLeader}%</span>
                         </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-tint">
+                        <div className="h-2 overflow-hidden border border-ink-700 bg-ink-950 p-[1px]">
                           <div
-                            className={`h-full rounded-full bg-gradient-to-r ${medal.bar}`}
+                            className={`h-full bg-gradient-to-r ${medal.bar}`}
                             style={{ width: `${vsLeader}%` }}
                           />
                         </div>
                       </div>
 
-                      <div className="flex items-baseline justify-between border-t border-line pt-3 font-mono text-sm">
+                      <div className="flex items-baseline justify-between border-t-2 border-ink-700 pt-3 font-mono text-xs">
                         <span className="text-mist-400">
                           <span className="font-bold tabular-nums text-strong">{solved.toLocaleString()}</span> {totalUnit}
                         </span>
-                        <span className="text-emerald-400">
-                          <span className="font-bold tabular-nums">+{weekly.toLocaleString()}</span> this week
+                        <span className="text-emerald-400 font-bold">
+                          +{weekly.toLocaleString()} this week
                         </span>
                       </div>
                     </div>
@@ -1229,10 +1225,10 @@ export default function App() {
           id="leaderboard-panel"
           role="table"
           aria-label="LeetCode weekly leaderboard"
-          className="card-aurora animate-rise overflow-hidden"
+          className="pixel-card overflow-hidden"
         >
           {/* Toolbar */}
-          <div className="flex flex-col gap-3 border-b border-line p-3 sm:flex-row sm:items-center md:p-4">
+          <div className="flex flex-col gap-3 border-b-2 border-ink-700 bg-ink-950/90 p-3 sm:flex-row sm:items-center md:p-4">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-mist-500" />
               <input
@@ -1247,7 +1243,7 @@ export default function App() {
               <kbd
                 title={t.pressSlashToSearch}
                 aria-hidden="true"
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center justify-center h-5 px-1.5 font-mono text-[10px] font-semibold text-mist-400 bg-ink-800 border border-line rounded"
+                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center justify-center h-5 px-1.5 font-pixel text-[9px] font-bold text-mist-400 bg-ink-800 border border-ink-700"
               >
                 /
               </kbd>
@@ -1263,7 +1259,7 @@ export default function App() {
                   aria-label={t.filterCohort}
                   value={selectedCohort}
                   onChange={(e) => setSelectedCohort(e.target.value)}
-                  className="h-8 rounded-lg border border-line bg-ink-950/80 px-2.5 text-xs font-medium text-mist-300 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  className="h-10 border-2 border-ink-700 bg-ink-950 px-3 font-mono text-xs font-medium text-mist-100 shadow-[2px_2px_0_#000] focus:border-teal-400 focus:outline-none"
                 >
                   <option value="">{t.allCohorts} ({users.length})</option>
                   {cohorts.map((c) => {
@@ -1281,7 +1277,7 @@ export default function App() {
             <div
               role="group"
               aria-label="Sort leaderboard"
-              className="inline-flex shrink-0 rounded-xl bg-ink-950/80 p-1 ring-1 ring-line"
+              className="inline-flex shrink-0 border-2 border-ink-700 bg-ink-950 p-1 shadow-[2px_2px_0_#000]"
             >
               {(
                 [
@@ -1296,10 +1292,10 @@ export default function App() {
                   onClick={() => setSortBy(opt.key)}
                   aria-pressed={sortBy === opt.key}
                   id={opt.id}
-                  className={`h-8 flex-1 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors sm:flex-none ${focusRing} ${
+                  className={`h-8 flex-1 cursor-pointer px-3.5 font-pixel text-[10px] uppercase transition-colors sm:flex-none ${focusRing} ${
                     sortBy === opt.key
-                      ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong shadow-sm ring-1 ring-line-strong"
-                      : "text-mist-400 hover:text-strong"
+                      ? "border border-teal-400 bg-ink-800 text-teal-300 shadow-[1px_1px_0_#000]"
+                      : "border border-transparent text-mist-400 hover:text-mist-100"
                   }`}
                 >
                   {opt.label}
@@ -1313,32 +1309,32 @@ export default function App() {
           )}
 
           {/* Column labels */}
-          <div role="rowgroup" className="hidden border-b border-line bg-ink-950/40 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500 md:block">
+          <div role="rowgroup" className="hidden border-b-2 border-ink-700 bg-ink-950 font-pixel text-[10px] uppercase tracking-wider text-mist-500 md:block">
             <div role="row" className="grid grid-cols-12 gap-x-4 px-5 py-2.5">
-              <div role="columnheader" aria-sort="none" className="col-span-1">#</div>
-              <div role="columnheader" aria-sort="none" className="col-span-3">Handle</div>
+              <div role="columnheader" aria-sort="none" className="col-span-1">Rank</div>
+              <div role="columnheader" aria-sort="none" className="col-span-3">Member</div>
               <div role="columnheader" aria-sort={sortBy === "weekly" ? "descending" : "none"} className="col-span-4">
                 {sortBy === "weekly" ? "Tests passed (25)" : "Problems  E · M · H"}
               </div>
-              <div role="columnheader" aria-sort={sortBy === "rating" ? "descending" : "none"} className="col-span-2">Rating</div>
+              <div role="columnheader" aria-sort={sortBy === "rating" ? "descending" : "none"} className="col-span-2">Contest Tier</div>
               <div role="columnheader" aria-sort={sortBy === "allTime" ? "descending" : "none"} className="col-span-2 pr-14 text-right">&Sigma; Solved</div>
             </div>
           </div>
 
           {loading ? (
-            <div className="divide-y divide-line" aria-busy="true">
+            <div className="divide-y-2 divide-ink-800" aria-busy="true">
               <span className="sr-only">Loading leaderboard</span>
               {Array.from({ length: 6 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4 px-5 py-4">
-                  <div className="h-4 w-5 animate-pulse rounded bg-ink-800" />
-                  <div className="size-10 animate-pulse rounded-full bg-ink-800" />
-                  <div className="h-4 w-40 animate-pulse rounded bg-ink-800" />
-                  <div className="ml-auto h-4 w-12 animate-pulse rounded bg-ink-800" />
+                  <div className="h-4 w-6 animate-pulse bg-ink-800" />
+                  <div className="size-10 animate-pulse border border-ink-700 bg-ink-800" />
+                  <div className="h-4 w-40 animate-pulse bg-ink-800" />
+                  <div className="ml-auto h-4 w-12 animate-pulse bg-ink-800" />
                 </div>
               ))}
             </div>
           ) : (
-            <div role="rowgroup" className="divide-y divide-line">
+            <div role="rowgroup" className="divide-y-2 divide-ink-800">
               <AnimatePresence mode="popLayout">
                 {sortedUsers.length === 0 ? (
                   <motion.div
@@ -1366,7 +1362,6 @@ export default function App() {
                   sortedUsers.map((user) => {
                     const isPinned = pinnedUsers.includes(user.id);
                     const actualRank = displayRank(user);
-
                     const weeklyFilled = Math.min(25, user.weeklyProgress);
 
                     return (
@@ -1378,26 +1373,20 @@ export default function App() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ layout: { type: "spring", stiffness: 420, damping: 38 }, opacity: { duration: 0.18 } }}
-                        className={`grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 px-4 py-4 transition-colors md:grid-cols-12 md:gap-x-4 md:px-5 ${
+                        className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 px-4 py-3.5 transition-colors md:grid-cols-12 md:gap-x-4 md:px-5 ${
                           isPinned
-                            ? "bg-teal-400/[0.07] shadow-[inset_3px_0_0_0_var(--color-teal-400)]"
-                            : "bg-transparent hover:bg-ink-800/60 hover:shadow-[inset_3px_0_0_0_var(--color-aurora-c)]"
+                            ? "bg-teal-950/20 shadow-[inset_3px_0_0_0_var(--color-teal-400)]"
+                            : "bg-transparent hover:bg-ink-800/60 hover:shadow-[inset_3px_0_0_0_var(--color-aurora-a)]"
                         }`}
                         id={`member-row-${user.id}`}
                       >
                         {/* Rank */}
                         <div role="cell" className="flex flex-col items-start gap-1 md:col-span-1">
-                          <span
-                            className={`grid size-8 place-items-center rounded-full font-mono text-sm font-bold leading-none tabular-nums ${rankColor(actualRank ?? 0)} ${
-                              actualRank != null && actualRank <= 3
-                                ? "bg-current/10 ring-1 ring-current/30"
-                                : ""
-                            }`}
-                          >
-                            <span className={actualRank != null && actualRank <= 3 ? "text-strong" : ""}>
-                              {actualRank == null ? "–" : String(actualRank).padStart(2, "0")}
-                            </span>
-                          </span>
+                          {actualRank != null ? (
+                            <PixelRankBadge rank={actualRank} size="sm" />
+                          ) : (
+                            <span className="font-pixel text-[10px] text-mist-500">–</span>
+                          )}
                         </div>
 
                         {/* Member — opens the full profile */}
@@ -1406,55 +1395,53 @@ export default function App() {
                             type="button"
                             onClick={() => setSelectedUser(user)}
                             title="View full profile"
-                            className={`group/member flex min-w-0 cursor-pointer items-center gap-3 rounded-lg text-left transition-transform active:scale-[0.97] ${focusRing}`}
+                            className={`group/member flex min-w-0 cursor-pointer items-center gap-3 text-left transition-transform active:scale-[0.98] ${focusRing}`}
                           >
-                            <TierAvatar user={user} className="size-11 transition duration-300 group-hover/member:scale-105" />
+                            <TierAvatar user={user} className="size-11 transition duration-200 group-hover/member:scale-105" />
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <span className="truncate font-medium text-strong transition-colors group-hover/member:text-teal-300">
+                                <span className="truncate font-sans font-bold text-mist-100 transition-colors group-hover/member:text-teal-300">
                                   {user.displayName}
                                 </span>
                                 {user.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak />}
                                 <RankMovement movement={movements[user.id]} />
                               </div>
-                              <div className="truncate text-sm text-mist-500">@{user.loginUsername}</div>
+                              <div className="truncate font-mono text-xs text-mist-500">@{user.loginUsername}</div>
                               <SchoolTag school={user.school} className="mt-1" />
                               {!boardStale && user.lastUpdated && isStale(user.lastUpdated, now) && (
                                 <div
-                                  className="mt-1 inline-flex items-center gap-1 rounded bg-amber-400/10 px-1.5 py-0.5 text-xs text-amber-300 ring-1 ring-amber-300/20"
+                                  className="mt-1 inline-flex items-center gap-1 border border-amber-400/30 bg-amber-950/60 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
                                   title={`Last successful LeetCode fetch: ${new Date(user.lastUpdated).toLocaleString()}. The board synced more recently, so LeetCode's API may be failing for this account.`}
                                 >
-                                  <Clock className="size-3" aria-hidden="true" />
-                                  Updated {formatAge(user.lastUpdated, now)}
+                                  <Clock className="size-2.5" aria-hidden="true" />
+                                  {formatAge(user.lastUpdated, now)}
                                 </div>
                               )}
                             </div>
                           </button>
                         </div>
 
-                        {/* Progress — weekly bar when sorted by week, difficulty split otherwise.
-                            Drops below the member on small screens. */}
+                        {/* Progress — weekly bar when sorted by week, difficulty split otherwise. */}
                         <div role="cell" className="order-last col-span-3 md:order-none md:col-span-4 md:pr-4">
                           {sortBy === "weekly" ? (
                             <div className="flex w-full items-center gap-3">
                               <div
-                                className="flex h-2.5 w-full gap-[2px]"
+                                className="flex h-3 w-full gap-[2px] border border-ink-700 bg-ink-950 p-[1px]"
                                 role="img"
                                 aria-label={`${user.weeklyProgress} solved this week`}
                               >
                                 {Array.from({ length: 25 }).map((_, i) => (
                                   <span
                                     key={i}
-                                    className={`h-full flex-1 rounded-[2px] transition-colors duration-500 ${
+                                    className={`h-full flex-1 transition-colors duration-300 ${
                                       i < weeklyFilled
-                                        ? "bg-gradient-to-b from-emerald-300 to-emerald-500 shadow-[0_0_6px_rgb(52_211_153/0.45)]"
-                                        : "bg-tint"
+                                        ? "bg-emerald-400 shadow-[0_0_4px_#34d399]"
+                                        : "bg-ink-900"
                                     }`}
-                                    style={{ transitionDelay: `${i * 12}ms` }}
                                   />
                                 ))}
                               </div>
-                              <span className="w-10 shrink-0 text-right font-mono text-sm font-bold tabular-nums text-emerald-400">
+                              <span className="w-10 shrink-0 text-right font-mono text-xs font-bold tabular-nums text-emerald-400">
                                 +{user.weeklyProgress}
                               </span>
                             </div>
@@ -1468,14 +1455,13 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Contest rating — number + contests entered; "Unrated" when none.
-                            Drops below the progress bar on small screens. */}
+                        {/* Contest rating */}
                         <div role="cell" className="order-last col-span-3 flex items-baseline gap-2 md:order-none md:col-span-2 md:block">
-                          <span className="text-xs text-mist-500 md:hidden">Contest rating</span>
+                          <span className="font-pixel text-[9px] uppercase text-mist-500 md:hidden">Rating:</span>
                           {user.contestRating != null ? (
                             <>
                               <span
-                                className="font-mono text-base font-bold tabular-nums"
+                                className="font-mono text-sm font-bold tabular-nums"
                                 style={{ color: ratingTier(user.contestRating).color }}
                               >
                                 {user.contestRating.toLocaleString()}
@@ -1488,15 +1474,15 @@ export default function App() {
                               </span>
                             </>
                           ) : (
-                            <span className="font-mono text-xs uppercase tracking-wider text-mist-500">Unrated</span>
+                            <span className="font-pixel text-[9px] uppercase tracking-wider text-mist-500">Unrated</span>
                           )}
                         </div>
 
                         {/* Total & controls */}
-                        <div role="cell" className="flex items-center justify-end gap-1 md:col-span-2">
+                        <div role="cell" className="flex items-center justify-end gap-1.5 md:col-span-2">
                           <div className="pr-2 text-right leading-none">
-                            <div className="font-mono text-xl font-bold tabular-nums text-strong">{user.allTimeSolved}</div>
-                            <div className="mt-1 font-mono text-[10px] font-bold tracking-widest text-emerald-400">AC</div>
+                            <div className="font-pixel text-base font-bold tabular-nums text-mist-100">{user.allTimeSolved}</div>
+                            <div className="mt-0.5 font-pixel text-[8px] font-bold tracking-widest text-emerald-400">AC</div>
                           </div>
 
                           <button
@@ -1508,8 +1494,8 @@ export default function App() {
                             aria-pressed={isPinned}
                             aria-label={isPinned ? `Unpin ${user.displayName}` : `Pin ${user.displayName} to the top`}
                             title={isPinned ? "Unpin member" : "Pin member to the top"}
-                            className={`grid size-8 cursor-pointer place-items-center rounded-lg transition-colors hover:bg-tint ${focusRing} ${
-                              isPinned ? "text-teal-300" : "text-mist-500 hover:text-strong"
+                            className={`grid size-7 cursor-pointer place-items-center border transition-colors ${focusRing} ${
+                              isPinned ? "border-teal-400 bg-teal-950/60 text-teal-300" : "border-transparent text-mist-500 hover:border-ink-700 hover:bg-ink-800 hover:text-mist-100"
                             }`}
                           >
                             <Pin className="size-3.5 fill-current" />
@@ -1525,7 +1511,7 @@ export default function App() {
                               }}
                               aria-label={`Remove ${user.displayName}`}
                               title="Remove member"
-                              className={`grid size-8 cursor-pointer place-items-center rounded-lg text-mist-500 transition-colors hover:bg-rose-500/10 hover:text-rose-300 ${focusRing}`}
+                              className={`grid size-7 cursor-pointer place-items-center border border-transparent text-mist-500 transition-colors hover:border-rose-500/50 hover:bg-rose-950/40 hover:text-rose-300 ${focusRing}`}
                             >
                               <Trash2 className="size-3.5" />
                             </button>
@@ -1539,7 +1525,6 @@ export default function App() {
             </div>
           )}
         </section>
-
         )}
 
 
@@ -1554,19 +1539,19 @@ export default function App() {
               id="profile-modal"
             >
               {/* Identity */}
-              <div className="mb-5 flex items-center gap-4 pr-8">
+              <div className="mb-5 flex items-center gap-4 pr-8 border-b-2 border-ink-700 pb-4">
                 <TierAvatar user={selectedUser} className="size-16" showGem gemSize="sm" />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <h3 className="truncate text-xl font-semibold tracking-tight text-strong">
+                    <h3 className="truncate font-pixel text-sm uppercase tracking-wide text-strong">
                       {selectedUser.displayName}
                     </h3>
                     {selectedUser.weeklyProgress >= HOT_STREAK_THRESHOLD && <HotStreak className="size-4" />}
                   </div>
-                  <div className="truncate text-sm text-mist-500">@{selectedUser.loginUsername}</div>
-                  <div className="mt-0.5 text-sm text-mist-400">
+                  <div className="truncate font-mono text-xs text-mist-500">@{selectedUser.loginUsername}</div>
+                  <div className="mt-1 font-mono text-xs text-mist-400">
                     {sortBy === "rating" ? "Contest rank" : "Rank"}{" "}
-                    <span className={`font-semibold tabular-nums ${rankColor(displayRank(selectedUser) ?? 0)}`}>
+                    <span className={`font-pixel text-[11px] font-bold tabular-nums ${rankColor(displayRank(selectedUser) ?? 0)}`}>
                       {displayRank(selectedUser) != null ? `#${displayRank(selectedUser)}` : "Unranked"}
                     </span>
                   </div>
@@ -1574,23 +1559,23 @@ export default function App() {
               </div>
 
               {/* Progress figures */}
-              <div className="mb-4 grid grid-cols-3 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
-                <div className="bg-ink-950 p-3.5">
-                  <div className="text-2xl font-semibold tabular-nums text-strong">{selectedUser.allTimeSolved}</div>
-                  <div className="mt-0.5 text-xs text-mist-500">All time</div>
+              <div className="mb-4 grid grid-cols-3 gap-2">
+                <div className="border-2 border-ink-700 bg-ink-950 p-3 shadow-[2px_2px_0_#000]">
+                  <div className="font-pixel text-lg tabular-nums text-strong">{selectedUser.allTimeSolved}</div>
+                  <div className="mt-1 font-pixel text-[9px] uppercase tracking-wider text-mist-500">All time</div>
                 </div>
-                <div className="bg-ink-950 p-3.5">
-                  <div className="text-2xl font-semibold tabular-nums text-teal-300">+{selectedUser.weeklyProgress}</div>
-                  <div className="mt-0.5 text-xs text-mist-500">This week</div>
+                <div className="border-2 border-teal-500/50 bg-teal-950/20 p-3 shadow-[2px_2px_0_#000]">
+                  <div className="font-pixel text-lg tabular-nums text-teal-300">+{selectedUser.weeklyProgress}</div>
+                  <div className="mt-1 font-pixel text-[9px] uppercase tracking-wider text-teal-400/80">This week</div>
                 </div>
-                <div className="bg-ink-950 p-3.5">
-                  <div className="text-2xl font-semibold tabular-nums text-strong">+{selectedUser.monthlyProgress}</div>
-                  <div className="mt-0.5 text-xs text-mist-500">This month</div>
+                <div className="border-2 border-ink-700 bg-ink-950 p-3 shadow-[2px_2px_0_#000]">
+                  <div className="font-pixel text-lg tabular-nums text-strong">+{selectedUser.monthlyProgress}</div>
+                  <div className="mt-1 font-pixel text-[9px] uppercase tracking-wider text-mist-500">This month</div>
                 </div>
               </div>
 
               {/* Difficulty breakdown */}
-              <div className="rounded-xl bg-ink-950 p-4 ring-1 ring-line">
+              <div className="border-2 border-ink-700 bg-ink-950 p-3.5 shadow-[2px_2px_0_#000]">
                 <DifficultyBar
                   easy={selectedUser.easySolved}
                   medium={selectedUser.mediumSolved}
@@ -1600,20 +1585,20 @@ export default function App() {
               </div>
 
               {/* One-line extras */}
-              <div className="mt-3 flex items-center justify-between gap-3 text-sm text-mist-500">
+              <div className="mt-3 flex items-center justify-between gap-3 font-mono text-xs text-mist-400 border-t border-ink-700/80 pt-3">
                 <span className="inline-flex items-center gap-1.5">
                   <Flame
                     className={`size-4 ${(selectedUser.currentStreak ?? 0) > 0 ? "text-amber-400" : "text-mist-500"}`}
                     aria-hidden="true"
                   />
-                  <span className="font-semibold tabular-nums text-strong">{selectedUser.currentStreak ?? "–"}</span>
-                  day streak
+                  <span className="font-bold tabular-nums text-strong">{selectedUser.currentStreak ?? "–"}</span>
+                  <span>day streak</span>
                 </span>
                 <span>
                   {selectedUser.contestRating != null ? (
                     <>
                       Rated{" "}
-                      <span className="font-semibold tabular-nums text-strong">
+                      <span className="font-bold tabular-nums text-amber-300">
                         {selectedUser.contestRating.toLocaleString()}
                       </span>
                     </>
@@ -1624,11 +1609,11 @@ export default function App() {
               </div>
 
               {/* Actions */}
-              <div className="mt-5 flex flex-col gap-2 border-t border-line pt-4">
+              <div className="mt-5 flex flex-col gap-2 border-t-2 border-ink-700 pt-4">
                 <a
                   href={`#/u/${encodeURIComponent(selectedUser.loginUsername)}`}
                   onClick={() => setSelectedUser(null)}
-                  className={`${btnPrimary} w-full`}
+                  className={`${btnPrimary} w-full text-center justify-center font-pixel text-[11px] uppercase tracking-wider`}
                   id="view-full-profile-btn"
                 >
                   <UserRound className="size-4" aria-hidden="true" />
@@ -1640,7 +1625,7 @@ export default function App() {
                       href={`https://leetcode.com/${encodeURIComponent(selectedUser.leetcodeUsername)}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className={`${btnSecondary} min-w-0 flex-1`}
+                      className={`${btnSecondary} min-w-0 flex-1 justify-center font-pixel text-[10px] uppercase tracking-wider`}
                     >
                       <span className="truncate">LeetCode</span>
                       <ArrowUpRight className="size-3.5 shrink-0 text-amber-300" />
@@ -1649,7 +1634,7 @@ export default function App() {
                   <a
                     href={`#/compare/${encodeURIComponent(selectedUser.loginUsername)}`}
                     onClick={() => setSelectedUser(null)}
-                    className={`${btnSecondary} min-w-0 flex-1`}
+                    className={`${btnSecondary} min-w-0 flex-1 justify-center font-pixel text-[10px] uppercase tracking-wider`}
                   >
                     <Swords className="size-3.5 shrink-0" aria-hidden="true" />
                     Compare

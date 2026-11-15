@@ -1,10 +1,11 @@
+import React from "react";
 import { Activity, Gamepad2, ListOrdered, ShieldCheck, Swords, Trophy } from "lucide-react";
 import { useI18n } from "../../i18n.js";
 
 export type Page = "leaderboard" | "codeforces" | "codingame" | "stats" | "compare" | "profile" | "account" | "admin";
 
 const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400";
 
 export const NAV_ITEMS = [
   { page: "leaderboard", href: "#/", label: "Leaderboard", Icon: ListOrdered },
@@ -48,25 +49,26 @@ export default function NavLinks({
   };
 
   return (
-    <nav aria-label="Main" className={`items-center gap-1 ${className}`}>
+    <nav aria-label="Main" className={`items-center gap-1.5 ${className}`}>
       {items.map(({ page: p, href, label, Icon }) => {
         const navLabel = getNavLabel(p, label);
+        const isActive = page === p;
         return (
           <a
             key={p}
             href={href}
-            aria-current={page === p ? "page" : undefined}
+            aria-current={isActive ? "page" : undefined}
             aria-label={navLabel}
             title={navLabel}
-            className={`inline-flex h-9 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors ${focusRing} ${
+            className={`inline-flex h-9 items-center justify-center gap-2 border-2 transition-all ${focusRing} ${
               NAV_PADDING_CLASS[labelFrom]
             } ${fill ? "min-w-0 flex-1" : "shrink-0"} ${
-              page === p
-                ? "bg-ink-800 text-strong shadow-[inset_0_-2px_0_0_var(--color-teal-400)] ring-1 ring-line"
-                : "text-mist-400 hover:bg-tint hover:text-strong"
+              isActive
+                ? "border-emerald-400 bg-emerald-950/40 text-emerald-300 shadow-[2px_2px_0_#022c22] font-pixel text-[11px]"
+                : "border-transparent text-mist-400 hover:border-ink-700 hover:bg-ink-800 hover:text-mist-100 font-pixel text-[11px]"
             }`}
           >
-            <Icon className="size-4 shrink-0" aria-hidden="true" />
+            <Icon className={`size-3.5 shrink-0 ${isActive ? "text-emerald-400" : "text-mist-500"}`} aria-hidden="true" />
             <span className={NAV_LABEL_CLASS[labelFrom]}>{navLabel}</span>
           </a>
         );

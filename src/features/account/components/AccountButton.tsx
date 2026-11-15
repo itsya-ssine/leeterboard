@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 
 const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400";
 
 // The signed-in member's header button: their LeetCode profile picture and
 // username. Clicking it toggles the account menu that drops down beneath it. Below the lg breakpoint
@@ -32,7 +32,7 @@ export default function AccountButton({
       aria-haspopup="menu"
       aria-expanded={open}
       title="Account"
-      className={`flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-ink-800/80 p-1 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong lg:pr-3.5 ${focusRing}`}
+      className={`flex h-9 shrink-0 cursor-pointer items-center gap-2 border-2 border-ink-700 bg-ink-900 p-1 text-sm font-medium text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-mist-400 hover:bg-ink-800 lg:pr-3 ${focusRing}`}
     >
       {showImage ? (
         <img
@@ -40,17 +40,19 @@ export default function AccountButton({
           alt=""
           referrerPolicy="no-referrer"
           onError={() => setBroken(true)}
-          className="size-7 shrink-0 rounded-full bg-ink-700 object-cover"
+          className="size-6 shrink-0 border border-ink-700 bg-ink-800 object-cover"
         />
       ) : (
         <span
           aria-hidden="true"
-          className="grid size-7 shrink-0 place-items-center rounded-full bg-teal-400 text-xs font-semibold text-ink-950"
+          className="grid size-6 shrink-0 place-items-center bg-emerald-400 font-pixel text-[10px] font-bold text-ink-950"
         >
           {initial}
         </span>
       )}
-      <span className="hidden max-w-[10rem] truncate lg:inline">@{user.loginUsername}</span>
+      <span className="hidden max-w-[10rem] truncate font-mono text-xs font-semibold lg:inline">
+        @{user.loginUsername}
+      </span>
     </button>
   );
 }

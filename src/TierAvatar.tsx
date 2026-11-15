@@ -9,33 +9,43 @@ import { tierOf, tierSummary, type RatingTier } from "./tiers.js";
 
 const mix = (color: string, pct: number, into = "transparent") => `color-mix(in srgb, ${color} ${pct}%, ${into})`;
 
-function frameFor(tier: RatingTier | null): { background: string; glow: string; spin: boolean } {
-  if (!tier) return { background: "var(--color-line-strong)", glow: "none", spin: false };
+function frameFor(tier: RatingTier | null): { background: string; glow: string; spin: boolean; border: string } {
+  if (!tier) {
+    return {
+      background: "var(--color-line-strong)",
+      glow: "2px 2px 0px #000",
+      spin: false,
+      border: "var(--color-ink-700)"
+    };
+  }
   const c = tier.color;
   switch (tier.level) {
     case 0:
-      return { background: c, glow: "none", spin: false };
+      return { background: c, glow: `2px 2px 0px #000`, spin: false, border: c };
     case 1:
     case 2:
-      return { background: c, glow: `0 0 14px -3px ${mix(c, 60)}`, spin: false };
+      return { background: c, glow: `2px 2px 0px #000, 0 0 10px ${mix(c, 50)}`, spin: false, border: c };
     case 3:
     case 4:
       return {
         background: `linear-gradient(135deg, ${c}, ${mix(c, 45, "white")} 50%, ${c})`,
-        glow: `0 0 18px -3px ${mix(c, 70)}`,
-        spin: false
+        glow: `2px 2px 0px #000, 0 0 14px ${mix(c, 65)}`,
+        spin: false,
+        border: c
       };
     case 5:
       return {
         background: `conic-gradient(from 200deg, ${c}, ${mix(c, 40, "#fde68a")}, ${c}, ${mix(c, 40, "#fde68a")}, ${c})`,
-        glow: `0 0 22px -3px ${mix(c, 80)}`,
-        spin: false
+        glow: `2px 2px 0px #000, 0 0 18px ${mix(c, 75)}`,
+        spin: false,
+        border: "#fbbf24"
       };
     default:
       return {
         background: `conic-gradient(from 0deg, ${c}, #fbbf24, ${mix(c, 50, "white")}, ${c}, #fbbf24, ${c})`,
-        glow: `0 0 26px -2px ${mix(c, 85)}`,
-        spin: true
+        glow: `2px 2px 0px #000, 0 0 22px ${mix(c, 85)}`,
+        spin: true,
+        border: "#f43f5e"
       };
   }
 }
@@ -43,8 +53,8 @@ function frameFor(tier: RatingTier | null): { background: string; glow: string; 
 // Inner picture radius for the supported frame shapes (frame minus its padding).
 const INNER_RADIUS: Record<string, string> = {
   "rounded-full": "rounded-full",
-  "rounded-xl": "rounded-[10px]",
-  "rounded-2xl": "rounded-[14px]"
+  "rounded-xl": "rounded-[8px]",
+  "rounded-2xl": "rounded-[12px]"
 };
 
 // The frame itself, for any picture and any tier. TierAvatar below is the
@@ -61,11 +71,9 @@ export function FramedAvatar({
 }: {
   src: string;
   tier: RatingTier | null;
-  // Sizing and anything layout related (size-*, transitions, group-hover:...).
   className?: string;
   shape?: "rounded-full" | "rounded-xl" | "rounded-2xl";
   title?: string;
-  // A small tier gem on the corner, for the large avatars.
   showGem?: boolean;
   gemSize?: "sm" | "md";
 }) {
@@ -73,7 +81,10 @@ export function FramedAvatar({
 
   return (
     <span className={`relative inline-block shrink-0 ${className}`} title={title}>
-      <span className={`relative block size-full overflow-hidden p-[2px] ${shape}`} style={{ boxShadow: frame.glow }}>
+      <span
+        className={`relative block size-full overflow-hidden p-[2px] ${shape}`}
+        style={{ boxShadow: frame.glow }}
+      >
         <span
           aria-hidden="true"
           className={`absolute ${frame.spin ? "-inset-1/2 motion-safe:animate-spin" : "inset-0"}`}
@@ -89,10 +100,12 @@ export function FramedAvatar({
       {showGem && tier && (
         <span
           aria-hidden="true"
-          className={`absolute grid place-items-center rounded-full bg-ink-900 ring-2 ring-line-strong ${
+          className={`absolute grid place-items-center bg-ink-900 border-2 shadow-[1px_1px_0_#000] ${
+            shape === "rounded-full" ? "rounded-full" : "rounded-none"
+          } ${
             gemSize === "sm" ? "-bottom-0.5 -left-0.5 size-5" : "-bottom-1 -left-1 size-7"
           }`}
-          style={{ color: tier.color }}
+          style={{ borderColor: tier.color, color: tier.color }}
         >
           <Gem className={gemSize === "sm" ? "size-3" : "size-3.5"} />
         </span>

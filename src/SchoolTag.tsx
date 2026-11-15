@@ -9,9 +9,9 @@ export default function SchoolTag({ school, className = "" }: { school?: string;
   return (
     <span
       title={name}
-      className={`inline-flex max-w-full items-center gap-1 rounded-full bg-teal-400/10 px-2 py-0.5 text-xs font-medium text-teal-300 ring-1 ring-teal-400/20 ${className}`}
+      className={`inline-flex max-w-full items-center gap-1.5 border border-teal-500/40 bg-ink-900/90 px-2 py-0.5 text-[11px] font-mono text-teal-300 shadow-[1px_1px_0_#000] ${className}`}
     >
-      <GraduationCap className="size-3 shrink-0" aria-hidden="true" />
+      <GraduationCap className="size-3 shrink-0 text-teal-400" aria-hidden="true" />
       <span className="truncate">{name}</span>
     </span>
   );

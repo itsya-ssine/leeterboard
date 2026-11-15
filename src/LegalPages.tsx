@@ -8,19 +8,19 @@ import { LEGAL, RETENTION, type LegalPageId } from "./legal.js";
 // new kind of personal data, a new third party, a new cookie or a new retention
 // period, update the matching section here and bump LEGAL.effectiveDate.
 
-const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
-export const linkClass = `font-medium text-teal-300 underline decoration-teal-300/30 underline-offset-4 hover:decoration-teal-300 ${focusRing}`;
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400";
+export const linkClass = `font-medium text-emerald-400 underline decoration-emerald-400/40 underline-offset-4 hover:decoration-emerald-300 hover:text-emerald-300 transition-colors ${focusRing}`;
 
 export type SectionDef = { id: string; title: string; body: ReactNode };
 
 /* ---------- small building blocks ---------- */
 
 export function Ul({ children }: { children: ReactNode }) {
-  return <ul className="list-disc space-y-2 pl-5 marker:text-mist-500">{children}</ul>;
+  return <ul className="list-disc space-y-2 pl-5 marker:text-emerald-400/70">{children}</ul>;
 }
 
 export function B({ children }: { children: ReactNode }) {
-  return <strong className="font-semibold text-strong">{children}</strong>;
+  return <strong className="font-semibold text-white">{children}</strong>;
 }
 
 export function Mail() {
@@ -599,36 +599,47 @@ export function DocumentPage({
   }, [title]);
 
   return (
-    <main className="min-h-dvh">
-      <div className="mx-auto max-w-3xl px-6 py-8 sm:px-10">
-        <header className="flex items-center justify-between gap-4">
-          <a href="/" className={`font-logo text-lg font-semibold tracking-tight text-strong ${focusRing}`}>
+    <main className="min-h-dvh bg-ink-950 text-mist-200 pixel-grid-bg relative">
+      <div className="mx-auto max-w-3xl px-6 py-8 sm:px-10 relative z-10">
+        <header className="flex items-center justify-between gap-4 border-b border-ink-800 pb-4">
+          <a
+            href="/"
+            className={`flex items-center gap-2.5 font-pixel text-xs tracking-wider uppercase text-white hover:text-emerald-400 transition-colors ${focusRing}`}
+          >
+            <span className="w-2.5 h-2.5 bg-emerald-400 inline-block shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
             {LEGAL.serviceName}
           </a>
-          <a href="/" className={`inline-flex items-center gap-1.5 text-sm text-mist-400 transition hover:text-strong ${focusRing}`}>
-            <ArrowLeft size={16} aria-hidden="true" />
+          <a
+            href="/"
+            className={`inline-flex items-center gap-1.5 font-pixel text-[11px] text-mist-400 border border-ink-800 bg-ink-900/80 px-2.5 py-1.5 hover:border-emerald-500/50 hover:text-emerald-300 transition-all ${focusRing}`}
+          >
+            <ArrowLeft size={13} aria-hidden="true" />
             Back to {LEGAL.serviceName}
           </a>
         </header>
 
-        <div className="mt-12">
-          <div className="mb-3 flex items-center gap-2 font-mono text-xs text-mist-500" aria-hidden="true">
-            <span className="font-bold text-emerald-400">&#8250;</span>
+        <div className="mt-10">
+          <div className="mb-3 inline-flex items-center gap-2 font-mono text-xs text-mist-400 bg-ink-900 border border-ink-800 px-3 py-1 shadow-inner" aria-hidden="true">
+            <span className="font-bold text-emerald-400 font-pixel text-[10px]">&#8250;</span>
             <span className="truncate">{command}</span>
           </div>
-          <h1 className="font-logo text-3xl font-bold tracking-tight text-strong md:text-5xl">{title}</h1>
+          <h1 className="font-pixel text-2xl sm:text-3xl font-bold tracking-tight text-white">{title}</h1>
           <p className="mt-2 text-base text-mist-400">{blurb}</p>
-          <p className="mt-4 text-sm text-mist-500">
-            Last updated <time dateTime={updated}>{formatDate(updated)}</time>
-          </p>
+          <div className="mt-4 flex items-center gap-2 font-pixel text-[10px] uppercase text-mist-400">
+            <span className="inline-block w-1.5 h-1.5 bg-cyan-400"></span>
+            <span>Last updated <time dateTime={updated} className="text-white font-mono">{formatDate(updated)}</time></span>
+          </div>
         </div>
 
-        <nav aria-label="On this page" className="mt-8 rounded-2xl border border-line bg-ink-900/60 p-5">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-mist-500">On this page</p>
-          <ol className="grid list-decimal gap-x-8 gap-y-1.5 pl-5 text-sm text-mist-400 marker:text-mist-500 sm:grid-cols-2">
+        <nav aria-label="On this page" className="mt-8 border-2 border-ink-800 bg-ink-900/90 p-5 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.6)]">
+          <p className="mb-3 font-pixel text-[11px] uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+            <span className="inline-block w-2 h-2 bg-emerald-400"></span>
+            On this page
+          </p>
+          <ol className="grid list-decimal gap-x-8 gap-y-2 pl-5 text-sm text-mist-300 marker:text-emerald-500 marker:font-mono sm:grid-cols-2">
             {sections.map((s) => (
               <li key={s.id}>
-                <a href={`#${s.id}`} className={`transition hover:text-strong ${focusRing}`}>
+                <a href={`#${s.id}`} className={`hover:text-emerald-300 transition-colors ${focusRing}`}>
                   {s.title}
                 </a>
               </li>
@@ -636,14 +647,14 @@ export function DocumentPage({
           </ol>
         </nav>
 
-        <article className="mt-10 space-y-10">
+        <article className="mt-10 space-y-12">
           {sections.map((s, i) => (
-            <section key={s.id} id={s.id} aria-labelledby={`${s.id}-title`} className="scroll-mt-6">
-              <h2 id={`${s.id}-title`} className="font-logo text-xl font-semibold tracking-tight text-strong">
-                <span className="mr-2 font-mono text-sm font-normal text-mist-500">{String(i + 1).padStart(2, "0")}</span>
-                {s.title}
+            <section key={s.id} id={s.id} aria-labelledby={`${s.id}-title`} className="scroll-mt-6 border-b border-ink-800/80 pb-10 last:border-b-0">
+              <h2 id={`${s.id}-title`} className="font-pixel text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2.5">
+                <span className="font-mono text-xs font-bold text-emerald-400 bg-ink-900 border border-emerald-900/50 px-2 py-0.5 shadow-sm">{String(i + 1).padStart(2, "0")}</span>
+                <span>{s.title}</span>
               </h2>
-              <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-mist-400">{s.body}</div>
+              <div className="mt-4 space-y-3.5 text-[15px] leading-relaxed text-mist-300">{s.body}</div>
             </section>
           ))}
         </article>

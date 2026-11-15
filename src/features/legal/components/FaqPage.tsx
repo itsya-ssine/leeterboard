@@ -8,12 +8,12 @@ import { RATING_TIERS } from "../../../tiers.js";
 // drift from the app. If a change alters how ranking, progress, tiers, badges or
 // syncing work, update the matching section and bump FAQ_UPDATED in faq.ts.
 
-const TH = "border-b border-line px-3 py-2 text-left font-mono text-[11px] font-semibold uppercase tracking-wider text-mist-500";
-const TD = "border-b border-line/60 px-3 py-2 align-top";
+const TH = "border-b-2 border-ink-800 bg-ink-900/90 px-4 py-2.5 text-left font-pixel text-[10px] font-semibold uppercase tracking-wider text-emerald-400";
+const TD = "border-b border-ink-800/60 px-4 py-2.5 align-top text-sm text-mist-300";
 
 function Table({ head, rows, label }: { head: string[]; rows: string[][]; label: string }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-line">
+    <div className="overflow-x-auto border-2 border-ink-800 bg-ink-950/80 shadow-[3px_3px_0px_0px_rgba(0,0,0,0.5)] my-4">
       <table className="w-full min-w-[28rem] text-sm" aria-label={label}>
         <thead>
           <tr>
@@ -26,10 +26,10 @@ function Table({ head, rows, label }: { head: string[]; rows: string[][]; label:
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={row[0]}>
+            <tr key={row[0]} className="hover:bg-ink-900/40 transition-colors">
               {row.map((cell, i) =>
                 i === 0 ? (
-                  <th key={i} scope="row" className={`${TD} text-left font-medium text-strong`}>
+                  <th key={i} scope="row" className={`${TD} text-left font-semibold text-white font-mono`}>
                     {cell}
                   </th>
                 ) : (

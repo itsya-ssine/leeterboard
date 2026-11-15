@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, Check, X } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
+import { PixelCheck, PixelSkull } from "../../pixelArt.js";
 
 export type ToastKind = "success" | "error";
 
@@ -44,7 +45,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:right-4 sm:w-80"
+        className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] flex flex-col items-stretch gap-2.5 sm:inset-x-auto sm:right-4 sm:w-88"
       >
         <AnimatePresence initial={false}>
           {items.map((t) => {
@@ -54,40 +55,51 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 key={t.id}
                 layout
                 role={isError ? "alert" : "status"}
-                initial={{ opacity: 0, y: 16, scale: 0.97 }}
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, x: 24 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="pointer-events-auto shadow-2xl shadow-black/60"
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="pointer-events-auto shadow-[4px_4px_0_#000]"
               >
-                <div className="card-aurora overflow-hidden">
+                <div
+                  className={`overflow-hidden border-2 bg-ink-900 ${
+                    isError ? "border-rose-500/80 shadow-[3px_3px_0_#4c0519]" : "border-emerald-500/80 shadow-[3px_3px_0_#022c22]"
+                  }`}
+                >
                   <div className="flex items-start gap-3 px-4 py-3">
                     <span
-                      className={`mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg ring-1 ${
+                      className={`mt-0.5 grid size-6 shrink-0 place-items-center border ${
                         isError
-                          ? "bg-rose-500/10 text-rose-300 ring-rose-400/30"
-                          : "bg-teal-400/10 text-teal-300 ring-teal-400/30"
+                          ? "border-rose-500/60 bg-rose-950/60 text-rose-300"
+                          : "border-emerald-500/60 bg-emerald-950/60 text-emerald-300"
                       }`}
                     >
                       {isError ? (
-                        <AlertTriangle className="size-3.5" aria-hidden="true" />
+                        <PixelSkull size={14} color="#f43f5e" />
                       ) : (
-                        <Check className="size-3.5" aria-hidden="true" />
+                        <PixelCheck size={12} className="text-emerald-400" />
                       )}
                     </span>
-                    <p className="min-w-0 flex-1 break-words text-sm text-mist-100">{t.message}</p>
+                    <div className="min-w-0 flex-1">
+                      <span className={`block font-pixel text-[9px] uppercase tracking-wider mb-0.5 ${
+                        isError ? "text-rose-400" : "text-emerald-400"
+                      }`}>
+                        {isError ? "System Alert" : "Success"}
+                      </span>
+                      <p className="break-words text-sm font-sans text-mist-100">{t.message}</p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => dismiss(t.id)}
                       aria-label="Dismiss"
-                      className="-mr-1 grid size-6 shrink-0 cursor-pointer place-items-center rounded-md text-mist-500 transition-colors hover:bg-tint hover:text-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
+                      className="-mr-1 grid size-6 shrink-0 cursor-pointer place-items-center border border-ink-700 bg-ink-800 text-mist-500 transition-colors hover:border-mist-400 hover:text-mist-100"
                     >
-                      <X className="size-3.5" aria-hidden="true" />
+                      <X className="size-3" aria-hidden="true" />
                     </button>
                   </div>
                   <div
                     aria-hidden="true"
-                    className={`h-0.5 bg-gradient-to-r ${isError ? "from-rose-400" : "from-teal-300"} to-transparent`}
+                    className={`h-1 ${isError ? "bg-rose-500" : "bg-emerald-400"}`}
                   />
                 </div>
               </motion.div>

@@ -1,13 +1,11 @@
 import React from "react";
-import { Crown } from "lucide-react";
 import type { User } from "../../../types.js";
 import type { Movement, RankingKey } from "../utils/movement.js";
 import RankMovement from "./RankMovement.js";
 import SchoolTag from "../../../components/common/SchoolTag.js";
 import TierAvatar from "../../../components/ui/TierAvatar.js";
+import { PixelCrown, PixelTrophy, PixelStar } from "../../../pixelArt.js";
 
-// Faux "accepted solution" that scrolls behind the podium, like an editor
-// open next to the standings. Purely decorative.
 const CODE_LEFT = [
   "#include <bits/stdc++.h>",
   "using namespace std;",
@@ -43,7 +41,6 @@ const CODE_RIGHT = [
 
 const KEYWORDS = /\b(int|long|for|while|if|else|return|def|in|range|using|namespace|vector|auto|const)\b/g;
 
-// Tiny tokenizer: comments, keywords and numbers get a theme-aware tint.
 function highlight(line: string): React.ReactNode {
   const comment = line.search(/(\/\/|#(?!include))/);
   const code = comment === -1 ? line : line.slice(0, comment);
@@ -53,14 +50,14 @@ function highlight(line: string): React.ReactNode {
     <>
       {parts.map((part, i) =>
         /^(int|long|for|while|if|else|return|def|in|range|using|namespace|vector|auto|const)$/.test(part) ? (
-          <span key={i} style={{ color: "var(--color-aurora-c)" }}>{part}</span>
+          <span key={i} className="text-purple-400">{part}</span>
         ) : /^\d+$/.test(part) ? (
-          <span key={i} style={{ color: "var(--color-amber-300)" }}>{part}</span>
+          <span key={i} className="text-amber-300">{part}</span>
         ) : (
           part
         )
       )}
-      {note && <span className={note.includes("Accepted") ? "text-emerald-400" : "text-mist-500"}>{note}</span>}
+      {note && <span className={note.includes("Accepted") ? "text-emerald-400 font-bold" : "text-mist-500"}>{note}</span>}
     </>
   );
 }
@@ -68,7 +65,7 @@ function highlight(line: string): React.ReactNode {
 function CodePane({ lines, className = "" }: { lines: string[]; className?: string }) {
   return (
     <pre className={`m-0 flex gap-3 font-mono text-[11px] leading-[1.35rem] text-mist-400 ${className}`}>
-      <code className="select-none text-right text-mist-500/60">{lines.map((_, i) => i + 1).join("\n")}</code>
+      <code className="select-none text-right text-mist-500/50">{lines.map((_, i) => i + 1).join("\n")}</code>
       <code className="whitespace-pre">
         {lines.map((l, i) => (
           <React.Fragment key={i}>
@@ -81,133 +78,129 @@ function CodePane({ lines, className = "" }: { lines: string[]; className?: stri
   );
 }
 
-// Everything behind the podium: code wallpaper, rising ICPC balloons and a
-// perspective grid floor.
 function PodiumBackdrop() {
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 select-none overflow-hidden">
-      <div className="podium-code absolute inset-0 flex justify-between px-4 pt-4 opacity-[0.28] sm:px-8">
+      <div className="podium-code absolute inset-0 flex justify-between px-4 pt-4 opacity-[0.22] sm:px-8">
         <CodePane lines={CODE_LEFT} />
         <CodePane lines={CODE_RIGHT} className="hidden sm:flex" />
       </div>
       <div className="podium-floor absolute inset-x-0 bottom-0 h-32 opacity-70" />
-      <span className="animate-float absolute left-[7%] top-[22%] scale-[2.4] text-amber-300 opacity-50" style={{ animationDelay: "0s" }}>
-        <span className="balloon" />
+      {/* Floating pixel stars */}
+      <span className="animate-float absolute left-[7%] top-[18%] opacity-60" style={{ animationDelay: "0s" }}>
+        <PixelStar size={16} color="#fbbf24" />
       </span>
-      <span className="animate-float absolute right-[9%] top-[34%] scale-[2.8] text-sky-400 opacity-45" style={{ animationDelay: "1.4s", animationDuration: "7.5s" }}>
-        <span className="balloon" />
+      <span className="animate-float absolute right-[8%] top-[24%] opacity-50" style={{ animationDelay: "1.2s", animationDuration: "5s" }}>
+        <PixelStar size={14} color="#06b6d4" />
       </span>
-      <span className="animate-float absolute left-[20%] top-[58%] scale-[1.8] text-rose-400 opacity-40" style={{ animationDelay: "0.7s", animationDuration: "5.5s" }}>
-        <span className="balloon" />
+      <span className="animate-float absolute left-[18%] top-[54%] opacity-45" style={{ animationDelay: "0.6s", animationDuration: "4.5s" }}>
+        <PixelStar size={12} color="#a855f7" />
       </span>
-      <span className="animate-float absolute right-[24%] top-[14%] scale-[1.6] text-emerald-400 opacity-40" style={{ animationDelay: "2.1s", animationDuration: "6.5s" }}>
-        <span className="balloon" />
+      <span className="animate-float absolute right-[22%] top-[12%] opacity-50" style={{ animationDelay: "1.8s", animationDuration: "6s" }}>
+        <PixelStar size={14} color="#10b981" />
       </span>
     </div>
   );
 }
 
-// Medal styling for places 1–3. `glow` is the soft halo behind the avatar,
-// `block` the gradient pedestal, `delay` staggers the entrance animation.
 const PLACES = [
   {
     text: "text-amber-300",
-    avatarRing: "ring-amber-300/70",
-    glow: "bg-amber-300/30",
-    block: "bg-gradient-to-t from-amber-300/5 via-amber-300/15 to-amber-300/30 ring-amber-300/30",
-    blockHeight: "h-24",
+    avatarRing: "border-amber-400",
+    glow: "bg-amber-400/25",
+    block: "border-2 border-b-0 border-amber-400/80 bg-ink-900 shadow-[3px_0_0_#78350f,-3px_0_0_#78350f,0_0_20px_rgba(251,191,36,0.15)]",
+    blockHeight: "h-26 sm:h-28",
     avatar: "size-18 sm:size-24",
     order: "order-2",
     delay: "0.15s"
   },
   {
-    text: "text-slate-300",
-    avatarRing: "ring-slate-300/60",
-    glow: "bg-slate-300/20",
-    block: "bg-gradient-to-t from-slate-300/5 via-slate-300/10 to-slate-300/20 ring-slate-300/25",
-    blockHeight: "h-16",
+    text: "text-slate-200",
+    avatarRing: "border-slate-300",
+    glow: "bg-slate-300/15",
+    block: "border-2 border-b-0 border-slate-300/70 bg-ink-900 shadow-[3px_0_0_#334155,-3px_0_0_#334155]",
+    blockHeight: "h-18 sm:h-20",
     avatar: "size-14 sm:size-18",
     order: "order-1",
     delay: "0.3s"
   },
   {
     text: "text-orange-300",
-    avatarRing: "ring-orange-300/60",
-    glow: "bg-orange-300/20",
-    block: "bg-gradient-to-t from-orange-300/5 via-orange-300/10 to-orange-300/20 ring-orange-300/25",
-    blockHeight: "h-12",
+    avatarRing: "border-orange-400",
+    glow: "bg-orange-300/15",
+    block: "border-2 border-b-0 border-orange-400/70 bg-ink-900 shadow-[3px_0_0_#7c2d12,-3px_0_0_#7c2d12]",
+    blockHeight: "h-14 sm:h-15",
     avatar: "size-14 sm:size-18",
     order: "order-3",
     delay: "0.45s"
   }
 ] as const;
 
-// One podium place, whatever the platform. The LeetCode, Codeforces and
-// CodinGame boards each turn their own members into these, so all three share
-// the exact same podium.
 export interface PodiumEntry {
   id: string;
   name: string;
-  // The line under the name, already formatted (e.g. "@alice" or a Codeforces handle).
   handle: string;
-  // Colour of that line; defaults to the muted text colour.
   handleClassName?: string;
   school?: string;
-  // The headline figure and its caption, e.g. "+12" / "this week".
   value: string;
   label: string;
-  // Draws the avatar. `className` carries the size and hover transition.
   avatar: (className: string) => React.ReactNode;
   movement?: Movement;
-  // Either a link (opens in the same tab) or a click handler (opens a modal).
   href?: string;
   onSelect?: () => void;
 }
 
 const PLACE_BUTTON_CLASS =
-  "group/podium flex w-full min-w-0 cursor-pointer flex-col items-center gap-1 rounded-lg px-1 pb-3 text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+  "group/podium flex w-full min-w-0 cursor-pointer flex-col items-center gap-1 px-1 pb-3 text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400";
 
-// The top three, in [1st, 2nd, 3rd] order. The list stays in that order for
-// screen readers while CSS `order` lays it out as the classic 2nd-1st-3rd podium.
 export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
   return (
     <ol
       aria-label="Top three"
-      className="relative grid grid-cols-3 items-end gap-2 overflow-hidden border-b border-line bg-gradient-to-b from-transparent to-ink-950/50 px-3 pt-8 sm:gap-4 sm:px-8"
+      className="relative grid grid-cols-3 items-end gap-2 overflow-hidden border-b-2 border-ink-700 bg-ink-950/70 px-3 pt-8 sm:gap-4 sm:px-8"
     >
       <PodiumBackdrop />
-      {/* Spotlight cone above the winner */}
+      {/* Retro spotlight cone */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute left-1/2 top-0 h-full w-2/3 -translate-x-1/2 bg-[radial-gradient(ellipse_at_top,color-mix(in_srgb,var(--color-amber-300)_16%,transparent),transparent_65%)]"
+        className="pointer-events-none absolute left-1/2 top-0 h-full w-2/3 -translate-x-1/2 bg-[radial-gradient(ellipse_at_top,rgba(251,191,36,0.14),transparent_65%)]"
       />
       {entries.slice(0, 3).map((entry, i) => {
         const style = PLACES[i];
         const body = (
           <>
             {i === 0 && (
-              <Crown
-                className="animate-float size-5 fill-amber-300/30 text-amber-300 drop-shadow-[0_0_8px_rgb(252_211_77/0.6)]"
-                aria-hidden="true"
-              />
+              <div className="animate-float mb-0.5">
+                <PixelCrown size={22} />
+              </div>
+            )}
+            {i === 1 && (
+              <div className="mb-0.5">
+                <PixelTrophy variant="silver" size={18} />
+              </div>
+            )}
+            {i === 2 && (
+              <div className="mb-0.5">
+                <PixelTrophy variant="bronze" size={18} />
+              </div>
             )}
             <span className="relative mt-1 grid place-items-center">
               <span
                 aria-hidden="true"
-                className={`animate-glow absolute inset-0 -z-0 scale-125 rounded-full blur-xl ${style.glow}`}
+                className={`animate-glow absolute inset-0 -z-0 scale-125 blur-xl ${style.glow}`}
               />
               {entry.avatar(
-                `${style.avatar} transition duration-300 group-hover/podium:-translate-y-1 group-hover/podium:scale-105`
+                `${style.avatar} transition-transform duration-200 group-hover/podium:-translate-y-1`
               )}
               <span
                 aria-hidden="true"
-                className={`absolute -bottom-1 -right-1 grid size-6 place-items-center rounded-full bg-ink-900 text-xs font-bold tabular-nums ring-2 ring-current ${style.text}`}
+                className={`absolute -bottom-1 -right-1 grid size-6 place-items-center border-2 border-ink-950 bg-ink-900 font-pixel text-[10px] font-bold tabular-nums shadow-[1px_1px_0_#000] ${style.text}`}
               >
-                {i + 1}
+                #{i + 1}
               </span>
             </span>
             <span className="mt-2 flex w-full min-w-0 items-center justify-center gap-1">
-              <span className="truncate text-xs font-semibold text-strong transition-colors group-hover/podium:text-teal-300 sm:text-sm">
+              <span className="truncate font-sans text-xs font-bold text-mist-100 transition-colors group-hover/podium:text-teal-300 sm:text-sm">
                 {entry.name}
               </span>
               <RankMovement movement={entry.movement} />
@@ -216,8 +209,8 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
               {entry.handle}
             </span>
             <SchoolTag school={entry.school} />
-            <span className={`mt-0.5 font-mono text-base font-bold tabular-nums sm:text-lg ${style.text}`}>
-              {entry.value} <span className="text-xs font-normal text-mist-500">{entry.label}</span>
+            <span className={`mt-1 font-pixel text-sm font-bold tabular-nums sm:text-base ${style.text}`}>
+              {entry.value} <span className="font-mono text-xs font-normal text-mist-500">{entry.label}</span>
             </span>
           </>
         );
@@ -236,29 +229,30 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
                 {body}
               </button>
             )}
+            {/* Stepped Pixel Pedestal */}
             <div
-              className={`relative grid w-full place-items-center overflow-hidden rounded-t-xl ring-1 ${style.block} ${style.blockHeight}`}
+              className={`relative grid w-full place-items-center overflow-hidden ${style.block} ${style.blockHeight}`}
               aria-hidden="true"
             >
               {i === 0 && <div className="gold-sheen absolute inset-0" />}
-              <span className={`relative font-mono text-4xl font-bold tabular-nums opacity-80 ${style.text}`}>
+              <span className={`relative font-pixel text-3xl sm:text-4xl font-bold tabular-nums opacity-90 ${style.text}`}>
                 {i + 1}
               </span>
+              {/* Stepped base lines */}
+              <div className="absolute inset-x-0 bottom-0 h-1 bg-ink-950" />
             </div>
           </li>
         );
       })}
-      {/* Empty pedestals for places nobody holds yet, so one or two members
-          still sit in the 2nd-1st-3rd layout. */}
       {Array.from({ length: Math.max(0, 3 - entries.length) }, (_, k) => {
         const i = entries.length + k;
         const style = PLACES[i];
         return (
           <li key={`empty-${i}`} aria-hidden="true" className={`relative flex min-w-0 flex-col items-center ${style.order}`}>
             <div
-              className={`relative grid w-full place-items-center overflow-hidden rounded-t-xl opacity-40 ring-1 ${style.block} ${style.blockHeight}`}
+              className={`relative grid w-full place-items-center overflow-hidden opacity-30 ${style.block} ${style.blockHeight}`}
             >
-              <span className={`font-mono text-4xl font-bold tabular-nums opacity-80 ${style.text}`}>{i + 1}</span>
+              <span className={`font-pixel text-3xl font-bold tabular-nums opacity-80 ${style.text}`}>{i + 1}</span>
             </div>
           </li>
         );
@@ -273,8 +267,6 @@ function metric(user: User, sortBy: RankingKey): { value: string; label: string 
   return { value: user.allTimeSolved.toLocaleString(), label: "solved" };
 }
 
-// The LeetCode podium: the top three for the ranking currently selected.
-// `leaders` is [1st, 2nd, 3rd].
 export default function Podium({
   leaders,
   sortBy,

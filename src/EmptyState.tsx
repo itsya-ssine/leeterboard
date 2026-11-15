@@ -1,9 +1,9 @@
 import React from "react";
 
 const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400";
 
-const actionCls = `inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-teal-400 to-sky-400 px-3.5 text-sm font-medium text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] transition hover:brightness-110 active:scale-[0.97] ${focusRing}`;
+const actionCls = `inline-flex h-9 cursor-pointer items-center justify-center gap-2 border-2 border-emerald-600 bg-emerald-400 px-4 text-xs font-pixel font-bold uppercase text-ink-950 shadow-[2px_2px_0_#022c22] transition-transform hover:brightness-110 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${focusRing}`;
 
 export interface EmptyAction {
   label: string;
@@ -34,13 +34,13 @@ export default function EmptyState({
   return (
     <div
       id={id}
-      className={`${bare ? "" : "card-aurora animate-rise"} px-6 py-14 text-center ${className}`}
+      className={`${bare ? "" : "pixel-card"} px-6 py-14 text-center ${className}`}
     >
-      <div className="animate-float mx-auto mb-4 grid size-12 place-items-center rounded-xl bg-tint text-teal-300 ring-1 ring-line">
+      <div className="mx-auto mb-4 grid size-14 place-items-center border-2 border-ink-700 bg-ink-950 text-teal-400 shadow-[3px_3px_0_#000]">
         {icon}
       </div>
-      <p className="font-medium text-strong">{title}</p>
-      {description && <p className="mx-auto mt-1 max-w-md text-sm text-mist-500">{description}</p>}
+      <p className="font-pixel text-xs uppercase tracking-wider text-mist-100">{title}</p>
+      {description && <p className="mx-auto mt-2 max-w-md text-sm text-mist-400 font-sans">{description}</p>}
       {action &&
         (action.href ? (
           <a href={action.href} className={`${actionCls} mt-5`}>

@@ -15,11 +15,11 @@ const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 const inputCls =
-  "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
+  "h-10 w-full border-2 border-ink-700 bg-ink-950 px-3 font-mono text-xs text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none disabled:opacity-50";
 
-const btnPrimary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-teal-400 text-sm font-medium text-ink-950 transition-colors hover:bg-teal-300 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnSecondary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const linkBtn = `cursor-pointer font-medium text-teal-300 underline-offset-2 hover:underline ${focusRing} rounded`;
+const btnPrimary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 border-2 border-teal-400 bg-teal-400 font-pixel text-[10px] uppercase font-bold text-ink-950 shadow-[2px_2px_0_#000] transition-colors hover:bg-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSecondary = `inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 border-2 border-ink-700 bg-ink-900 font-pixel text-[10px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const linkBtn = `cursor-pointer font-pixel text-[10px] text-teal-300 hover:underline ${focusRing}`;
 
 type Tab = "login" | "signup";
 
@@ -28,7 +28,7 @@ type Tab = "login" | "signup";
 function ConsentNote() {
   const link = { target: "_blank", rel: "noopener noreferrer", className: "underline underline-offset-2 hover:text-strong" };
   return (
-    <p className="text-xs leading-relaxed text-mist-500">
+    <p className="font-mono text-xs leading-relaxed text-mist-500">
       By creating an account you agree to the{" "}
       <a href={LEGAL_PATHS.terms} {...link}>
         Terms of Service
@@ -46,7 +46,7 @@ function ErrorBox({ message }: { message: string }) {
   return (
     <div
       role="alert"
-      className="flex items-start gap-2 rounded-lg bg-rose-500/10 p-3 text-sm text-rose-300 ring-1 ring-rose-400/20"
+      className="flex items-start gap-2 border-2 border-rose-500/70 bg-rose-950/40 p-3 font-mono text-xs text-rose-300 shadow-[2px_2px_0_#000]"
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0" />
       <span>{message}</span>
@@ -294,7 +294,7 @@ export default function LoginModal({
               <div
                 role="tablist"
                 aria-label="Account"
-                className="mr-8 inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line"
+                className="mr-8 inline-flex border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]"
               >
                 {(
                   [
@@ -308,8 +308,8 @@ export default function LoginModal({
                     role="tab"
                     aria-selected={tab === t.key}
                     onClick={() => switchTab(t.key)}
-                    className={`h-8 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors ${focusRing} ${
-                      tab === t.key ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+                    className={`h-8 cursor-pointer px-4 font-pixel text-[9px] uppercase tracking-wider transition-colors ${focusRing} ${
+                      tab === t.key ? "bg-teal-400 font-bold text-ink-950 shadow-[1px_1px_0_#000]" : "text-mist-400 hover:bg-ink-900 hover:text-strong"
                     }`}
                   >
                     {t.label}
