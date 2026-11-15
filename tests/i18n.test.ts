@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { TRANSLATIONS, type Locale } from "../src/i18n.js";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { TRANSLATIONS, I18nProvider, useI18n, type Locale } from "../src/i18n.js";
 
 describe("i18n configuration and translations", () => {
   const locales: Locale[] = ["en", "fr", "ar"];
@@ -30,5 +32,19 @@ describe("i18n configuration and translations", () => {
   it("contains French translations", () => {
     assert.equal(TRANSLATIONS.fr.leaderboard, "Classement");
     assert.equal(TRANSLATIONS.fr.stats, "Statistiques");
+  });
+
+  it("locks provider context to English locale and translations", () => {
+    let contextValue: ReturnType<typeof useI18n> | null = null;
+    function Consumer() {
+      contextValue = useI18n();
+      return createElement("span", null, contextValue.t.leaderboard);
+    }
+    const html = renderToStaticMarkup(createElement(I18nProvider, null, createElement(Consumer)));
+    const ctx = contextValue as ReturnType<typeof useI18n> | null;
+    assert.ok(html.includes("Leaderboard"));
+    assert.equal(ctx?.locale, "en");
+    assert.equal(ctx?.isRTL, false);
+    assert.equal(ctx?.t.leaderboard, "Leaderboard");
   });
 });

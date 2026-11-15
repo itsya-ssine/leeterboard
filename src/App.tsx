@@ -33,7 +33,6 @@ import Podium from "./Podium.js";
 import SchoolTag from "./SchoolTag.js";
 import RankMovement from "./RankMovement.js";
 import ThemeToggle from "./ThemeToggle.js";
-import LanguageSelector from "./LanguageSelector.js";
 import { useI18n } from "./i18n.js";
 import NotificationBell from "./NotificationBell.js";
 import AccountButton from "./AccountButton.js";
@@ -851,7 +850,6 @@ export default function App() {
               </button>
             )}
 
-            <LanguageSelector />
             <ThemeToggle />
 
             {/* Notifications — signed-in members only. Keyed by member so
