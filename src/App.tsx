@@ -1440,12 +1440,12 @@ export default function App() {
                           </div>
 
                           {/* Member — opens the full profile */}
-                          <div role="cell" className="min-w-0 overflow-hidden md:col-span-4">
+                          <div role="cell" className="relative z-10 min-w-0 md:col-span-4">
                             <button
                               type="button"
                               onClick={() => setSelectedUser(user)}
                               title="View full profile"
-                              className={`group/member flex w-full min-w-0 cursor-pointer items-center gap-3 text-left transition-transform active:scale-[0.98] ${focusRing}`}
+                              className={`group/member flex w-full min-w-0 cursor-pointer items-center gap-3 pl-1 text-left transition-transform active:scale-[0.98] ${focusRing}`}
                             >
                               <TierAvatar
                                 user={user}

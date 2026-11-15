@@ -81,10 +81,14 @@ export function FramedAvatar({
 
   return (
     <span className={`relative inline-block shrink-0 ${className}`} title={title}>
+      {/* Outer neon halo / glow layer (free of overflow-hidden clipping) */}
       <span
-        className={`relative block size-full overflow-hidden p-[2px] ${shape}`}
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 ${shape}`}
         style={{ boxShadow: frame.glow }}
-      >
+      />
+      {/* Framed avatar image with clipped rotating gradient */}
+      <span className={`relative block size-full overflow-hidden p-[2px] ${shape}`}>
         <span
           aria-hidden="true"
           className={`absolute ${frame.spin ? "-inset-1/2 motion-safe:animate-spin" : "inset-0"}`}
@@ -100,11 +104,9 @@ export function FramedAvatar({
       {showGem && tier && (
         <span
           aria-hidden="true"
-          className={`absolute grid place-items-center bg-ink-900 border-2 shadow-[1px_1px_0_#000] ${
+          className={`absolute z-10 grid place-items-center bg-ink-900 border-2 shadow-[1px_1px_0_#000] ${
             shape === "rounded-full" ? "rounded-full" : "rounded-none"
-          } ${
-            gemSize === "sm" ? "-bottom-0.5 -left-0.5 size-5" : "-bottom-1 -left-1 size-7"
-          }`}
+          } ${gemSize === "sm" ? "-bottom-0.5 -left-0.5 size-5" : "-bottom-1 -left-1 size-7"}`}
           style={{ borderColor: tier.color, color: tier.color }}
         >
           <Gem className={gemSize === "sm" ? "size-3" : "size-3.5"} />
