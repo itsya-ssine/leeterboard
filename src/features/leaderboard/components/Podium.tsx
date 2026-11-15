@@ -45,19 +45,27 @@ function highlight(line: string): React.ReactNode {
   const comment = line.search(/(\/\/|#(?!include))/);
   const code = comment === -1 ? line : line.slice(0, comment);
   const note = comment === -1 ? "" : line.slice(comment);
-  const parts = code.split(new RegExp(`${KEYWORDS.source}|(\\b\\d+\\b)`, "g")).filter((p) => p !== undefined && p !== "");
+  const parts = code
+    .split(new RegExp(`${KEYWORDS.source}|(\\b\\d+\\b)`, "g"))
+    .filter((p) => p !== undefined && p !== "");
   return (
     <>
       {parts.map((part, i) =>
         /^(int|long|for|while|if|else|return|def|in|range|using|namespace|vector|auto|const)$/.test(part) ? (
-          <span key={i} className="text-purple-400">{part}</span>
+          <span key={i} className="text-purple-400">
+            {part}
+          </span>
         ) : /^\d+$/.test(part) ? (
-          <span key={i} className="text-amber-300">{part}</span>
+          <span key={i} className="text-amber-300">
+            {part}
+          </span>
         ) : (
           part
         )
       )}
-      {note && <span className={note.includes("Accepted") ? "text-emerald-400 font-bold" : "text-mist-500"}>{note}</span>}
+      {note && (
+        <span className={note.includes("Accepted") ? "text-emerald-400 font-bold" : "text-mist-500"}>{note}</span>
+      )}
     </>
   );
 }
@@ -90,13 +98,22 @@ function PodiumBackdrop() {
       <span className="animate-float absolute left-[7%] top-[18%] opacity-60" style={{ animationDelay: "0s" }}>
         <PixelStar size={16} color="#fbbf24" />
       </span>
-      <span className="animate-float absolute right-[8%] top-[24%] opacity-50" style={{ animationDelay: "1.2s", animationDuration: "5s" }}>
+      <span
+        className="animate-float absolute right-[8%] top-[24%] opacity-50"
+        style={{ animationDelay: "1.2s", animationDuration: "5s" }}
+      >
         <PixelStar size={14} color="#06b6d4" />
       </span>
-      <span className="animate-float absolute left-[18%] top-[54%] opacity-45" style={{ animationDelay: "0.6s", animationDuration: "4.5s" }}>
+      <span
+        className="animate-float absolute left-[18%] top-[54%] opacity-45"
+        style={{ animationDelay: "0.6s", animationDuration: "4.5s" }}
+      >
         <PixelStar size={12} color="#a855f7" />
       </span>
-      <span className="animate-float absolute right-[22%] top-[12%] opacity-50" style={{ animationDelay: "1.8s", animationDuration: "6s" }}>
+      <span
+        className="animate-float absolute right-[22%] top-[12%] opacity-50"
+        style={{ animationDelay: "1.8s", animationDuration: "6s" }}
+      >
         <PixelStar size={14} color="#10b981" />
       </span>
     </div>
@@ -108,7 +125,8 @@ const PLACES = [
     text: "text-amber-300",
     avatarRing: "border-amber-400",
     glow: "bg-amber-400/25",
-    block: "border-2 border-b-0 border-amber-400/80 bg-ink-900 shadow-[3px_0_0_#78350f,-3px_0_0_#78350f,0_0_20px_rgba(251,191,36,0.15)]",
+    block:
+      "border-2 border-b-0 border-amber-400/80 bg-ink-900 shadow-[3px_0_0_#78350f,-3px_0_0_#78350f,0_0_20px_rgba(251,191,36,0.15)]",
     blockHeight: "h-26 sm:h-28",
     avatar: "size-18 sm:size-24",
     order: "order-2",
@@ -189,9 +207,7 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
                 aria-hidden="true"
                 className={`animate-glow absolute inset-0 -z-0 scale-125 blur-xl ${style.glow}`}
               />
-              {entry.avatar(
-                `${style.avatar} transition-transform duration-200 group-hover/podium:-translate-y-1`
-              )}
+              {entry.avatar(`${style.avatar} transition-transform duration-200 group-hover/podium:-translate-y-1`)}
               <span
                 aria-hidden="true"
                 className={`absolute -bottom-1 -right-1 grid size-6 place-items-center border-2 border-ink-950 bg-ink-900 font-pixel text-[10px] font-bold tabular-nums shadow-[1px_1px_0_#000] ${style.text}`}
@@ -208,7 +224,7 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
             <span className={`w-full truncate font-mono text-xs ${entry.handleClassName ?? "text-mist-500"}`}>
               {entry.handle}
             </span>
-            <span className="flex h-5 w-full items-center justify-center">
+            <span className="flex h-6 w-full items-center justify-center">
               {entry.school ? <SchoolTag school={entry.school} /> : null}
             </span>
             <span className={`mt-1 font-pixel text-sm font-bold tabular-nums sm:text-base ${style.text}`}>
@@ -237,7 +253,9 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
               aria-hidden="true"
             >
               {i === 0 && <div className="gold-sheen absolute inset-0" />}
-              <span className={`relative font-pixel text-3xl sm:text-4xl font-bold tabular-nums opacity-90 ${style.text}`}>
+              <span
+                className={`relative font-pixel text-3xl sm:text-4xl font-bold tabular-nums opacity-90 ${style.text}`}
+              >
                 {i + 1}
               </span>
               {/* Stepped base lines */}
@@ -250,7 +268,11 @@ export function PodiumBoard({ entries }: { entries: PodiumEntry[] }) {
         const i = entries.length + k;
         const style = PLACES[i];
         return (
-          <li key={`empty-${i}`} aria-hidden="true" className={`relative flex min-w-0 flex-col items-center ${style.order}`}>
+          <li
+            key={`empty-${i}`}
+            aria-hidden="true"
+            className={`relative flex min-w-0 flex-col items-center ${style.order}`}
+          >
             <div
               className={`relative grid w-full place-items-center overflow-hidden opacity-30 ${style.block} ${style.blockHeight}`}
             >

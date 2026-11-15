@@ -9,7 +9,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  GraduationCap,
   KeyRound,
   Link2,
   Lock,
@@ -31,9 +30,10 @@ import TierAvatar from "./TierAvatar.js";
 import EmptyState from "./EmptyState.js";
 import { AccountSkeleton } from "./Skeleton.js";
 import { useToast } from "./Toast.js";
+import SchoolTag from "./SchoolTag.js";
+import { PixelGraduationCap } from "./pixelArt.js";
 
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 const inputCls =
   "h-10 w-full border-2 border-ink-700 bg-ink-950 px-3 font-mono text-xs text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none disabled:opacity-50";
@@ -74,9 +74,7 @@ function NoticeBox({ notice }: { notice: Notice }) {
     <div
       role={isError ? "alert" : "status"}
       className={`flex items-start gap-2 border-2 p-3 font-mono text-xs shadow-[2px_2px_0_#000] ${
-        isError
-          ? "border-rose-500/60 bg-rose-950/40 text-rose-300"
-          : "border-teal-500/60 bg-teal-950/40 text-teal-300"
+        isError ? "border-rose-500/60 bg-rose-950/40 text-rose-300" : "border-teal-500/60 bg-teal-950/40 text-teal-300"
       }`}
     >
       {isError ? <AlertTriangle className="mt-0.5 size-4 shrink-0" /> : <Check className="mt-0.5 size-4 shrink-0" />}
@@ -101,11 +99,16 @@ function Card({
   return (
     <section id={id} aria-label={title} className="pixel-card min-w-0 animate-rise overflow-hidden p-4 sm:p-5">
       <div className="flex items-center gap-3 border-b-2 border-ink-700/80 pb-3">
-        <span className="grid size-8 shrink-0 place-items-center border border-ink-700 bg-ink-950 text-teal-300 shadow-[1px_1px_0_#000]" aria-hidden="true">
+        <span
+          className="grid size-8 shrink-0 place-items-center border border-ink-700 bg-ink-950 text-teal-300 shadow-[1px_1px_0_#000]"
+          aria-hidden="true"
+        >
           {icon}
         </span>
         <h2 className="min-w-0 font-pixel text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-          <span aria-hidden="true" className="text-teal-400">{"// "}</span>
+          <span aria-hidden="true" className="text-teal-400">
+            {"// "}
+          </span>
           {title}
         </h2>
       </div>
@@ -114,7 +117,6 @@ function Card({
     </section>
   );
 }
-
 
 /* ---------- Linked accounts ---------- */
 
@@ -303,7 +305,19 @@ function PlatformRow({
       cancelled = true;
       clearInterval(autoTimer);
     };
-  }, [step, challenge, busy, secondsLeft, platform, ui.label, verifyLeetcodeLink, verifyPlatformLink, reset, setNotice, onChanged]);
+  }, [
+    step,
+    challenge,
+    busy,
+    secondsLeft,
+    platform,
+    ui.label,
+    verifyLeetcodeLink,
+    verifyPlatformLink,
+    reset,
+    setNotice,
+    onChanged
+  ]);
 
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -355,9 +369,7 @@ function PlatformRow({
       reset();
       setNotice({
         kind: "success",
-        message: synced
-          ? `${ui.label} linked.`
-          : `${ui.label} linked. Your stats will show up after the next sync.`
+        message: synced ? `${ui.label} linked.` : `${ui.label} linked. Your stats will show up after the next sync.`
       });
       onChanged?.();
     } catch (err: any) {
@@ -427,7 +439,10 @@ function PlatformRow({
   };
 
   return (
-    <div id={`account-platform-${platform}`} className="min-w-0 border-2 border-ink-700 bg-ink-950 p-3 shadow-[2px_2px_0_#000]">
+    <div
+      id={`account-platform-${platform}`}
+      className="min-w-0 border-2 border-ink-700 bg-ink-950 p-3 shadow-[2px_2px_0_#000]"
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-strong">{ui.label}</p>
@@ -462,9 +477,7 @@ function PlatformRow({
                         <>
                           {" "}
                           · <span className={rankTextClass(account.rankTitle)}>{account.rating}</span>{" "}
-                          <span className={rankTextClass(account.rankTitle)}>
-                            {formatRankTitle(account.rankTitle)}
-                          </span>
+                          <span className={rankTextClass(account.rankTitle)}>{formatRankTitle(account.rankTitle)}</span>
                         </>
                       )}
                     </>
@@ -524,16 +537,11 @@ function PlatformRow({
       {account && confirmingRemove && (
         <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
           <p className="text-sm leading-relaxed text-rose-300">
-            Remove <span className="font-semibold">@{account.handle}</span>? Its stats and history are deleted from
-            the board. You can link it again later.
+            Remove <span className="font-semibold">@{account.handle}</span>? Its stats and history are deleted from the
+            board. You can link it again later.
           </p>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setConfirmingRemove(false)}
-              disabled={busy}
-              className={btnSecondary}
-            >
+            <button type="button" onClick={() => setConfirmingRemove(false)} disabled={busy} className={btnSecondary}>
               Cancel
             </button>
             <button type="button" onClick={handleRemove} disabled={busy} className={btnDanger}>
@@ -550,9 +558,7 @@ function PlatformRow({
           <div className="flex items-center gap-1.5">
             <span
               className={`grid size-5 place-items-center rounded-full text-[10px] font-bold ${
-                step === "handle"
-                  ? "bg-teal-400 text-ink-950"
-                  : "bg-teal-400/20 text-teal-300 ring-1 ring-teal-400/30"
+                step === "handle" ? "bg-teal-400 text-ink-950" : "bg-teal-400/20 text-teal-300 ring-1 ring-teal-400/30"
               }`}
             >
               1
@@ -563,9 +569,7 @@ function PlatformRow({
           <div className="flex items-center gap-1.5">
             <span
               className={`grid size-5 place-items-center rounded-full text-[10px] font-bold ${
-                step === "verify"
-                  ? "bg-teal-400 text-ink-950"
-                  : "bg-ink-800 text-mist-500 ring-1 ring-line"
+                step === "verify" ? "bg-teal-400 text-ink-950" : "bg-ink-800 text-mist-500 ring-1 ring-line"
               }`}
             >
               2
@@ -910,7 +914,9 @@ function SignInMethodsCard() {
                   )}
                 </div>
                 {lastMethod && (
-                  <p className="mt-2 text-xs text-mist-500">This is your last way to sign in. Connect another method before disconnecting it.</p>
+                  <p className="mt-2 text-xs text-mist-500">
+                    This is your last way to sign in. Connect another method before disconnecting it.
+                  </p>
                 )}
                 {connectingProvider === provider && !connected && signInMethods.password && (
                   <form
@@ -920,7 +926,9 @@ function SignInMethodsCard() {
                       void connect(provider);
                     }}
                   >
-                    <label htmlFor={`oauth-link-password-${provider}`} className={labelCls}>Current password</label>
+                    <label htmlFor={`oauth-link-password-${provider}`} className={labelCls}>
+                      Current password
+                    </label>
                     <input
                       id={`oauth-link-password-${provider}`}
                       type="password"
@@ -932,7 +940,14 @@ function SignInMethodsCard() {
                       required
                     />
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" className={btnSecondary} onClick={() => setConnectingProvider(null)} disabled={busyProvider !== null}>Cancel</button>
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        onClick={() => setConnectingProvider(null)}
+                        disabled={busyProvider !== null}
+                      >
+                        Cancel
+                      </button>
                       <button type="submit" className={btnPrimary} disabled={busyProvider !== null || !currentPassword}>
                         {busyProvider === provider ? "Connecting…" : `Continue with ${providerLabel(provider)}`}
                       </button>
@@ -1026,7 +1041,11 @@ export default function AccountPage({
         icon={<Lock className="size-5" aria-hidden="true" />}
         title="You're not signed in"
         description="Log in to change your name, school, links or password."
-        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+        action={{
+          label: "Back to the leaderboard",
+          href: "#/",
+          icon: <ArrowLeft className="size-4" aria-hidden="true" />
+        }}
       />
     );
   }
@@ -1213,7 +1232,13 @@ export default function AccountPage({
         description="Choose how you appear on the board, and manage your password and account."
         actions={
           <>
-            <a href={profileHref} className={btnLinkResponsive} id="account-view-profile" aria-label="View my profile" title="View my profile">
+            <a
+              href={profileHref}
+              className={btnLinkResponsive}
+              id="account-view-profile"
+              aria-label="View my profile"
+              title="View my profile"
+            >
               <UserRound className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">View my profile</span>
             </a>
@@ -1264,7 +1289,7 @@ export default function AccountPage({
           </Card>
 
           <Card
-            icon={<GraduationCap className="size-4 text-teal-300" />}
+            icon={<PixelGraduationCap size={16} variant="teal" />}
             title="School"
             description="Optional. Shown as a tag next to your name on the leaderboard."
             id="account-school-card"
@@ -1287,6 +1312,12 @@ export default function AccountPage({
                 />
                 <p className="mt-1.5 text-xs text-mist-500">Leave it empty to remove it.</p>
               </div>
+              {school.trim() && (
+                <div className="flex items-center gap-2.5 border-t-2 border-ink-800 pt-3">
+                  <span className="font-pixel text-[9px] uppercase tracking-wider text-mist-500">Preview:</span>
+                  <SchoolTag school={school} />
+                </div>
+              )}
               <NoticeBox notice={schoolNotice} />
               <button type="submit" disabled={schoolBusy} className={btnPrimary}>
                 {schoolBusy && <RefreshCw className="size-4 animate-spin" />}
@@ -1387,84 +1418,84 @@ export default function AccountPage({
 
           <SignInMethodsCard />
 
-          {signInMethods.password && <Card icon={<KeyRound className="size-4 text-teal-300" />} title="Change password" id="account-password-card">
-            <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
-              {/* Lets password managers attach the new password to the right account. */}
-              <input
-                type="text"
-                name="username"
-                autoComplete="username"
-                value={user.loginUsername}
-                readOnly
-                hidden
-              />
-              <div>
-                <label htmlFor="acct-current-pw" className={labelCls}>
-                  Current password
-                </label>
-                <input
-                  id="acct-current-pw"
-                  type="password"
-                  autoComplete="current-password"
-                  value={currentPw}
-                  onChange={(e) => setCurrentPw(e.target.value)}
-                  className={inputCls}
-                  disabled={pwBusy}
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="acct-new-pw" className={labelCls}>
-                  New password <span className="font-normal text-mist-500">(10+ characters)</span>
-                </label>
-                <input
-                  id="acct-new-pw"
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={10}
-                  maxLength={128}
-                  value={newPw}
-                  onChange={(e) => setNewPw(e.target.value)}
-                  className={inputCls}
-                  disabled={pwBusy}
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="acct-confirm-pw" className={labelCls}>
-                  Confirm new password
-                </label>
-                <input
-                  id="acct-confirm-pw"
-                  type="password"
-                  autoComplete="new-password"
-                  maxLength={128}
-                  value={confirmPw}
-                  onChange={(e) => setConfirmPw(e.target.value)}
-                  className={inputCls}
-                  disabled={pwBusy}
-                  required
-                />
-              </div>
-              <NoticeBox notice={pwNotice} />
-              <button type="submit" disabled={pwBusy} className={btnPrimary}>
-                {pwBusy && <RefreshCw className="size-4 animate-spin" />}
-                {pwBusy ? "Changing…" : "Change password"}
-              </button>
-              {user.passwordResetAt && (
-                <p className="text-xs text-mist-500">
-                  Password was last reset via linked account on {new Date(user.passwordResetAt).toLocaleDateString()}.
-                </p>
-              )}
-            </form>
-          </Card>}
+          {signInMethods.password && (
+            <Card
+              icon={<KeyRound className="size-4 text-teal-300" />}
+              title="Change password"
+              id="account-password-card"
+            >
+              <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
+                {/* Lets password managers attach the new password to the right account. */}
+                <input type="text" name="username" autoComplete="username" value={user.loginUsername} readOnly hidden />
+                <div>
+                  <label htmlFor="acct-current-pw" className={labelCls}>
+                    Current password
+                  </label>
+                  <input
+                    id="acct-current-pw"
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPw}
+                    onChange={(e) => setCurrentPw(e.target.value)}
+                    className={inputCls}
+                    disabled={pwBusy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="acct-new-pw" className={labelCls}>
+                    New password <span className="font-normal text-mist-500">(10+ characters)</span>
+                  </label>
+                  <input
+                    id="acct-new-pw"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={10}
+                    maxLength={128}
+                    value={newPw}
+                    onChange={(e) => setNewPw(e.target.value)}
+                    className={inputCls}
+                    disabled={pwBusy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="acct-confirm-pw" className={labelCls}>
+                    Confirm new password
+                  </label>
+                  <input
+                    id="acct-confirm-pw"
+                    type="password"
+                    autoComplete="new-password"
+                    maxLength={128}
+                    value={confirmPw}
+                    onChange={(e) => setConfirmPw(e.target.value)}
+                    className={inputCls}
+                    disabled={pwBusy}
+                    required
+                  />
+                </div>
+                <NoticeBox notice={pwNotice} />
+                <button type="submit" disabled={pwBusy} className={btnPrimary}>
+                  {pwBusy && <RefreshCw className="size-4 animate-spin" />}
+                  {pwBusy ? "Changing…" : "Change password"}
+                </button>
+                {user.passwordResetAt && (
+                  <p className="text-xs text-mist-500">
+                    Password was last reset via linked account on {new Date(user.passwordResetAt).toLocaleDateString()}.
+                  </p>
+                )}
+              </form>
+            </Card>
+          )}
 
           <Card icon={<LogOut className="size-4 text-teal-300" />} title="Sessions & Log out">
             <div className="flex flex-col gap-4">
               <div>
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-mist-400">Active sessions</h4>
                 <p className="mt-1 text-sm leading-relaxed text-mist-400">
-                  Sessions are versioned and revocable. You can sign out of this device, or revoke all active sessions across all devices (e.g. shared or lost computers).
+                  Sessions are versioned and revocable. You can sign out of this device, or revoke all active sessions
+                  across all devices (e.g. shared or lost computers).
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -1480,7 +1511,11 @@ export default function AccountPage({
             </div>
           </Card>
 
-          <Card icon={<Download className="size-4 text-teal-300" />} title="Download your data" id="account-export-card">
+          <Card
+            icon={<Download className="size-4 text-teal-300" />}
+            title="Download your data"
+            id="account-export-card"
+          >
             <div className="flex flex-col gap-3">
               <p className="text-sm leading-relaxed text-mist-400">
                 Get a copy of everything we store about you as one JSON file: your profile, sign-in connections, e-mail,
@@ -1488,7 +1523,13 @@ export default function AccountPage({
                 password and one-time codes are never included.
               </p>
               <NoticeBox notice={exportNotice} />
-              <button type="button" onClick={handleExport} disabled={exportBusy} className={btnSecondary} id="export-data-btn">
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exportBusy}
+                className={btnSecondary}
+                id="export-data-btn"
+              >
                 {exportBusy ? <RefreshCw className="size-4 animate-spin" /> : <Download className="size-4" />}
                 {exportBusy ? "Preparing…" : "Download my data"}
               </button>
@@ -1499,8 +1540,8 @@ export default function AccountPage({
             {!confirmingDelete ? (
               <div className="flex flex-col gap-3">
                 <p className="text-sm leading-relaxed text-mist-400">
-                  Removes you from the leaderboard and permanently deletes your stats and history. You can sign up
-                  again later, but your history starts from zero.
+                  Removes you from the leaderboard and permanently deletes your stats and history. You can sign up again
+                  later, but your history starts from zero.
                 </p>
                 <button type="button" onClick={() => setConfirmingDelete(true)} className={btnSecondary}>
                   <Trash2 className="size-4" />
@@ -1510,8 +1551,8 @@ export default function AccountPage({
             ) : (
               <form onSubmit={handleDelete} className="flex flex-col gap-3">
                 <p className="text-sm leading-relaxed text-rose-300">
-                  This can't be undone. {signInMethods.password ? "Enter your password" : "Type your username"} to permanently delete{" "}
-                  <span className="font-semibold">@{user.loginUsername}</span>.
+                  This can't be undone. {signInMethods.password ? "Enter your password" : "Type your username"} to
+                  permanently delete <span className="font-semibold">@{user.loginUsername}</span>.
                 </p>
                 <div>
                   <label htmlFor="acct-delete-pw" className="sr-only">

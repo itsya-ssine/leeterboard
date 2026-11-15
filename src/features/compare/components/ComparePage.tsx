@@ -4,18 +4,12 @@ import { ArrowLeft, ArrowLeftRight, Crown, ImageIcon, Swords } from "lucide-reac
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { User } from "../../../types.js";
 import { chartColors, useTheme } from "../../../theme.js";
-import {
-  buildHistorySeries,
-  compareStats,
-  tallyLeads,
-  type CompareRow,
-  type HistoryMode
-} from "../utils/compare.js";
+import { buildHistorySeries, compareStats, tallyLeads, type CompareRow, type HistoryMode } from "../utils/compare.js";
 import CompareCardModal from "./CompareCardModal.js";
 import EmptyState from "../../../components/common/EmptyState.js";
+import SchoolTag from "../../../components/common/SchoolTag.js";
 
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 // Player A is always teal and player B amber, in the arena, the stat bars and
 // the chart, so the two are easy to tell apart at a glance.
@@ -54,7 +48,10 @@ const enc = (u: User) => encodeURIComponent(u.loginUsername);
 
 // #/compare/<a>/<b>, with each part optional.
 function readSelection(): [string | null, string | null] {
-  const parts = window.location.hash.replace(/^#\/compare\/?/, "").split("/").filter(Boolean);
+  const parts = window.location.hash
+    .replace(/^#\/compare\/?/, "")
+    .split("/")
+    .filter(Boolean);
   const decode = (s: string | undefined) => {
     if (!s) return null;
     try {
@@ -149,12 +146,21 @@ function Fighter({ user, side, leads, winner }: { user: User; side: "a" | "b"; l
         />
       </span>
       <div className="mt-1 min-w-0 max-w-full">
-        <div className="truncate font-pixel text-sm font-bold uppercase tracking-wide text-strong md:text-base">{user.displayName}</div>
+        <div className="truncate font-pixel text-sm font-bold uppercase tracking-wide text-strong md:text-base">
+          {user.displayName}
+        </div>
         <div className="truncate font-mono text-xs text-mist-500">@{user.loginUsername}</div>
+        {user.school?.trim() ? (
+          <div className="mt-1 flex justify-center">
+            <SchoolTag school={user.school} />
+          </div>
+        ) : null}
       </div>
       <div
         className={`border-2 px-3 py-1 font-pixel text-[9px] uppercase tracking-wider shadow-[2px_2px_0_#000] ${
-          side === "a" ? "border-teal-500/60 bg-teal-950/40 text-teal-300" : "border-amber-500/60 bg-amber-950/40 text-amber-300"
+          side === "a"
+            ? "border-teal-500/60 bg-teal-950/40 text-teal-300"
+            : "border-amber-500/60 bg-amber-950/40 text-amber-300"
         }`}
       >
         Ahead in {leads} {leads === 1 ? "stat" : "stats"}
@@ -224,7 +230,11 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         icon={<Swords className="size-5" aria-hidden="true" />}
         title="Nobody to compare with yet"
         description="Comparing uses LeetCode stats, so you need at least two members who linked a LeetCode account."
-        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+        action={{
+          label: "Back to the leaderboard",
+          href: "#/",
+          icon: <ArrowLeft className="size-4" aria-hidden="true" />
+        }}
       />
     );
   }
@@ -283,7 +293,14 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         aria-label="Choose members to compare"
         className="mb-6 grid grid-cols-[1fr_auto_1fr] items-end gap-x-2 gap-y-3 md:gap-x-4"
       >
-        <MemberSelect side="a" label="Player A" value={a.loginUsername} users={users} otherId={b.id} onChange={(v) => pick("a", v)} />
+        <MemberSelect
+          side="a"
+          label="Player A"
+          value={a.loginUsername}
+          users={users}
+          otherId={b.id}
+          onChange={(v) => pick("a", v)}
+        />
         <button
           type="button"
           onClick={swap}
@@ -296,7 +313,14 @@ export default function ComparePage({ users: members }: { users: User[] }) {
             aria-hidden="true"
           />
         </button>
-        <MemberSelect side="b" label="Player B" value={b.loginUsername} users={users} otherId={a.id} onChange={(v) => pick("b", v)} />
+        <MemberSelect
+          side="b"
+          label="Player B"
+          value={b.loginUsername}
+          users={users}
+          otherId={a.id}
+          onChange={(v) => pick("b", v)}
+        />
       </section>
 
       {/* ---------- Head to head ---------- */}
@@ -325,7 +349,9 @@ export default function ComparePage({ users: members }: { users: User[] }) {
             <span className="grid size-10 place-items-center border-2 border-ink-700 bg-ink-950 shadow-[2px_2px_0_#000]">
               <Swords className="size-4 text-mist-400" />
             </span>
-            <span className="font-pixel text-2xl font-extrabold text-amber-300 drop-shadow-[2px_2px_0_#000] md:text-3xl">VS</span>
+            <span className="font-pixel text-2xl font-extrabold text-amber-300 drop-shadow-[2px_2px_0_#000] md:text-3xl">
+              VS
+            </span>
             <span className="font-mono text-lg font-bold tabular-nums text-strong md:text-xl">
               <span className={SIDE.a.text}>{leads.a}</span>
               <span className="mx-1 text-mist-500">:</span>
@@ -379,7 +405,11 @@ export default function ComparePage({ users: members }: { users: User[] }) {
                 : "Total problems solved over time"}
             </p>
           </div>
-          <div role="group" aria-label="History view" className="inline-flex border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]">
+          <div
+            role="group"
+            aria-label="History view"
+            className="inline-flex border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]"
+          >
             {(
               [
                 { value: "gained", label: "Progress" },
@@ -404,12 +434,19 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-          {([["a", a], ["b", b]] as const).map(([side, u]) => (
+          {(
+            [
+              ["a", a],
+              ["b", b]
+            ] as const
+          ).map(([side, u]) => (
             <span key={side} className="inline-flex items-center gap-2 text-mist-100">
               <span className={`size-2.5 rounded-full ${SIDE[side].dot}`} aria-hidden="true" />
               <span className="max-w-40 truncate">{u.displayName}</span>
               {last && mode === "gained" && (
-                <span className={`font-mono font-bold tabular-nums ${SIDE[side].text}`}>+{last[side].toLocaleString()}</span>
+                <span className={`font-mono font-bold tabular-nums ${SIDE[side].text}`}>
+                  +{last[side].toLocaleString()}
+                </span>
               )}
             </span>
           ))}
@@ -443,10 +480,7 @@ export default function ComparePage({ users: members }: { users: User[] }) {
                     domain={
                       mode === "gained"
                         ? [0, (max: number) => Math.max(5, Math.ceil(max * 1.1))]
-                        : [
-                            (min: number) => Math.max(0, Math.floor(min * 0.98)),
-                            (max: number) => Math.ceil(max * 1.02)
-                          ]
+                        : [(min: number) => Math.max(0, Math.floor(min * 0.98)), (max: number) => Math.ceil(max * 1.02)]
                     }
                     allowDecimals={false}
                     tickFormatter={(v: number) => v.toLocaleString()}
@@ -471,14 +505,35 @@ export default function ComparePage({ users: members }: { users: User[] }) {
                       String(name)
                     ]}
                   />
-                  <Line type="monotone" dataKey="a" name={a.displayName} stroke={c.accent} strokeWidth={3} dot={false} animationDuration={900} />
-                  <Line type="monotone" dataKey="b" name={b.displayName} stroke={c.accentB} strokeWidth={3} dot={false} animationDuration={900} />
+                  <Line
+                    type="monotone"
+                    dataKey="a"
+                    name={a.displayName}
+                    stroke={c.accent}
+                    strokeWidth={3}
+                    dot={false}
+                    animationDuration={900}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="b"
+                    name={b.displayName}
+                    stroke={c.accentB}
+                    strokeWidth={3}
+                    dot={false}
+                    animationDuration={900}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
             <p className="mt-3 font-mono text-xs text-mist-500">
               Since {shortDate(startDate!)}:{" "}
-              {([["a", a], ["b", b]] as const).map(([side, u], i) => {
+              {(
+                [
+                  ["a", a],
+                  ["b", b]
+                ] as const
+              ).map(([side, u], i) => {
                 const gained = last[side] - (mode === "gained" ? 0 : points[0][side]);
                 return (
                   <React.Fragment key={side}>

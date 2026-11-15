@@ -67,11 +67,7 @@ export function PixelTrophy({
  * 16x16 Pixel Crown
  * For #1 Leaderboard spot and top achievements.
  */
-export function PixelCrown({
-  size = 18,
-  className = "",
-  ...props
-}: PixelSvgProps) {
+export function PixelCrown({ size = 18, className = "", ...props }: PixelSvgProps) {
   return (
     <svg
       width={size}
@@ -115,11 +111,7 @@ export function PixelCrown({
 /**
  * 16x16 Pixel Flame (Hot Streak)
  */
-export function PixelFlame({
-  size = 18,
-  className = "",
-  ...props
-}: PixelSvgProps) {
+export function PixelFlame({ size = 18, className = "", ...props }: PixelSvgProps) {
   return (
     <svg
       width={size}
@@ -153,11 +145,7 @@ export function PixelFlame({
 /**
  * 16x16 Pixel Crossed Swords (Compare / Head-to-Head Battle)
  */
-export function PixelSwords({
-  size = 18,
-  className = "",
-  ...props
-}: PixelSvgProps) {
+export function PixelSwords({ size = 18, className = "", ...props }: PixelSvgProps) {
   return (
     <svg
       width={size}
@@ -267,11 +255,7 @@ export function PixelShield({
 /**
  * 16x16 Pixel Coin
  */
-export function PixelCoin({
-  size = 16,
-  className = "",
-  ...props
-}: PixelSvgProps) {
+export function PixelCoin({ size = 16, className = "", ...props }: PixelSvgProps) {
   return (
     <svg
       width={size}
@@ -337,11 +321,7 @@ export function PixelGamepad({
 /**
  * 12x12 Pixel Checkmark
  */
-export function PixelCheck({
-  size = 14,
-  className = "",
-  ...props
-}: PixelSvgProps) {
+export function PixelCheck({ size = 14, className = "", ...props }: PixelSvgProps) {
   return (
     <svg
       width={size}
@@ -365,11 +345,7 @@ export function PixelCheck({
 /**
  * 12x12 Pixel Close / Cross
  */
-export function PixelClose({
-  size = 14,
-  className = "",
-  ...props
-}: PixelSvgProps) {
+export function PixelClose({ size = 14, className = "", ...props }: PixelSvgProps) {
   return (
     <svg
       width={size}
@@ -510,12 +486,7 @@ export function PixelProgressBar({
       className={`flex w-full gap-[2px] p-[2px] bg-ink-950 border-2 border-ink-700 ${className}`}
     >
       {Array.from({ length: segments }).map((_, i) => (
-        <span
-          key={i}
-          className={`flex-1 transition-none ${height} ${
-            i < filled ? barColor : emptyColor
-          }`}
-        />
+        <span key={i} className={`flex-1 transition-none ${height} ${i < filled ? barColor : emptyColor}`} />
       ))}
     </div>
   );
@@ -538,12 +509,10 @@ export function PixelDifficultyBar({
   const totalSolved = easy + medium + hard;
 
   return (
-    <div
-      className="flex w-full flex-col gap-1"
-      role="img"
-      aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}
-    >
-      <div className={`flex w-full overflow-hidden border-2 border-ink-700 bg-ink-950 p-[1px] shadow-[1px_1px_0_#000] ${size === "lg" ? "h-3.5" : "h-2"}`}>
+    <div className="flex w-full flex-col gap-1" role="img" aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}>
+      <div
+        className={`flex w-full overflow-hidden border-2 border-ink-700 bg-ink-950 p-[1px] shadow-[1px_1px_0_#000] ${size === "lg" ? "h-3.5" : "h-2"}`}
+      >
         {totalSolved > 0 ? (
           <div className="flex h-full w-full">
             {easy > 0 && (
@@ -572,7 +541,9 @@ export function PixelDifficultyBar({
           <div className="h-full w-full bg-ink-800/40" />
         )}
       </div>
-      <div className={`flex items-center justify-between font-mono font-bold ${size === "lg" ? "text-xs" : "text-[11px]"}`}>
+      <div
+        className={`flex items-center justify-between font-mono font-bold ${size === "lg" ? "text-xs" : "text-[11px]"}`}
+      >
         <span className="inline-flex items-center gap-1 text-emerald-400">
           <span className="text-[10px] text-mist-500 font-pixel">E</span> {easy}
         </span>
@@ -591,13 +562,7 @@ export function PixelDifficultyBar({
  * Pixel Rank Badge for Leaderboard & Podiums
  * Displays #01, #02, #03, #04+ with distinctive pixel badge treatments
  */
-export function PixelRankBadge({
-  rank,
-  size = "md"
-}: {
-  rank: number;
-  size?: "sm" | "md" | "lg";
-}) {
+export function PixelRankBadge({ rank, size = "md" }: { rank: number; size?: "sm" | "md" | "lg" }) {
   const formatted = rank < 10 ? `#0${rank}` : `#${rank}`;
 
   if (rank === 1) {
@@ -667,12 +632,84 @@ export function PixelLed({
     offline: "bg-mist-500"
   }[status];
 
+  return <span className={`inline-block shrink-0 ${bg}`} style={{ width: size, height: size }} aria-label={status} />;
+}
+
+/**
+ * 16x16 Pixel Graduation Cap (Academy Mortarboard)
+ * Authentic retro RPG guild / academy icon with golden tassel.
+ */
+export function PixelGraduationCap({
+  size = 14,
+  variant = "teal",
+  className = "",
+  ...props
+}: PixelSvgProps & { variant?: "teal" | "cyan" | "purple" | "amber" | "rose" | "blue" | "gold" }) {
+  const palette = {
+    teal: { main: "#10b981", dark: "#047857", light: "#6ee7b7", rim: "#022c22" },
+    cyan: { main: "#06b6d4", dark: "#0e7490", light: "#67e8f9", rim: "#083344" },
+    purple: { main: "#a855f7", dark: "#6b21a8", light: "#e9d5ff", rim: "#3b0764" },
+    amber: { main: "#f59e0b", dark: "#b45309", light: "#fef08a", rim: "#451a03" },
+    rose: { main: "#f43f5e", dark: "#be123c", light: "#fda4af", rim: "#4c0519" },
+    blue: { main: "#3b82f6", dark: "#1d4ed8", light: "#93c5fd", rim: "#172554" },
+    gold: { main: "#fbbf24", dark: "#b45309", light: "#fef08a", rim: "#1a1300" }
+  }[variant] ?? { main: "#10b981", dark: "#047857", light: "#6ee7b7", rim: "#022c22" };
+
   return (
-    <span
-      className={`inline-block shrink-0 ${bg}`}
-      style={{ width: size, height: size }}
-      aria-label={status}
-    />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      shapeRendering="crispEdges"
+      className={`shrink-0 ${className}`}
+      aria-hidden="true"
+      {...props}
+    >
+      {/* Skullcap (base on head) */}
+      <rect x="5" y="7" width="6" height="3" fill={palette.rim} />
+      <rect x="6" y="8" width="4" height="2" fill={palette.dark} />
+      <rect x="6" y="10" width="4" height="1" fill={palette.rim} />
+
+      {/* Mortarboard board outer rim */}
+      <rect x="7" y="1" width="2" height="1" fill={palette.rim} />
+      <rect x="5" y="2" width="6" height="1" fill={palette.rim} />
+      <rect x="3" y="3" width="10" height="1" fill={palette.rim} />
+      <rect x="1" y="4" width="14" height="2" fill={palette.rim} />
+      <rect x="3" y="6" width="10" height="1" fill={palette.rim} />
+      <rect x="5" y="7" width="6" height="1" fill={palette.rim} />
+
+      {/* Mortarboard board body & highlights */}
+      <rect x="7" y="2" width="2" height="1" fill={palette.light} />
+      <rect x="5" y="3" width="3" height="1" fill={palette.light} />
+      <rect x="3" y="4" width="4" height="1" fill={palette.light} />
+      <rect x="2" y="5" width="4" height="1" fill={palette.light} />
+
+      <rect x="8" y="3" width="3" height="1" fill={palette.main} />
+      <rect x="7" y="4" width="4" height="1" fill={palette.main} />
+      <rect x="6" y="5" width="4" height="1" fill={palette.main} />
+
+      {/* Mortarboard shadow facets */}
+      <rect x="11" y="4" width="2" height="1" fill={palette.dark} />
+      <rect x="10" y="5" width="3" height="1" fill={palette.dark} />
+      <rect x="5" y="6" width="5" height="1" fill={palette.dark} />
+
+      {/* Center button */}
+      <rect x="7" y="3" width="2" height="1" fill="#fef08a" />
+      <rect x="7" y="4" width="2" height="1" fill="#f59e0b" />
+
+      {/* Tassel cord (running to left) */}
+      <rect x="6" y="3" width="1" height="1" fill="#fbbf24" />
+      <rect x="5" y="4" width="1" height="1" fill="#fbbf24" />
+      <rect x="4" y="5" width="1" height="1" fill="#f59e0b" />
+      <rect x="3" y="6" width="1" height="1" fill="#f59e0b" />
+      <rect x="2" y="7" width="1" height="1" fill="#f59e0b" />
+
+      {/* Dangling tassel bobble & fringe */}
+      <rect x="1" y="8" width="2" height="3" fill="#fbbf24" />
+      <rect x="1" y="8" width="1" height="2" fill="#fef08a" />
+      <rect x="2" y="9" width="1" height="2" fill="#b45309" />
+      <rect x="1" y="11" width="2" height="1" fill="#d97706" />
+    </svg>
   );
 }
 
