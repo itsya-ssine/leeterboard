@@ -358,19 +358,19 @@ html[data-theme="light"] ::selection {
   position: absolute;
   top: 0;
   left: 0;
-  width: 70%;
+  width: 75%;
   height: 100%;
   background: linear-gradient(
     105deg,
     transparent 0%,
-    rgba(254, 240, 138, 0.05) 20%,
-    rgba(255, 255, 255, 0.45) 50%,
-    rgba(254, 240, 138, 0.05) 80%,
+    rgba(254, 240, 138, 0.04) 20%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(254, 240, 138, 0.04) 80%,
     transparent 100%
   );
   transform: translateX(-160%) skewX(-18deg);
   will-change: transform, opacity;
-  animation: gold-pedestal-sweep 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: gold-pedestal-sweep 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @keyframes gold-pedestal-sweep {
@@ -378,14 +378,14 @@ html[data-theme="light"] ::selection {
     transform: translateX(-160%) skewX(-18deg);
     opacity: 0;
   }
-  4% {
+  6% {
     opacity: 1;
   }
-  38% {
+  50% {
     transform: translateX(260%) skewX(-18deg);
     opacity: 1;
   }
-  42%,
+  55%,
   100% {
     transform: translateX(260%) skewX(-18deg);
     opacity: 0;
