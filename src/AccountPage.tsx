@@ -9,7 +9,6 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  GraduationCap,
   KeyRound,
   Link2,
   Lock,
@@ -31,24 +30,25 @@ import TierAvatar from "./TierAvatar.js";
 import EmptyState from "./EmptyState.js";
 import { AccountSkeleton } from "./Skeleton.js";
 import { useToast } from "./Toast.js";
+import SchoolTag from "./SchoolTag.js";
+import { PixelGraduationCap } from "./pixelArt.js";
 
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 const inputCls =
-  "h-10 w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
+  "h-10 w-full border-2 border-ink-700 bg-ink-950 px-3 font-mono text-xs text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none disabled:opacity-50";
 
-const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnPrimary = `${btnBase} w-full bg-gradient-to-r from-teal-400 to-sky-400 text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] hover:brightness-110 active:scale-[0.97]`;
-const btnSecondary = `${btnBase} w-full bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
-const btnDanger = `${btnBase} w-full bg-rose-500 text-white shadow-[0_6px_20px_-8px_rgb(244_63_94/0.6)] hover:bg-rose-400 active:scale-[0.97]`;
+const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 px-4 font-pixel text-[10px] uppercase tracking-wider transition-transform active:translate-x-[1px] active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnPrimary = `${btnBase} w-full border-2 border-teal-400 bg-teal-400 font-bold text-ink-950 shadow-[2px_2px_0_#000] hover:bg-teal-300 active:shadow-none`;
+const btnSecondary = `${btnBase} w-full border-2 border-ink-700 bg-ink-900 text-mist-100 shadow-[2px_2px_0_#000] hover:border-teal-400 hover:text-teal-300 active:shadow-none`;
+const btnDanger = `${btnBase} w-full border-2 border-rose-500 bg-rose-600 font-bold text-white shadow-[2px_2px_0_#000] hover:bg-rose-500 active:shadow-none`;
 // Header actions: a square icon button on phones, icon plus label from sm.
-const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800/80 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] sm:w-auto sm:px-4 ${focusRing}`;
+const btnLinkResponsive = `inline-flex size-10 cursor-pointer items-center justify-center gap-2 border-2 border-ink-700 bg-ink-900 font-pixel text-[9px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none sm:w-auto sm:px-3 ${focusRing}`;
 
 // Compact button for the rows in the Linked accounts card.
-const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-ink-800/80 px-3 text-xs font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 border-2 border-ink-700 bg-ink-900 px-3 font-pixel text-[9px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 
-const labelCls = "mb-1.5 block font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500";
+const labelCls = "mb-1.5 block font-pixel text-[9px] font-bold uppercase tracking-wider text-mist-400";
 
 type Notice = { kind: "error" | "success"; message: string } | null;
 
@@ -73,10 +73,8 @@ function NoticeBox({ notice }: { notice: Notice }) {
   return (
     <div
       role={isError ? "alert" : "status"}
-      className={`flex items-start gap-2 rounded-lg p-3 text-sm ring-1 ${
-        isError
-          ? "bg-rose-500/10 text-rose-300 ring-rose-400/20"
-          : "bg-teal-400/10 text-teal-300 ring-teal-400/20"
+      className={`flex items-start gap-2 border-2 p-3 font-mono text-xs shadow-[2px_2px_0_#000] ${
+        isError ? "border-rose-500/60 bg-rose-950/40 text-rose-300" : "border-teal-500/60 bg-teal-950/40 text-teal-300"
       }`}
     >
       {isError ? <AlertTriangle className="mt-0.5 size-4 shrink-0" /> : <Check className="mt-0.5 size-4 shrink-0" />}
@@ -99,23 +97,26 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} aria-label={title} className="card-aurora min-w-0 animate-rise overflow-hidden p-4 sm:p-5">
-      <div className="flex items-center gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line" aria-hidden="true">
+    <section id={id} aria-label={title} className="pixel-card min-w-0 animate-rise overflow-hidden p-4 sm:p-5">
+      <div className="flex items-center gap-3 border-b-2 border-ink-700/80 pb-3">
+        <span
+          className="grid size-8 shrink-0 place-items-center border border-ink-700 bg-ink-950 text-teal-300 shadow-[1px_1px_0_#000]"
+          aria-hidden="true"
+        >
           {icon}
         </span>
-        <h2 className="min-w-0 font-mono text-[11px] font-semibold uppercase tracking-widest text-strong">
-          <span aria-hidden="true" className="text-aurora-a">{"// "}</span>
+        <h2 className="min-w-0 font-pixel text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+          <span aria-hidden="true" className="text-teal-400">
+            {"// "}
+          </span>
           {title}
         </h2>
       </div>
-      {description && <p className="mt-3 text-sm text-mist-400">{description}</p>}
+      {description && <p className="mt-3 font-mono text-xs text-mist-400">{description}</p>}
       <div className="mt-4">{children}</div>
-      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r from-teal-300/70 to-transparent" />
     </section>
   );
 }
-
 
 /* ---------- Linked accounts ---------- */
 
@@ -304,7 +305,19 @@ function PlatformRow({
       cancelled = true;
       clearInterval(autoTimer);
     };
-  }, [step, challenge, busy, secondsLeft, platform, ui.label, verifyLeetcodeLink, verifyPlatformLink, reset, setNotice, onChanged]);
+  }, [
+    step,
+    challenge,
+    busy,
+    secondsLeft,
+    platform,
+    ui.label,
+    verifyLeetcodeLink,
+    verifyPlatformLink,
+    reset,
+    setNotice,
+    onChanged
+  ]);
 
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -356,9 +369,7 @@ function PlatformRow({
       reset();
       setNotice({
         kind: "success",
-        message: synced
-          ? `${ui.label} linked.`
-          : `${ui.label} linked. Your stats will show up after the next sync.`
+        message: synced ? `${ui.label} linked.` : `${ui.label} linked. Your stats will show up after the next sync.`
       });
       onChanged?.();
     } catch (err: any) {
@@ -428,7 +439,10 @@ function PlatformRow({
   };
 
   return (
-    <div id={`account-platform-${platform}`} className="min-w-0 rounded-xl bg-ink-950/80 p-3 ring-1 ring-line">
+    <div
+      id={`account-platform-${platform}`}
+      className="min-w-0 border-2 border-ink-700 bg-ink-950 p-3 shadow-[2px_2px_0_#000]"
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-strong">{ui.label}</p>
@@ -463,9 +477,7 @@ function PlatformRow({
                         <>
                           {" "}
                           · <span className={rankTextClass(account.rankTitle)}>{account.rating}</span>{" "}
-                          <span className={rankTextClass(account.rankTitle)}>
-                            {formatRankTitle(account.rankTitle)}
-                          </span>
+                          <span className={rankTextClass(account.rankTitle)}>{formatRankTitle(account.rankTitle)}</span>
                         </>
                       )}
                     </>
@@ -525,16 +537,11 @@ function PlatformRow({
       {account && confirmingRemove && (
         <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3">
           <p className="text-sm leading-relaxed text-rose-300">
-            Remove <span className="font-semibold">@{account.handle}</span>? Its stats and history are deleted from
-            the board. You can link it again later.
+            Remove <span className="font-semibold">@{account.handle}</span>? Its stats and history are deleted from the
+            board. You can link it again later.
           </p>
           <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setConfirmingRemove(false)}
-              disabled={busy}
-              className={btnSecondary}
-            >
+            <button type="button" onClick={() => setConfirmingRemove(false)} disabled={busy} className={btnSecondary}>
               Cancel
             </button>
             <button type="button" onClick={handleRemove} disabled={busy} className={btnDanger}>
@@ -551,9 +558,7 @@ function PlatformRow({
           <div className="flex items-center gap-1.5">
             <span
               className={`grid size-5 place-items-center rounded-full text-[10px] font-bold ${
-                step === "handle"
-                  ? "bg-teal-400 text-ink-950"
-                  : "bg-teal-400/20 text-teal-300 ring-1 ring-teal-400/30"
+                step === "handle" ? "bg-teal-400 text-ink-950" : "bg-teal-400/20 text-teal-300 ring-1 ring-teal-400/30"
               }`}
             >
               1
@@ -564,9 +569,7 @@ function PlatformRow({
           <div className="flex items-center gap-1.5">
             <span
               className={`grid size-5 place-items-center rounded-full text-[10px] font-bold ${
-                step === "verify"
-                  ? "bg-teal-400 text-ink-950"
-                  : "bg-ink-800 text-mist-500 ring-1 ring-line"
+                step === "verify" ? "bg-teal-400 text-ink-950" : "bg-ink-800 text-mist-500 ring-1 ring-line"
               }`}
             >
               2
@@ -630,14 +633,14 @@ function PlatformRow({
           <ol className="list-decimal space-y-2 break-words pl-5 text-sm leading-relaxed text-mist-400">
             <li>Copy this one-time proof code:</li>
           </ol>
-          <div className="flex items-center gap-2 rounded-lg bg-ink-900 p-2 pl-3 font-mono ring-1 ring-line">
+          <div className="flex items-center gap-2 border-2 border-ink-700 bg-ink-900 p-2 pl-3 font-mono shadow-[2px_2px_0_#000]">
             <code className="min-w-0 flex-1 select-all truncate font-mono text-xs text-teal-300 sm:text-sm">
               {challenge.code}
             </code>
             <button
               type="button"
               onClick={copyCode}
-              className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md bg-ink-800 px-2.5 text-xs font-medium text-mist-100 ring-1 ring-line hover:bg-ink-700 ${focusRing}`}
+              className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 border border-ink-700 bg-ink-800 px-2.5 font-pixel text-[8px] uppercase tracking-wider text-mist-100 shadow-[1px_1px_0_#000] hover:border-teal-400 hover:text-teal-300 ${focusRing}`}
             >
               {copied ? <Check className="size-3.5 text-teal-300" /> : <Copy className="size-3.5" />}
               {copied ? "Copied" : "Copy"}
@@ -911,7 +914,9 @@ function SignInMethodsCard() {
                   )}
                 </div>
                 {lastMethod && (
-                  <p className="mt-2 text-xs text-mist-500">This is your last way to sign in. Connect another method before disconnecting it.</p>
+                  <p className="mt-2 text-xs text-mist-500">
+                    This is your last way to sign in. Connect another method before disconnecting it.
+                  </p>
                 )}
                 {connectingProvider === provider && !connected && signInMethods.password && (
                   <form
@@ -921,7 +926,9 @@ function SignInMethodsCard() {
                       void connect(provider);
                     }}
                   >
-                    <label htmlFor={`oauth-link-password-${provider}`} className={labelCls}>Current password</label>
+                    <label htmlFor={`oauth-link-password-${provider}`} className={labelCls}>
+                      Current password
+                    </label>
                     <input
                       id={`oauth-link-password-${provider}`}
                       type="password"
@@ -933,7 +940,14 @@ function SignInMethodsCard() {
                       required
                     />
                     <div className="grid grid-cols-2 gap-2">
-                      <button type="button" className={btnSecondary} onClick={() => setConnectingProvider(null)} disabled={busyProvider !== null}>Cancel</button>
+                      <button
+                        type="button"
+                        className={btnSecondary}
+                        onClick={() => setConnectingProvider(null)}
+                        disabled={busyProvider !== null}
+                      >
+                        Cancel
+                      </button>
                       <button type="submit" className={btnPrimary} disabled={busyProvider !== null || !currentPassword}>
                         {busyProvider === provider ? "Connecting…" : `Continue with ${providerLabel(provider)}`}
                       </button>
@@ -1027,7 +1041,11 @@ export default function AccountPage({
         icon={<Lock className="size-5" aria-hidden="true" />}
         title="You're not signed in"
         description="Log in to change your name, school, links or password."
-        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+        action={{
+          label: "Back to the leaderboard",
+          href: "#/",
+          icon: <ArrowLeft className="size-4" aria-hidden="true" />
+        }}
       />
     );
   }
@@ -1214,7 +1232,13 @@ export default function AccountPage({
         description="Choose how you appear on the board, and manage your password and account."
         actions={
           <>
-            <a href={profileHref} className={btnLinkResponsive} id="account-view-profile" aria-label="View my profile" title="View my profile">
+            <a
+              href={profileHref}
+              className={btnLinkResponsive}
+              id="account-view-profile"
+              aria-label="View my profile"
+              title="View my profile"
+            >
               <UserRound className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">View my profile</span>
             </a>
@@ -1226,7 +1250,7 @@ export default function AccountPage({
         }
       />
 
-      <div className="card-aurora flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
+      <div className="pixel-card flex min-w-0 animate-rise items-center gap-4 overflow-hidden p-4">
         <TierAvatar user={user} className="size-14" showGem gemSize="sm" />
         <div className="min-w-0">
           <p className="truncate font-mono text-sm font-bold text-strong">@{user.loginUsername}</p>
@@ -1265,7 +1289,7 @@ export default function AccountPage({
           </Card>
 
           <Card
-            icon={<GraduationCap className="size-4 text-teal-300" />}
+            icon={<PixelGraduationCap size={16} variant="teal" />}
             title="School"
             description="Optional. Shown as a tag next to your name on the leaderboard."
             id="account-school-card"
@@ -1288,6 +1312,12 @@ export default function AccountPage({
                 />
                 <p className="mt-1.5 text-xs text-mist-500">Leave it empty to remove it.</p>
               </div>
+              {school.trim() && (
+                <div className="flex items-center gap-2.5 border-t-2 border-ink-800 pt-3">
+                  <span className="font-pixel text-[9px] uppercase tracking-wider text-mist-500">Preview:</span>
+                  <SchoolTag school={school} />
+                </div>
+              )}
               <NoticeBox notice={schoolNotice} />
               <button type="submit" disabled={schoolBusy} className={btnPrimary}>
                 {schoolBusy && <RefreshCw className="size-4 animate-spin" />}
@@ -1317,7 +1347,7 @@ export default function AccountPage({
                   placeholder="A line or two about you"
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  className="w-full resize-y rounded-lg bg-ink-950 px-3 py-2 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50"
+                  className="w-full resize-y border-2 border-ink-700 bg-ink-950 px-3 py-2 font-mono text-xs text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none disabled:opacity-50"
                   disabled={aboutBusy}
                 />
               </div>
@@ -1388,84 +1418,84 @@ export default function AccountPage({
 
           <SignInMethodsCard />
 
-          {signInMethods.password && <Card icon={<KeyRound className="size-4 text-teal-300" />} title="Change password" id="account-password-card">
-            <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
-              {/* Lets password managers attach the new password to the right account. */}
-              <input
-                type="text"
-                name="username"
-                autoComplete="username"
-                value={user.loginUsername}
-                readOnly
-                hidden
-              />
-              <div>
-                <label htmlFor="acct-current-pw" className={labelCls}>
-                  Current password
-                </label>
-                <input
-                  id="acct-current-pw"
-                  type="password"
-                  autoComplete="current-password"
-                  value={currentPw}
-                  onChange={(e) => setCurrentPw(e.target.value)}
-                  className={inputCls}
-                  disabled={pwBusy}
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="acct-new-pw" className={labelCls}>
-                  New password <span className="font-normal text-mist-500">(10+ characters)</span>
-                </label>
-                <input
-                  id="acct-new-pw"
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={10}
-                  maxLength={128}
-                  value={newPw}
-                  onChange={(e) => setNewPw(e.target.value)}
-                  className={inputCls}
-                  disabled={pwBusy}
-                  required
-                />
-              </div>
-              <div>
-                <label htmlFor="acct-confirm-pw" className={labelCls}>
-                  Confirm new password
-                </label>
-                <input
-                  id="acct-confirm-pw"
-                  type="password"
-                  autoComplete="new-password"
-                  maxLength={128}
-                  value={confirmPw}
-                  onChange={(e) => setConfirmPw(e.target.value)}
-                  className={inputCls}
-                  disabled={pwBusy}
-                  required
-                />
-              </div>
-              <NoticeBox notice={pwNotice} />
-              <button type="submit" disabled={pwBusy} className={btnPrimary}>
-                {pwBusy && <RefreshCw className="size-4 animate-spin" />}
-                {pwBusy ? "Changing…" : "Change password"}
-              </button>
-              {user.passwordResetAt && (
-                <p className="text-xs text-mist-500">
-                  Password was last reset via linked account on {new Date(user.passwordResetAt).toLocaleDateString()}.
-                </p>
-              )}
-            </form>
-          </Card>}
+          {signInMethods.password && (
+            <Card
+              icon={<KeyRound className="size-4 text-teal-300" />}
+              title="Change password"
+              id="account-password-card"
+            >
+              <form onSubmit={handleChangePassword} className="flex flex-col gap-3">
+                {/* Lets password managers attach the new password to the right account. */}
+                <input type="text" name="username" autoComplete="username" value={user.loginUsername} readOnly hidden />
+                <div>
+                  <label htmlFor="acct-current-pw" className={labelCls}>
+                    Current password
+                  </label>
+                  <input
+                    id="acct-current-pw"
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPw}
+                    onChange={(e) => setCurrentPw(e.target.value)}
+                    className={inputCls}
+                    disabled={pwBusy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="acct-new-pw" className={labelCls}>
+                    New password <span className="font-normal text-mist-500">(10+ characters)</span>
+                  </label>
+                  <input
+                    id="acct-new-pw"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={10}
+                    maxLength={128}
+                    value={newPw}
+                    onChange={(e) => setNewPw(e.target.value)}
+                    className={inputCls}
+                    disabled={pwBusy}
+                    required
+                  />
+                </div>
+                <div>
+                  <label htmlFor="acct-confirm-pw" className={labelCls}>
+                    Confirm new password
+                  </label>
+                  <input
+                    id="acct-confirm-pw"
+                    type="password"
+                    autoComplete="new-password"
+                    maxLength={128}
+                    value={confirmPw}
+                    onChange={(e) => setConfirmPw(e.target.value)}
+                    className={inputCls}
+                    disabled={pwBusy}
+                    required
+                  />
+                </div>
+                <NoticeBox notice={pwNotice} />
+                <button type="submit" disabled={pwBusy} className={btnPrimary}>
+                  {pwBusy && <RefreshCw className="size-4 animate-spin" />}
+                  {pwBusy ? "Changing…" : "Change password"}
+                </button>
+                {user.passwordResetAt && (
+                  <p className="text-xs text-mist-500">
+                    Password was last reset via linked account on {new Date(user.passwordResetAt).toLocaleDateString()}.
+                  </p>
+                )}
+              </form>
+            </Card>
+          )}
 
           <Card icon={<LogOut className="size-4 text-teal-300" />} title="Sessions & Log out">
             <div className="flex flex-col gap-4">
               <div>
                 <h4 className="text-xs font-semibold uppercase tracking-wider text-mist-400">Active sessions</h4>
                 <p className="mt-1 text-sm leading-relaxed text-mist-400">
-                  Sessions are versioned and revocable. You can sign out of this device, or revoke all active sessions across all devices (e.g. shared or lost computers).
+                  Sessions are versioned and revocable. You can sign out of this device, or revoke all active sessions
+                  across all devices (e.g. shared or lost computers).
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -1481,7 +1511,11 @@ export default function AccountPage({
             </div>
           </Card>
 
-          <Card icon={<Download className="size-4 text-teal-300" />} title="Download your data" id="account-export-card">
+          <Card
+            icon={<Download className="size-4 text-teal-300" />}
+            title="Download your data"
+            id="account-export-card"
+          >
             <div className="flex flex-col gap-3">
               <p className="text-sm leading-relaxed text-mist-400">
                 Get a copy of everything we store about you as one JSON file: your profile, sign-in connections, e-mail,
@@ -1489,7 +1523,13 @@ export default function AccountPage({
                 password and one-time codes are never included.
               </p>
               <NoticeBox notice={exportNotice} />
-              <button type="button" onClick={handleExport} disabled={exportBusy} className={btnSecondary} id="export-data-btn">
+              <button
+                type="button"
+                onClick={handleExport}
+                disabled={exportBusy}
+                className={btnSecondary}
+                id="export-data-btn"
+              >
                 {exportBusy ? <RefreshCw className="size-4 animate-spin" /> : <Download className="size-4" />}
                 {exportBusy ? "Preparing…" : "Download my data"}
               </button>
@@ -1500,8 +1540,8 @@ export default function AccountPage({
             {!confirmingDelete ? (
               <div className="flex flex-col gap-3">
                 <p className="text-sm leading-relaxed text-mist-400">
-                  Removes you from the leaderboard and permanently deletes your stats and history. You can sign up
-                  again later, but your history starts from zero.
+                  Removes you from the leaderboard and permanently deletes your stats and history. You can sign up again
+                  later, but your history starts from zero.
                 </p>
                 <button type="button" onClick={() => setConfirmingDelete(true)} className={btnSecondary}>
                   <Trash2 className="size-4" />
@@ -1511,8 +1551,8 @@ export default function AccountPage({
             ) : (
               <form onSubmit={handleDelete} className="flex flex-col gap-3">
                 <p className="text-sm leading-relaxed text-rose-300">
-                  This can't be undone. {signInMethods.password ? "Enter your password" : "Type your username"} to permanently delete{" "}
-                  <span className="font-semibold">@{user.loginUsername}</span>.
+                  This can't be undone. {signInMethods.password ? "Enter your password" : "Type your username"} to
+                  permanently delete <span className="font-semibold">@{user.loginUsername}</span>.
                 </p>
                 <div>
                   <label htmlFor="acct-delete-pw" className="sr-only">

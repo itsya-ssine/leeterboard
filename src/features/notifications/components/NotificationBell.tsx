@@ -3,21 +3,15 @@ import { AlertTriangle, Award, Bell, CheckCheck, Inbox, Megaphone, Trophy, X } f
 import type { AppNotification, NotificationFeed, NotificationType } from "../../../types.js";
 
 const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400";
 
-// How often the list quietly refreshes while the tab is visible. The server is
-// serverless (no persistent connections), so polling is how new notifications
-// arrive.
 const POLL_MS = 60_000;
-
-// Coming back to a tab fires both `focus` and `visibilitychange`; this keeps
-// that from being two requests.
 const MIN_RELOAD_GAP_MS = 5_000;
 
 const TYPE_UI: Record<NotificationType, { Icon: typeof Bell; cls: string; label: string }> = {
-  badge: { Icon: Award, cls: "bg-teal-400/10 text-teal-300 ring-teal-400/30", label: "Badge" },
-  achievement: { Icon: Trophy, cls: "bg-amber-400/10 text-amber-300 ring-amber-300/30", label: "Achievement" },
-  admin: { Icon: Megaphone, cls: "bg-sky-400/10 text-sky-300 ring-sky-400/30", label: "Message from an admin" }
+  badge: { Icon: Award, cls: "border-teal-500/40 bg-teal-950/60 text-teal-300", label: "Badge" },
+  achievement: { Icon: Trophy, cls: "border-amber-500/40 bg-amber-950/60 text-amber-300", label: "Achievement" },
+  admin: { Icon: Megaphone, cls: "border-sky-500/40 bg-sky-950/60 text-sky-300", label: "Message from an admin" }
 };
 
 function timeAgo(iso: string, now: number): string {
@@ -25,11 +19,11 @@ function timeAgo(iso: string, now: number): string {
   if (!Number.isFinite(ms)) return "";
   const min = Math.floor(ms / 60_000);
   if (min < 1) return "just now";
-  if (min < 60) return `${min} min ago`;
+  if (min < 60) return `${min}m ago`;
   const h = Math.floor(min / 60);
-  if (h < 24) return `${h} h ago`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  return `${d} ${d === 1 ? "day" : "days"} ago`;
+  return `${d}d ago`;
 }
 
 async function request(method: string, url: string, body?: unknown): Promise<NotificationFeed> {
@@ -44,10 +38,6 @@ async function request(method: string, url: string, body?: unknown): Promise<Not
   return data as NotificationFeed;
 }
 
-// Header bell for signed-in members: an unread count, and a panel with their
-// badges, achievements and messages from admins. Everything shown here is
-// plain text — titles and messages are rendered as React text nodes, never as
-// HTML, so nothing an admin types can inject markup.
 export default function NotificationBell() {
   const [feed, setFeed] = useState<NotificationFeed | null>(null);
   const [error, setError] = useState("");
@@ -57,8 +47,6 @@ export default function NotificationBell() {
   const panelId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  // Every request takes a ticket; only the newest ticket may update the list,
-  // so a slow poll can't overwrite the result of something the member just did.
   const ticket = useRef(0);
   const lastLoad = useRef(0);
 
@@ -76,7 +64,6 @@ export default function NotificationBell() {
     }
   }, []);
 
-  // Fetch on load, every minute, and whenever the tab comes back into view.
   useEffect(() => {
     load();
     const timer = setInterval(() => {
@@ -102,7 +89,6 @@ export default function NotificationBell() {
     };
   }, [load]);
 
-  // Close on Escape (returning focus to the bell) or a click outside.
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -122,8 +108,6 @@ export default function NotificationBell() {
     };
   }, [open]);
 
-  // Applies a change locally right away, sends it, then trusts the server's
-  // answer (which is the member's full, current list). On failure, reload.
   const act = async (
     method: string,
     url: string,
@@ -193,7 +177,7 @@ export default function NotificationBell() {
         aria-controls={open ? panelId : undefined}
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         title="Notifications"
-        className={`relative flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-ink-800/80 text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong ${focusRing}`}
+        className={`relative flex size-9 shrink-0 cursor-pointer items-center justify-center border-2 border-ink-700 bg-ink-900 text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-mist-400 hover:bg-ink-800 ${focusRing}`}
       >
         <Bell className="size-4" aria-hidden="true" />
         <span className="sr-only" aria-live="polite">
@@ -202,7 +186,7 @@ export default function NotificationBell() {
         {unread > 0 && (
           <span
             aria-hidden="true"
-            className="absolute -right-1.5 -top-1.5 grid min-w-[1.125rem] place-items-center rounded-full bg-gradient-to-r from-teal-400 to-sky-400 px-1 font-mono text-[0.6875rem] font-bold leading-[1.125rem] text-ink-950 tabular-nums ring-2 ring-ink-950"
+            className="absolute -right-2 -top-2 grid min-w-[1.25rem] place-items-center border-2 border-ink-950 bg-emerald-400 px-1 font-pixel text-[9px] font-bold leading-[1.125rem] text-ink-950 tabular-nums shadow-[1px_1px_0_#000]"
           >
             {unread > 9 ? "9+" : unread}
           </span>
@@ -214,15 +198,14 @@ export default function NotificationBell() {
           id={panelId}
           role="region"
           aria-label="Notifications"
-          className="fixed inset-x-3 top-[4.25rem] z-50 shadow-2xl shadow-black/60 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96"
+          className="fixed inset-x-3 top-[4.25rem] z-50 shadow-[6px_6px_0_#000] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-96"
         >
-          <div className="card-aurora animate-rise overflow-hidden">
-            <div className="flex items-center justify-between gap-2 border-b border-line bg-gradient-to-r from-teal-400/10 via-sky-400/5 to-transparent px-4 py-3">
-              <h2 className="font-mono text-[11px] font-semibold uppercase tracking-widest text-strong">
-                <span aria-hidden="true" className="text-aurora-a">{"// "}</span>
-                Notifications
+          <div className="overflow-hidden border-2 border-ink-600 bg-ink-900">
+            <div className="flex items-center justify-between gap-2 border-b-2 border-ink-700 bg-ink-950 px-4 py-2.5">
+              <h2 className="font-pixel text-[11px] font-bold uppercase tracking-wider text-mist-100">
+                Inbox
                 {unread > 0 && (
-                  <span className="ml-2 rounded-full bg-teal-400/10 px-2 py-0.5 text-[10px] font-bold tracking-wider text-teal-300 ring-1 ring-teal-400/30">
+                  <span className="ml-2 border border-emerald-500/50 bg-emerald-950/60 px-1.5 py-0.5 text-[9px] text-emerald-300">
                     {unread} new
                   </span>
                 )}
@@ -231,55 +214,55 @@ export default function NotificationBell() {
                 type="button"
                 onClick={markAllRead}
                 disabled={unread === 0}
-                className={`inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-lg px-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-teal-300 transition-colors hover:bg-teal-400/10 disabled:cursor-not-allowed disabled:text-mist-500 disabled:hover:bg-transparent ${focusRing}`}
+                className={`inline-flex h-6 cursor-pointer items-center gap-1 border border-ink-700 bg-ink-800 px-2 font-pixel text-[9px] uppercase tracking-wider text-teal-300 transition-colors hover:border-mist-400 hover:bg-ink-700 disabled:cursor-not-allowed disabled:text-mist-500 disabled:hover:bg-ink-800 disabled:hover:border-ink-700 ${focusRing}`}
               >
-                <CheckCheck className="size-3.5" aria-hidden="true" />
-                Mark all read
+                <CheckCheck className="size-3" aria-hidden="true" />
+                Read all
               </button>
             </div>
 
             {error && (
-              <div role="alert" className="flex items-start gap-2 border-b border-line bg-rose-500/10 px-4 py-2.5 text-xs text-rose-300">
+              <div role="alert" className="flex items-start gap-2 border-b-2 border-rose-500/80 bg-rose-950/60 px-4 py-2 text-xs text-rose-300">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1">{error}</span>
-                <button type="button" onClick={load} className={`shrink-0 cursor-pointer rounded font-medium underline ${focusRing}`}>
+                <span className="min-w-0 flex-1 font-sans">{error}</span>
+                <button type="button" onClick={load} className={`shrink-0 cursor-pointer font-pixel text-[9px] underline ${focusRing}`}>
                   Retry
                 </button>
               </div>
             )}
 
             {feed === null && !error ? (
-              <p className="px-4 py-8 text-center font-mono text-xs uppercase tracking-widest text-mist-500">Loading…</p>
+              <p className="px-4 py-8 text-center font-pixel text-[11px] uppercase tracking-widest text-mist-500">Loading…</p>
             ) : items.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-                <span className="grid size-10 place-items-center rounded-lg bg-tint text-mist-500 ring-1 ring-line">
+                <span className="grid size-10 place-items-center border-2 border-ink-700 bg-ink-950 text-mist-500">
                   <Inbox className="size-5" aria-hidden="true" />
                 </span>
-                <p className="mt-1 text-sm font-medium text-strong">You're all caught up.</p>
-                <p className="text-xs text-mist-500">New badges, weekly wins and messages from admins show up here.</p>
+                <p className="mt-1 font-pixel text-xs uppercase tracking-wider text-mist-100">All caught up</p>
+                <p className="text-xs text-mist-500 font-sans">New badges, weekly wins and messages from admins show up here.</p>
               </div>
             ) : (
-              <ul className="max-h-[min(28rem,70vh)] divide-y divide-line overflow-y-auto overscroll-contain">
+              <ul className="max-h-[min(28rem,70vh)] divide-y-2 divide-ink-800 overflow-y-auto overscroll-contain">
                 {items.map((n) => {
                   const { Icon, cls, label } = TYPE_UI[n.type] ?? TYPE_UI.admin;
                   return (
                     <li
                       key={n.id}
-                      className={`relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-tint ${
-                        n.read ? "" : "bg-gradient-to-r from-teal-400/[0.07] to-transparent"
+                      className={`relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-ink-800/60 ${
+                        n.read ? "bg-ink-900" : "bg-ink-950/60"
                       }`}
                     >
                       {!n.read && (
                         <span
                           aria-hidden="true"
-                          className="absolute inset-y-0 left-0 w-0.5 bg-gradient-to-b from-teal-300 to-sky-400"
+                          className="absolute inset-y-0 left-0 w-1 bg-emerald-400"
                         />
                       )}
                       <span
-                        className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg ring-1 ${cls} ${n.read ? "opacity-60" : ""}`}
+                        className={`mt-0.5 grid size-7 shrink-0 place-items-center border ${cls} ${n.read ? "opacity-50" : ""}`}
                         title={label}
                       >
-                        <Icon className="size-4" aria-hidden="true" />
+                        <Icon className="size-3.5" aria-hidden="true" />
                         <span className="sr-only">{label}</span>
                       </span>
 
@@ -287,23 +270,23 @@ export default function NotificationBell() {
                         type="button"
                         onClick={() => markRead(n)}
                         aria-label={n.read ? undefined : `Mark as read: ${n.title}`}
-                        className={`block min-w-0 flex-1 rounded text-left ${n.read ? "cursor-default" : "cursor-pointer"} ${focusRing}`}
+                        className={`block min-w-0 flex-1 text-left ${n.read ? "cursor-default" : "cursor-pointer"} ${focusRing}`}
                       >
                         <span className="flex items-baseline justify-between gap-2">
-                          <span className={`block min-w-0 break-words text-sm font-semibold ${n.read ? "text-mist-400" : "text-strong"}`}>
+                          <span className={`block min-w-0 break-words text-sm font-semibold ${n.read ? "text-mist-400" : "text-mist-100"}`}>
                             {n.title}
                           </span>
                           {!n.read && (
                             <span
-                              className="size-2 shrink-0 rounded-full bg-teal-300 shadow-[0_0_8px_rgb(45_212_191/0.8)]"
+                              className="size-2 shrink-0 bg-emerald-400 shadow-[0_0_6px_#34d399]"
                               aria-hidden="true"
                             />
                           )}
                         </span>
                         {n.body && (
-                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-sm text-mist-400">{n.body}</span>
+                          <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs text-mist-400 font-sans">{n.body}</span>
                         )}
-                        <span className="mt-1 block font-mono text-[11px] uppercase tracking-wider text-mist-500">
+                        <span className="mt-1 block font-mono text-[10px] uppercase tracking-wider text-mist-500">
                           {timeAgo(n.createdAt, now)}
                         </span>
                       </button>
@@ -313,9 +296,9 @@ export default function NotificationBell() {
                         onClick={() => dismiss(n)}
                         aria-label={`Dismiss: ${n.title}`}
                         title="Dismiss"
-                        className={`-mr-1 grid size-7 shrink-0 cursor-pointer place-items-center rounded-lg text-mist-500 transition-colors hover:bg-tint hover:text-strong ${focusRing}`}
+                        className={`-mr-1 grid size-6 shrink-0 cursor-pointer place-items-center border border-transparent text-mist-500 hover:border-ink-700 hover:bg-ink-800 hover:text-mist-100 ${focusRing}`}
                       >
-                        <X className="size-3.5" aria-hidden="true" />
+                        <X className="size-3" aria-hidden="true" />
                       </button>
                     </li>
                   );
@@ -324,11 +307,11 @@ export default function NotificationBell() {
             )}
 
             {hasRead && (
-              <div className="border-t border-line bg-ink-950/40 px-4 py-2 text-right">
+              <div className="border-t-2 border-ink-700 bg-ink-950 px-4 py-2 text-right">
                 <button
                   type="button"
                   onClick={clearRead}
-                  className={`cursor-pointer rounded font-mono text-[11px] font-semibold uppercase tracking-wider text-mist-400 transition-colors hover:text-strong ${focusRing}`}
+                  className={`cursor-pointer font-pixel text-[9px] uppercase tracking-wider text-mist-400 transition-colors hover:text-mist-100 ${focusRing}`}
                 >
                   Clear read
                 </button>

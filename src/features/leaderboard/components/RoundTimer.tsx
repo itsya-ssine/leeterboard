@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Timer } from "lucide-react";
 
 export function nextRoundStartMs(nowMs: number): number {
@@ -42,13 +42,13 @@ export default function RoundTimer() {
   const localReset = formatLocalReset(targetMs);
   return (
     <div
-      className="flex items-center gap-2 rounded-full bg-ink-900/70 px-3 py-1.5 font-mono text-sm ring-1 ring-line"
+      className="inline-flex items-center gap-2 border-2 border-ink-700 bg-ink-950 px-3 py-1 shadow-[2px_2px_0_#000]"
       title={`Weekly round resets on ${localReset}`}
     >
-      <Timer className="size-3.5 text-amber-300" aria-hidden="true" />
-      <span className="text-xs uppercase tracking-widest text-mist-500">Round ends</span>
+      <span className="size-2 bg-amber-400 shadow-[0_0_6px_#fbbf24] animate-pulse" aria-hidden="true" />
+      <span className="font-pixel text-[9px] uppercase tracking-wider text-mist-500">Round Ends</span>
       <span
-        className="font-semibold tabular-nums text-strong"
+        className="font-mono text-xs font-bold tabular-nums text-amber-300"
         aria-label={`Round ends in ${days} days, ${hms}. Resets on ${localReset}`}
       >
         {days}d {hms}

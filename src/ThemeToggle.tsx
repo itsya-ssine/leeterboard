@@ -16,7 +16,7 @@ export default function ThemeToggle() {
       id="theme-toggle-btn"
       aria-label={`Switch to ${next} theme`}
       title={`Switch to ${next} theme`}
-      className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-ink-800 text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300"
+      className="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center border-2 border-ink-700 bg-ink-900 text-mist-100 shadow-[2px_2px_0_#000] transition-transform duration-75 hover:border-mist-400 hover:bg-ink-800 active:translate-x-[2px] active:translate-y-[2px] active:shadow-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-400"
     >
       <Icon className="size-4" aria-hidden="true" />
     </button>

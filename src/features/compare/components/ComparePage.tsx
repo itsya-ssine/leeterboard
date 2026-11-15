@@ -4,18 +4,12 @@ import { ArrowLeft, ArrowLeftRight, Crown, ImageIcon, Swords } from "lucide-reac
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { User } from "../../../types.js";
 import { chartColors, useTheme } from "../../../theme.js";
-import {
-  buildHistorySeries,
-  compareStats,
-  tallyLeads,
-  type CompareRow,
-  type HistoryMode
-} from "../utils/compare.js";
+import { buildHistorySeries, compareStats, tallyLeads, type CompareRow, type HistoryMode } from "../utils/compare.js";
 import CompareCardModal from "./CompareCardModal.js";
 import EmptyState from "../../../components/common/EmptyState.js";
+import SchoolTag from "../../../components/common/SchoolTag.js";
 
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 // Player A is always teal and player B amber, in the arena, the stat bars and
 // the chart, so the two are easy to tell apart at a glance.
@@ -54,7 +48,10 @@ const enc = (u: User) => encodeURIComponent(u.loginUsername);
 
 // #/compare/<a>/<b>, with each part optional.
 function readSelection(): [string | null, string | null] {
-  const parts = window.location.hash.replace(/^#\/compare\/?/, "").split("/").filter(Boolean);
+  const parts = window.location.hash
+    .replace(/^#\/compare\/?/, "")
+    .split("/")
+    .filter(Boolean);
   const decode = (s: string | undefined) => {
     if (!s) return null;
     try {
@@ -105,21 +102,21 @@ function StatRow({ row }: { row: CompareRow }) {
 
   return (
     <li className="px-4 py-3 md:px-6">
-      <div className="mb-1.5 flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-widest text-mist-500">
+      <div className="mb-1.5 flex items-center justify-center gap-2 font-pixel text-[9px] uppercase tracking-wider text-mist-400">
         {ROW_BALLOON[row.id] && <span className={`balloon mb-0.5 ${ROW_BALLOON[row.id]}`} aria-hidden="true" />}
         {row.label}
       </div>
       <div className="grid grid-cols-[4.5rem_1fr_1fr_4.5rem] items-center gap-x-2">
         <Value row={row} side="a" />
-        <div className="flex h-2.5 justify-end overflow-hidden rounded-l-full bg-tint" aria-hidden="true">
+        <div className="flex h-3 justify-end border border-ink-700 bg-ink-950 p-[1px]" aria-hidden="true">
           <div
-            className={`h-full rounded-l-full transition-[width] duration-700 ease-out ${SIDE.a.barOuter} ${fill("a")} ${glow("a")}`}
+            className={`h-full transition-[width] duration-500 ease-out ${SIDE.a.barOuter} ${fill("a")} ${glow("a")}`}
             style={{ width: `${width(row.a)}%` }}
           />
         </div>
-        <div className="flex h-2.5 overflow-hidden rounded-r-full bg-tint" aria-hidden="true">
+        <div className="flex h-3 border border-ink-700 bg-ink-950 p-[1px]" aria-hidden="true">
           <div
-            className={`h-full rounded-r-full transition-[width] duration-700 ease-out ${SIDE.b.barOuter} ${fill("b")} ${glow("b")}`}
+            className={`h-full transition-[width] duration-500 ease-out ${SIDE.b.barOuter} ${fill("b")} ${glow("b")}`}
             style={{ width: `${width(row.b)}%` }}
           />
         </div>
@@ -133,26 +130,38 @@ function Fighter({ user, side, leads, winner }: { user: User; side: "a" | "b"; l
   const s = SIDE[side];
   return (
     <div className="flex min-w-0 flex-col items-center gap-2 text-center">
-      <div className="h-5" aria-hidden="true">
+      <div className="h-6" aria-hidden="true">
         {winner && (
-          <Crown className="animate-float size-5 fill-amber-300/30 text-amber-300 drop-shadow-[0_0_8px_rgb(252_211_77/0.6)]" />
+          <Crown className="size-6 fill-amber-300 text-amber-300 drop-shadow-[0_0_6px_rgba(252,211,77,0.8)]" />
         )}
       </div>
       <span className="relative grid place-items-center">
-        <span aria-hidden="true" className={`animate-glow absolute inset-0 scale-125 rounded-full blur-xl ${s.glow}`} />
         <img
           src={user.avatarUrl}
           alt=""
           referrerPolicy="no-referrer"
-          className={`relative size-20 rounded-full bg-ink-800 object-cover ring-2 ring-offset-2 ring-offset-ink-900 md:size-28 ${s.ring}`}
+          className={`relative size-20 border-2 bg-ink-800 object-cover shadow-[3px_3px_0_#000] md:size-24 ${
+            side === "a" ? "border-teal-400" : "border-amber-400"
+          }`}
         />
       </span>
       <div className="mt-1 min-w-0 max-w-full">
-        <div className="truncate text-base font-bold tracking-tight text-strong md:text-xl">{user.displayName}</div>
-        <div className="truncate font-mono text-sm text-mist-500">@{user.loginUsername}</div>
+        <div className="truncate font-pixel text-sm font-bold uppercase tracking-wide text-strong md:text-base">
+          {user.displayName}
+        </div>
+        <div className="truncate font-mono text-xs text-mist-500">@{user.loginUsername}</div>
+        {user.school?.trim() ? (
+          <div className="mt-1 flex justify-center">
+            <SchoolTag school={user.school} />
+          </div>
+        ) : null}
       </div>
       <div
-        className={`rounded-full px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-widest ring-1 ${s.pill}`}
+        className={`border-2 px-3 py-1 font-pixel text-[9px] uppercase tracking-wider shadow-[2px_2px_0_#000] ${
+          side === "a"
+            ? "border-teal-500/60 bg-teal-950/40 text-teal-300"
+            : "border-amber-500/60 bg-amber-950/40 text-amber-300"
+        }`}
       >
         Ahead in {leads} {leads === 1 ? "stat" : "stats"}
       </div>
@@ -180,16 +189,16 @@ function MemberSelect({
     <div className="min-w-0">
       <label
         htmlFor={id}
-        className="mb-1.5 flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500"
+        className="mb-1.5 flex items-center gap-2 font-pixel text-[9px] font-bold uppercase tracking-wider text-mist-400"
       >
-        <span className={`size-2 rounded-full ${SIDE[side].dot}`} aria-hidden="true" />
+        <span className={`size-2 ${SIDE[side].dot}`} aria-hidden="true" />
         {label}
       </label>
       <select
         id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`h-11 w-full cursor-pointer rounded-xl bg-ink-900 px-3 text-sm text-mist-100 ring-1 ring-line transition-colors hover:ring-line-strong ${focusRing}`}
+        className={`h-11 w-full cursor-pointer border-2 border-ink-700 bg-ink-950 px-3 font-mono text-xs text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-teal-400 ${focusRing}`}
       >
         {users.map((u) => (
           <option key={u.id} value={u.loginUsername} disabled={u.id === otherId}>
@@ -221,7 +230,11 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         icon={<Swords className="size-5" aria-hidden="true" />}
         title="Nobody to compare with yet"
         description="Comparing uses LeetCode stats, so you need at least two members who linked a LeetCode account."
-        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+        action={{
+          label: "Back to the leaderboard",
+          href: "#/",
+          icon: <ArrowLeft className="size-4" aria-hidden="true" />
+        }}
       />
     );
   }
@@ -280,36 +293,50 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         aria-label="Choose members to compare"
         className="mb-6 grid grid-cols-[1fr_auto_1fr] items-end gap-x-2 gap-y-3 md:gap-x-4"
       >
-        <MemberSelect side="a" label="Player A" value={a.loginUsername} users={users} otherId={b.id} onChange={(v) => pick("a", v)} />
+        <MemberSelect
+          side="a"
+          label="Player A"
+          value={a.loginUsername}
+          users={users}
+          otherId={b.id}
+          onChange={(v) => pick("a", v)}
+        />
         <button
           type="button"
           onClick={swap}
           aria-label="Swap the two members"
           title="Swap"
-          className={`group/swap inline-flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-gradient-to-b from-ink-700 to-ink-800 text-mist-100 ring-1 ring-line-strong transition hover:brightness-125 active:scale-95 ${focusRing}`}
+          className={`group/swap inline-flex size-11 shrink-0 cursor-pointer items-center justify-center border-2 border-ink-700 bg-ink-900 text-mist-100 shadow-[2px_2px_0_#000] transition active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:border-teal-400 hover:text-teal-300 ${focusRing}`}
         >
           <ArrowLeftRight
             className="size-4 transition-transform duration-300 group-hover/swap:rotate-180"
             aria-hidden="true"
           />
         </button>
-        <MemberSelect side="b" label="Player B" value={b.loginUsername} users={users} otherId={a.id} onChange={(v) => pick("b", v)} />
+        <MemberSelect
+          side="b"
+          label="Player B"
+          value={b.loginUsername}
+          users={users}
+          otherId={a.id}
+          onChange={(v) => pick("b", v)}
+        />
       </section>
 
       {/* ---------- Head to head ---------- */}
-      <section aria-label="Head to head" className="card-aurora relative mb-8 animate-rise overflow-hidden">
+      <section aria-label="Head to head" className="pixel-card relative mb-8 animate-rise overflow-hidden">
         {/* Each side leans toward its own colour */}
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,color-mix(in_srgb,var(--color-teal-400)_9%,transparent),transparent_38%,transparent_62%,color-mix(in_srgb,var(--color-amber-400)_9%,transparent))]"
         />
 
-        <div className="relative flex items-center justify-between border-b border-line px-4 py-2.5 md:px-5">
-          <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// duel.arena</div>
+        <div className="relative flex items-center justify-between border-b-2 border-ink-700 bg-ink-950/80 px-4 py-2.5 md:px-5">
+          <div className="font-pixel text-[9px] uppercase tracking-widest text-emerald-400">// DUEL.ARENA</div>
           <button
             type="button"
             onClick={() => setCardOpen(true)}
-            className={`inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg bg-ink-800/80 px-3 font-mono text-xs font-semibold uppercase tracking-wider text-mist-100 ring-1 ring-line transition hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] ${focusRing}`}
+            className={`inline-flex h-8 cursor-pointer items-center gap-2 border-2 border-ink-700 bg-ink-900 px-3 font-pixel text-[9px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${focusRing}`}
           >
             <ImageIcon className="size-3.5" aria-hidden="true" />
             Create card
@@ -319,10 +346,12 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         <div className="relative grid grid-cols-[1fr_auto_1fr] items-start gap-x-3 px-4 pb-6 pt-5 md:px-6">
           <Fighter user={a} side="a" leads={leads.a} winner={winner === "a"} />
           <div className="flex flex-col items-center gap-2 self-center pt-6" aria-hidden="true">
-            <span className="grid size-10 place-items-center rounded-full bg-ink-950/70 ring-1 ring-line-strong">
+            <span className="grid size-10 place-items-center border-2 border-ink-700 bg-ink-950 shadow-[2px_2px_0_#000]">
               <Swords className="size-4 text-mist-400" />
             </span>
-            <span className="text-aurora font-logo text-3xl font-bold leading-none md:text-4xl">VS</span>
+            <span className="font-pixel text-2xl font-extrabold text-amber-300 drop-shadow-[2px_2px_0_#000] md:text-3xl">
+              VS
+            </span>
             <span className="font-mono text-lg font-bold tabular-nums text-strong md:text-xl">
               <span className={SIDE.a.text}>{leads.a}</span>
               <span className="mx-1 text-mist-500">:</span>
@@ -335,12 +364,12 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         {/* Tug-of-war: who is ahead in more stats */}
         <div className="relative px-4 pb-4 md:px-6">
           <div
-            className="flex h-3 overflow-hidden rounded-full bg-tint"
+            className="flex h-3 overflow-hidden border-2 border-ink-700 bg-ink-950 p-[1px] shadow-[2px_2px_0_#000]"
             role="img"
             aria-label={`${a.displayName} leads ${leads.a} stats, ${b.displayName} leads ${leads.b}`}
           >
             <div
-              className={`h-full transition-[width] duration-700 ease-out ${SIDE.a.power}`}
+              className={`h-full transition-[width] duration-500 ease-out ${SIDE.a.power}`}
               style={{ width: `${powerA}%` }}
             />
             <div className="w-0.5 shrink-0 bg-ink-950" />
@@ -357,7 +386,7 @@ export default function ComparePage({ users: members }: { users: User[] }) {
           </p>
         </div>
 
-        <ul aria-label="Stats" className="relative divide-y divide-line border-t border-line">
+        <ul aria-label="Stats" className="relative divide-y-2 border-t-2 border-ink-700 divide-ink-800">
           {rows.map((row) => (
             <StatRow key={row.id} row={row} />
           ))}
@@ -365,18 +394,22 @@ export default function ComparePage({ users: members }: { users: User[] }) {
       </section>
 
       {/* ---------- History ---------- */}
-      <section aria-label="History" className="card-aurora mb-8 animate-rise p-5">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <section aria-label="History" className="pixel-card mb-8 animate-rise p-5">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b-2 border-ink-700/80 pb-3">
           <div>
-            <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">// history.log</div>
-            <h2 className="mt-1 text-lg font-bold tracking-tight text-strong">History</h2>
-            <p className="mt-0.5 text-sm text-mist-500">
+            <div className="font-pixel text-[9px] uppercase tracking-widest text-emerald-400">// HISTORY.LOG</div>
+            <h2 className="mt-1 font-pixel text-base font-bold uppercase tracking-wide text-strong">History</h2>
+            <p className="mt-0.5 font-mono text-xs text-mist-400">
               {mode === "gained"
                 ? "Problems solved since the first day both have data"
                 : "Total problems solved over time"}
             </p>
           </div>
-          <div role="group" aria-label="History view" className="inline-flex rounded-xl bg-ink-950/80 p-1 ring-1 ring-line">
+          <div
+            role="group"
+            aria-label="History view"
+            className="inline-flex border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]"
+          >
             {(
               [
                 { value: "gained", label: "Progress" },
@@ -388,10 +421,10 @@ export default function ComparePage({ users: members }: { users: User[] }) {
                 type="button"
                 aria-pressed={mode === opt.value}
                 onClick={() => setMode(opt.value)}
-                className={`h-8 cursor-pointer rounded-lg px-4 font-mono text-xs font-semibold uppercase tracking-wider transition-colors ${focusRing} ${
+                className={`h-8 cursor-pointer px-4 font-pixel text-[9px] uppercase tracking-wider transition-colors ${focusRing} ${
                   mode === opt.value
-                    ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong ring-1 ring-line-strong"
-                    : "text-mist-400 hover:text-strong"
+                    ? "bg-teal-400 font-bold text-ink-950 shadow-[1px_1px_0_#000]"
+                    : "text-mist-400 hover:bg-ink-900 hover:text-strong"
                 }`}
               >
                 {opt.label}
@@ -401,12 +434,19 @@ export default function ComparePage({ users: members }: { users: User[] }) {
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-          {([["a", a], ["b", b]] as const).map(([side, u]) => (
+          {(
+            [
+              ["a", a],
+              ["b", b]
+            ] as const
+          ).map(([side, u]) => (
             <span key={side} className="inline-flex items-center gap-2 text-mist-100">
               <span className={`size-2.5 rounded-full ${SIDE[side].dot}`} aria-hidden="true" />
               <span className="max-w-40 truncate">{u.displayName}</span>
               {last && mode === "gained" && (
-                <span className={`font-mono font-bold tabular-nums ${SIDE[side].text}`}>+{last[side].toLocaleString()}</span>
+                <span className={`font-mono font-bold tabular-nums ${SIDE[side].text}`}>
+                  +{last[side].toLocaleString()}
+                </span>
               )}
             </span>
           ))}
@@ -440,10 +480,7 @@ export default function ComparePage({ users: members }: { users: User[] }) {
                     domain={
                       mode === "gained"
                         ? [0, (max: number) => Math.max(5, Math.ceil(max * 1.1))]
-                        : [
-                            (min: number) => Math.max(0, Math.floor(min * 0.98)),
-                            (max: number) => Math.ceil(max * 1.02)
-                          ]
+                        : [(min: number) => Math.max(0, Math.floor(min * 0.98)), (max: number) => Math.ceil(max * 1.02)]
                     }
                     allowDecimals={false}
                     tickFormatter={(v: number) => v.toLocaleString()}
@@ -468,14 +505,35 @@ export default function ComparePage({ users: members }: { users: User[] }) {
                       String(name)
                     ]}
                   />
-                  <Line type="monotone" dataKey="a" name={a.displayName} stroke={c.accent} strokeWidth={3} dot={false} animationDuration={900} />
-                  <Line type="monotone" dataKey="b" name={b.displayName} stroke={c.accentB} strokeWidth={3} dot={false} animationDuration={900} />
+                  <Line
+                    type="monotone"
+                    dataKey="a"
+                    name={a.displayName}
+                    stroke={c.accent}
+                    strokeWidth={3}
+                    dot={false}
+                    animationDuration={900}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="b"
+                    name={b.displayName}
+                    stroke={c.accentB}
+                    strokeWidth={3}
+                    dot={false}
+                    animationDuration={900}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
             <p className="mt-3 font-mono text-xs text-mist-500">
               Since {shortDate(startDate!)}:{" "}
-              {([["a", a], ["b", b]] as const).map(([side, u], i) => {
+              {(
+                [
+                  ["a", a],
+                  ["b", b]
+                ] as const
+              ).map(([side, u], i) => {
                 const gained = last[side] - (mode === "gained" ? 0 : points[0][side]);
                 return (
                   <React.Fragment key={side}>

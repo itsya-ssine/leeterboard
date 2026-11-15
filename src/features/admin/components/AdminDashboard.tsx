@@ -6,7 +6,7 @@ import { ListSkeleton } from "../../../components/ui/Skeleton.js";
 const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
-const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-medium ring-1 ring-line transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+const btnSmall = `inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-1.5 border-2 border-ink-700 bg-ink-900 px-3 font-pixel text-[9px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition-colors hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
 
 // Same bar the leaderboard uses for its "stale" badge: a full day without a
 // successful fetch.
@@ -31,11 +31,11 @@ function healthOf(m: AdminSyncMember, now: number): Health {
 }
 
 const HEALTH_UI: Record<Health, { label: string; cls: string }> = {
-  not_found: { label: "Account not found", cls: "bg-rose-400/10 text-rose-300 ring-rose-300/25" },
-  failing: { label: "Sync failing", cls: "bg-amber-400/10 text-amber-300 ring-amber-300/25" },
-  stale: { label: "Stale", cls: "bg-amber-400/10 text-amber-300 ring-amber-300/25" },
-  unknown: { label: "No sync recorded", cls: "bg-tint text-mist-400 ring-line" },
-  ok: { label: "Healthy", cls: "bg-emerald-400/10 text-emerald-300 ring-emerald-300/25" }
+  not_found: { label: "Not found", cls: "border-2 border-rose-500/70 bg-rose-950/40 text-rose-300 shadow-[1px_1px_0_#000]" },
+  failing: { label: "Failing", cls: "border-2 border-amber-500/70 bg-amber-950/40 text-amber-300 shadow-[1px_1px_0_#000]" },
+  stale: { label: "Stale", cls: "border-2 border-amber-500/70 bg-amber-950/40 text-amber-300 shadow-[1px_1px_0_#000]" },
+  unknown: { label: "No sync", cls: "border-2 border-ink-700 bg-ink-950 text-mist-400 shadow-[1px_1px_0_#000]" },
+  ok: { label: "Healthy", cls: "border-2 border-emerald-500/70 bg-emerald-950/40 text-emerald-300 shadow-[1px_1px_0_#000]" }
 };
 
 function ago(iso: string | null, now: number): string {
@@ -57,7 +57,7 @@ function StatusBadge({ health }: { health: Health }) {
   const { label, cls } = HEALTH_UI[health];
   return (
     <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium ring-1 ${cls}`}
+      className={`inline-flex items-center px-1.5 py-0.5 font-pixel text-[8px] uppercase tracking-wider ${cls}`}
     >
       {label}
     </span>
@@ -69,7 +69,7 @@ const MAX_TITLE_LENGTH = 80;
 const MAX_MESSAGE_LENGTH = 500;
 
 const fieldCls =
-  "w-full rounded-lg bg-ink-950 px-3 text-sm text-mist-100 placeholder:text-mist-500 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400 disabled:opacity-50";
+  "w-full border-2 border-ink-700 bg-ink-950 px-3 py-2 font-mono text-xs text-mist-100 placeholder:text-mist-500 shadow-[2px_2px_0_#000] transition focus:border-teal-400 focus:outline-none disabled:opacity-50";
 
 // Send a notification to one member or to everyone, and see what was sent and
 // how many people have read it. Everything is shown as plain text.
@@ -604,28 +604,28 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
     <div id="admin-dashboard">
       <section
         aria-label="Sync summary"
-        className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line lg:grid-cols-4"
+        className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4"
       >
         {cards.map((c) => (
-          <div key={c.label} className="min-w-0 bg-ink-900 p-5">
-            <div className="text-sm text-mist-500">{c.label}</div>
-            <div className={`mt-2 text-3xl font-semibold tracking-tight tabular-nums ${c.tone || "text-strong"}`}>
+          <div key={c.label} className="pixel-card min-w-0 p-4">
+            <div className="font-pixel text-[9px] uppercase tracking-wider text-mist-400">{c.label}</div>
+            <div className={`mt-2 font-pixel text-2xl tracking-tight tabular-nums ${c.tone || "text-strong"}`}>
               {c.value}
             </div>
-            <div className="mt-1 text-sm text-mist-500">{c.hint}</div>
+            <div className="mt-1 font-mono text-xs text-mist-400">{c.hint}</div>
           </div>
         ))}
       </section>
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-mist-400">
+        <p className="font-mono text-xs text-mist-400">
           Last full sync{" "}
-          <span className="font-medium text-mist-100" title={exact(report.lastSyncAll || null)}>
+          <span className="font-bold text-mist-100" title={exact(report.lastSyncAll || null)}>
             {ago(report.lastSyncAll || null, now)}
           </span>
         </p>
         <div className="flex items-center gap-2">
-          <div role="group" aria-label="Filter members" className="inline-flex rounded-lg bg-ink-950 p-1 ring-1 ring-line">
+          <div role="group" aria-label="Filter members" className="inline-flex border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]">
             {(
               [
                 { value: false, label: "All" },
@@ -637,8 +637,10 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
                 type="button"
                 aria-pressed={onlyProblems === opt.value}
                 onClick={() => setOnlyProblems(opt.value)}
-                className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${focusRing} ${
-                  onlyProblems === opt.value ? "bg-ink-700 text-strong" : "text-mist-400 hover:text-strong"
+                className={`h-7 cursor-pointer px-3 font-pixel text-[9px] uppercase tracking-wider transition-colors ${focusRing} ${
+                  onlyProblems === opt.value
+                    ? "bg-teal-400 font-bold text-ink-950 shadow-[1px_1px_0_#000]"
+                    : "text-mist-400 hover:bg-ink-900 hover:text-strong"
                 }`}
               >
                 {opt.label}
@@ -678,8 +680,8 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
         </div>
       )}
 
-      <section aria-label="Members" className="overflow-hidden rounded-xl bg-ink-900 ring-1 ring-line">
-        <div className="hidden grid-cols-12 gap-x-4 border-b border-line px-5 py-2.5 text-xs font-medium text-mist-500 md:grid">
+      <section aria-label="Members" className="pixel-card overflow-hidden">
+        <div className="hidden grid-cols-12 gap-x-4 border-b-2 border-ink-700 bg-ink-950 px-5 py-2.5 font-pixel text-[9px] font-bold uppercase tracking-wider text-mist-400 md:grid">
           <div className="col-span-4">Member</div>
           <div className="col-span-2">Status</div>
           <div className="col-span-2">Last synced</div>
@@ -688,26 +690,26 @@ export default function AdminDashboard({ onChanged }: { onChanged: () => void })
         </div>
 
         {shown.length === 0 ? (
-          <p className="flex items-center justify-center gap-2 px-5 py-10 text-sm text-mist-500">
+          <p className="flex items-center justify-center gap-2 px-5 py-10 font-mono text-sm text-mist-500">
             <CheckCircle2 className="size-4 text-emerald-300" aria-hidden="true" />
             {rows.length === 0 ? "No members yet." : "Nothing needs attention."}
           </p>
         ) : (
-          <ul className="divide-y divide-line">
+          <ul className="divide-y-2 border-t border-ink-800 divide-ink-800/80">
             {shown.map(({ m, health }) => {
               const busy = busyId === m.id;
               return (
                 <li
                   key={m.id}
                   id={`sync-row-${m.id}`}
-                  className="grid grid-cols-1 items-start gap-x-4 gap-y-3 px-4 py-4 md:grid-cols-12 md:px-5"
+                  className="grid grid-cols-1 items-start gap-x-4 gap-y-3 px-4 py-4 hover:bg-ink-900/50 transition-colors md:grid-cols-12 md:px-5"
                 >
                   <div className="flex min-w-0 items-center gap-3 md:col-span-4">
                     <img
                       src={m.avatarUrl}
                       alt=""
                       referrerPolicy="no-referrer"
-                      className="size-10 shrink-0 rounded-full bg-ink-800 object-cover ring-1 ring-line-strong"
+                      className="size-10 shrink-0 border-2 border-ink-700 bg-ink-800 object-cover shadow-[1px_1px_0_#000]"
                     />
                     <div className="min-w-0">
                       <div className="truncate font-medium text-strong">

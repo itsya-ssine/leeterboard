@@ -3,62 +3,102 @@
 @theme {
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-pixel: "Silkscreen", "Press Start 2P", monospace;
+  --font-arcade: "Press Start 2P", monospace;
   /* Wordmark only (the "Leeterboard" logo in the header). */
-  --font-logo: "Space Grotesk", "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-logo: "Press Start 2P", "Space Grotesk", "Geist", ui-sans-serif, sans-serif;
 
-  /* Surfaces: a blue-tinted ink scale instead of flat zinc */
-  --color-ink-950: #0a0d12;
-  --color-ink-900: #10141b;
-  --color-ink-800: #171c25;
-  --color-ink-700: #232a36;
+  /* Surfaces: a rich deep midnight pixel scale */
+  --color-ink-950: #0a0d14;
+  --color-ink-900: #101522;
+  --color-ink-800: #182032;
+  --color-ink-700: #243048;
+  --color-ink-600: #334466;
 
   /* Text */
-  --color-mist-100: #e8ebf1;
-  --color-mist-400: #a3acbb;
-  --color-mist-500: #7d8799;
+  --color-mist-100: #f8fafc;
+  --color-mist-400: #94a3b8;
+  --color-mist-500: #64748b;
 
-  /* Hairlines */
-  --color-line: rgb(255 255 255 / 0.08);
-  --color-line-strong: rgb(255 255 255 / 0.18);
+  /* Hairlines & borders */
+  --color-line: #243048;
+  --color-line-strong: #334466;
 
   /* Headings / emphasised text, and a faint wash for tracks and hovers */
   --color-strong: #ffffff;
   --color-tint: rgb(255 255 255 / 0.05);
 
-  /* Brand gradient stops (aurora): teal -> sky -> violet */
-  --color-aurora-a: #2dd4bf;
-  --color-aurora-b: #38bdf8;
-  --color-aurora-c: #a78bfa;
+  /* Brand gradient stops (pixel aurora): electric green -> cyber cyan -> retro violet */
+  --color-aurora-a: #10b981;
+  --color-aurora-b: #06b6d4;
+  --color-aurora-c: #8b5cf6;
 
-  --animate-float: float 6s ease-in-out infinite;
-  --animate-shimmer: shimmer 2.8s linear infinite;
-  --animate-rise: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-  --animate-glow: glow 3.2s ease-in-out infinite;
-  --animate-blink: blink 1.05s steps(1) infinite;
-  --animate-marquee: marquee 48s linear infinite;
+  /* 8-bit & 16-bit retro accents */
+  --color-pixel-green: #10b981;
+  --color-pixel-green-glow: #00ff66;
+  --color-pixel-purple: #8b5cf6;
+  --color-pixel-amber: #f59e0b;
+  --color-pixel-cyan: #06b6d4;
+  --color-pixel-red: #f43f5e;
+  --color-pixel-dark: #000000;
+
+  --animate-float: float 4s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-rise: rise 0.25s steps(4) both;
+  --animate-glow: glow 2.5s ease-in-out infinite;
+  --animate-blink: blink 0.9s steps(1) infinite;
+  --animate-marquee: marquee 38s linear infinite;
 
   @keyframes float {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-5px); }
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
   }
   @keyframes shimmer {
-    to { background-position: 200% center; }
+    to {
+      background-position: 200% center;
+    }
   }
   @keyframes rise {
-    from { opacity: 0; transform: translateY(14px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   @keyframes glow {
-    0%, 100% { opacity: 0.55; }
-    50% { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 1;
+    }
   }
   @keyframes blink {
-    0%, 50% { opacity: 1; }
-    50.01%, 100% { opacity: 0; }
+    0%,
+    50% {
+      opacity: 1;
+    }
+    50.01%,
+    100% {
+      opacity: 0;
+    }
   }
   @keyframes marquee {
-    from { transform: translateX(0); }
-    to { transform: translateX(-50%); }
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
   }
 }
 
@@ -108,6 +148,13 @@ html[data-theme="light"] {
   --tier-cm: #7e22ce;
   --tier-master: #c2410c;
   --tier-gm: #b91c1c;
+
+  --color-pixel-green: #047857;
+  --color-pixel-purple: #7e22ce;
+  --color-pixel-amber: #b45309;
+  --color-pixel-cyan: #0e7490;
+  --color-pixel-red: #be123c;
+  --color-ink-600: #94a3b8;
 
   --color-teal-300: #115e59;
   --color-teal-400: #0f766e;
@@ -174,9 +221,17 @@ html[data-theme="light"] ::selection {
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(60rem 32rem at 12% -8%, color-mix(in srgb, var(--color-aurora-a) 16%, transparent), transparent 70%),
+    radial-gradient(
+      60rem 32rem at 12% -8%,
+      color-mix(in srgb, var(--color-aurora-a) 16%, transparent),
+      transparent 70%
+    ),
     radial-gradient(52rem 30rem at 92% 4%, color-mix(in srgb, var(--color-aurora-c) 14%, transparent), transparent 70%),
-    radial-gradient(44rem 26rem at 50% 108%, color-mix(in srgb, var(--color-aurora-b) 10%, transparent), transparent 70%);
+    radial-gradient(
+      44rem 26rem at 50% 108%,
+      color-mix(in srgb, var(--color-aurora-b) 10%, transparent),
+      transparent 70%
+    );
 }
 .aurora-bg::after {
   /* faint dot grid that fades out toward the bottom */
@@ -232,7 +287,9 @@ html[data-theme="light"] ::selection {
     transparent 62%,
     color-mix(in srgb, var(--color-aurora-c) 55%, transparent)
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -273,7 +330,9 @@ html[data-theme="light"] ::selection {
   height: 0.7rem;
   border-radius: 50% 50% 50% 50% / 58% 58% 42% 42%;
   background: currentColor;
-  box-shadow: inset -2px -2px 0 rgb(0 0 0 / 0.18), inset 1.5px 1.5px 0 rgb(255 255 255 / 0.35);
+  box-shadow:
+    inset -2px -2px 0 rgb(0 0 0 / 0.18),
+    inset 1.5px 1.5px 0 rgb(255 255 255 / 0.35);
 }
 .balloon::after {
   content: "";
@@ -286,11 +345,51 @@ html[data-theme="light"] ::selection {
   opacity: 0.6;
 }
 
-/* Medal shimmer for the #1 spot. */
+/* Medal shimmer light sweep for the #1 podium spot — GPU-composited and buttery smooth */
 .gold-sheen {
-  background-image: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.28) 50%, transparent 70%);
-  background-size: 220% 100%;
-  animation: var(--animate-shimmer);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.gold-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 75%;
+  height: 100%;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(254, 240, 138, 0.04) 20%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(254, 240, 138, 0.04) 80%,
+    transparent 100%
+  );
+  transform: translateX(-160%) skewX(-18deg);
+  will-change: transform, opacity;
+  animation: gold-pedestal-sweep 6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes gold-pedestal-sweep {
+  0% {
+    transform: translateX(-160%) skewX(-18deg);
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  50% {
+    transform: translateX(260%) skewX(-18deg);
+    opacity: 1;
+  }
+  55%,
+  100% {
+    transform: translateX(260%) skewX(-18deg);
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -306,6 +405,126 @@ html[data-theme="light"] ::selection {
 
 /* Landing page: confetti pieces fly out from the Enter button. */
 @keyframes burst {
-  from { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
-  to { transform: translate(var(--dx), var(--dy)) rotate(540deg) scale(0.2); opacity: 0; }
+  from {
+    transform: translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translate(var(--dx), var(--dy)) rotate(540deg) scale(0.2);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================================
+   Pixel Art Design System Classes
+   ========================================================================== */
+
+.font-pixel {
+  font-family: var(--font-pixel), monospace;
+}
+
+.font-arcade {
+  font-family: var(--font-arcade), monospace;
+}
+
+/* Pixel containers & cards */
+.pixel-card {
+  background: var(--color-ink-900);
+  border: 2px solid var(--color-ink-700);
+  box-shadow: 3px 3px 0px rgba(0, 0, 0, 0.9);
+}
+
+.pixel-card-gold {
+  background: var(--color-ink-900);
+  border: 2px solid rgba(251, 191, 36, 0.75);
+  box-shadow:
+    3px 3px 0px rgba(180, 83, 9, 0.9),
+    0 0 16px rgba(251, 191, 36, 0.12);
+}
+
+.pixel-card-silver {
+  background: var(--color-ink-900);
+  border: 2px solid rgba(203, 213, 225, 0.75);
+  box-shadow: 3px 3px 0px rgba(71, 85, 105, 0.9);
+}
+
+.pixel-card-bronze {
+  background: var(--color-ink-900);
+  border: 2px solid rgba(251, 146, 60, 0.75);
+  box-shadow: 3px 3px 0px rgba(154, 52, 18, 0.9);
+}
+
+/* Pixel Buttons with 3D tactile press */
+.pixel-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-family: var(--font-pixel);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  transition:
+    transform 0.06s ease,
+    box-shadow 0.06s ease,
+    filter 0.1s ease;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pixel-btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 transparent !important;
+}
+
+.pixel-btn-primary {
+  background: var(--color-aurora-a);
+  color: #022c22;
+  border: 2px solid #047857;
+  box-shadow: 2px 2px 0px #011f18;
+}
+.pixel-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.pixel-btn-secondary {
+  background: var(--color-ink-800);
+  color: var(--color-mist-100);
+  border: 2px solid var(--color-ink-700);
+  box-shadow: 2px 2px 0px #000000;
+}
+.pixel-btn-secondary:hover:not(:disabled) {
+  background: var(--color-ink-700);
+  border-color: var(--color-mist-400);
+}
+
+/* Pixel grid background */
+.pixel-grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* CRT Scanlines */
+.pixel-scanlines {
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.18) 50%);
+  background-size: 100% 4px;
+}
+
+/* Hard pixel input */
+.pixel-input {
+  background: var(--color-ink-950);
+  color: var(--color-mist-100);
+  border: 2px solid var(--color-ink-700);
+  box-shadow: 2px 2px 0px #000 inset;
+  font-family: var(--font-sans);
+}
+.pixel-input:focus {
+  outline: none;
+  border-color: var(--color-aurora-a);
+  box-shadow:
+    2px 2px 0px #000 inset,
+    0 0 0 1px var(--color-aurora-a);
 }

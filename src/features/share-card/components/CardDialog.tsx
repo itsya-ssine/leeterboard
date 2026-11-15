@@ -9,9 +9,9 @@ import { RefreshCw } from "lucide-react";
 export const focusRing =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
-const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-export const btnPrimary = `${btnBase} bg-gradient-to-r from-teal-400 to-sky-400 text-ink-950 shadow-[0_0_0_1px_rgb(255_255_255/0.12)_inset,0_6px_20px_-6px_rgb(45_212_191/0.6)] hover:brightness-110 active:scale-[0.97] disabled:shadow-none`;
-export const btnSecondary = `${btnBase} bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
+const btnBase = `inline-flex h-10 cursor-pointer items-center justify-center gap-2 px-4 font-pixel text-[10px] uppercase tracking-wider transition-transform active:translate-x-[1px] active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
+export const btnPrimary = `${btnBase} border-2 border-teal-400 bg-teal-400 font-bold text-ink-950 shadow-[2px_2px_0_#000] hover:bg-teal-300 active:shadow-none`;
+export const btnSecondary = `${btnBase} border-2 border-ink-700 bg-ink-900 text-mist-100 shadow-[2px_2px_0_#000] hover:border-teal-400 hover:text-teal-300 active:shadow-none`;
 
 export function Segmented<T extends string>({
   label,
@@ -25,17 +25,17 @@ export function Segmented<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-xl bg-ink-950/80 p-1 ring-1 ring-line">
+    <div role="group" aria-label={label} className="inline-flex border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
           aria-pressed={value === opt.value}
           onClick={() => onChange(opt.value)}
-          className={`h-8 cursor-pointer rounded-lg px-3.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors ${focusRing} ${
+          className={`h-8 cursor-pointer px-3.5 font-pixel text-[9px] uppercase tracking-wider transition-colors ${focusRing} ${
             value === opt.value
-              ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong ring-1 ring-line-strong"
-              : "text-mist-400 hover:text-strong"
+              ? "bg-teal-400 font-bold text-ink-950 shadow-[1px_1px_0_#000]"
+              : "text-mist-400 hover:bg-ink-900 hover:text-strong"
           }`}
         >
           {opt.label}
@@ -58,17 +58,17 @@ export function CardHeader({
   description: React.ReactNode;
 }) {
   return (
-    <div className="mr-10 flex items-start gap-3.5">
+    <div className="mr-10 flex items-start gap-3.5 border-b-2 border-ink-700 pb-4">
       <span
         aria-hidden="true"
-        className="grid size-10 shrink-0 place-items-center rounded-xl bg-tint text-teal-300 ring-1 ring-line"
+        className="grid size-10 shrink-0 place-items-center border-2 border-ink-700 bg-ink-950 text-teal-300 shadow-[2px_2px_0_#000]"
       >
         {icon}
       </span>
       <div className="min-w-0">
-        <div className="font-mono text-[11px] uppercase tracking-widest text-mist-500">{`// ${eyebrow}`}</div>
-        <h2 className="mt-0.5 text-xl font-bold tracking-tight text-strong">{title}</h2>
-        <p className="mt-1 text-sm text-mist-400">{description}</p>
+        <div className="font-pixel text-[9px] uppercase tracking-widest text-emerald-400">{`// ${eyebrow}`}</div>
+        <h2 className="mt-1 font-pixel text-base font-bold uppercase tracking-wide text-strong">{title}</h2>
+        <p className="mt-1 font-mono text-xs text-mist-400">{description}</p>
       </div>
     </div>
   );
@@ -90,32 +90,24 @@ export function PreviewStage({
 }) {
   return (
     <div
-      className="relative grid place-items-center overflow-hidden rounded-xl bg-ink-950/80 p-3 ring-1 ring-line"
+      className="relative grid place-items-center overflow-hidden border-2 border-ink-700 bg-ink-950 p-4 shadow-[2px_2px_0_#000] pixel-grid-bg"
       style={{ minHeight: "12rem" }}
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-60"
-        style={{
-          backgroundImage: "radial-gradient(var(--color-line-strong) 1px, transparent 1px)",
-          backgroundSize: "18px 18px"
-        }}
-      />
       <span
         aria-hidden="true"
-        className="absolute left-3 top-2.5 font-mono text-[10px] uppercase tracking-widest text-mist-500"
+        className="absolute left-3 top-2.5 font-pixel text-[8px] uppercase tracking-widest text-emerald-400"
       >
-        {"// preview"}
+        {"// PREVIEW"}
       </span>
       {error ? (
-        <p role="alert" className="relative px-4 py-10 text-center text-sm text-rose-300">
+        <p role="alert" className="relative px-4 py-10 text-center font-mono text-sm text-rose-300">
           {error}
         </p>
       ) : previewUrl ? (
         <img
           src={previewUrl}
           alt={alt}
-          className={`relative mt-4 max-h-[50vh] w-auto max-w-full rounded-lg object-contain shadow-2xl shadow-black/50 transition-opacity ${
+          className={`relative mt-4 max-h-[50vh] w-auto max-w-full border-2 border-ink-700 object-contain shadow-[4px_4px_0_#000] transition-opacity ${
             rendering ? "opacity-40" : "opacity-100"
           }`}
         />

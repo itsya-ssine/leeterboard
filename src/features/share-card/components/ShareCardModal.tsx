@@ -274,7 +274,7 @@ export default function ShareCardModal({
           onChange={(e) => setCaption(e.target.value)}
           rows={4}
           maxLength={1500}
-          className="w-full resize-y rounded-xl bg-ink-950/80 px-3.5 py-3 text-sm leading-relaxed text-mist-100 ring-1 ring-line transition focus:outline-none focus:ring-2 focus:ring-teal-400"
+          className="w-full resize-y border-2 border-ink-700 bg-ink-950 px-3.5 py-3 font-mono text-xs leading-relaxed text-mist-100 shadow-[2px_2px_0_#000] focus:border-teal-400 focus:outline-none"
         />
         <p className="mt-1.5 text-xs text-mist-500">
           LinkedIn can't attach an image from a link, so the card is copied or downloaded for you to add to the post.

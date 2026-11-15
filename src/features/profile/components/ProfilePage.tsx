@@ -1,18 +1,28 @@
 import React, { useMemo, useState } from "react";
-import { ArrowDownRight, ArrowLeft, ArrowUpRight, Calendar, Check, Clock, Crown, EyeOff, Flame, Globe, Link2, Settings, Share2, Swords, Target, Gem, Trophy, UserX, Zap } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowLeft,
+  ArrowUpRight,
+  Calendar,
+  Check,
+  Clock,
+  Crown,
+  EyeOff,
+  Flame,
+  Globe,
+  Link2,
+  Settings,
+  Share2,
+  Swords,
+  Target,
+  Gem,
+  Trophy,
+  UserX,
+  Zap
+} from "lucide-react";
 import { FaGithub as Github, FaLinkedin as Linkedin } from "react-icons/fa";
 import { AnimatePresence, motion } from "motion/react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { PlatformAccount, User } from "../../../types.js";
 import { hasNothingLinked, leetcodeMembers } from "../../../linkedAccounts.js";
 import type { WeeklyWinner } from "../../leaderboard/utils/winners.js";
@@ -33,32 +43,27 @@ import { codingameMembers, compareCodingame } from "../../platforms/components/C
 import { useAuth } from "../../../AuthContext.js";
 import EmptyState from "../../../components/common/EmptyState.js";
 import TierAvatar from "../../../components/ui/TierAvatar.js";
+import SchoolTag from "../../../components/common/SchoolTag.js";
+import { PixelCrown, PixelTrophy } from "../../../pixelArt.js";
 import { tierOf, tierSummary } from "../../../tiers.js";
 import AnimatedNumber from "../../../components/ui/AnimatedNumber.js";
 import { useToast } from "../../../components/feedback/Toast.js";
 
 /* ---------- Shared bits ---------- */
 
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
-const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${focusRing}`;
-const btnSecondary = `${btn} bg-ink-800/80 text-mist-100 ring-1 ring-line hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97]`;
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+const btn = `inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-2 px-3.5 font-pixel text-[10px] uppercase tracking-wider transition-transform disabled:cursor-not-allowed disabled:opacity-50 active:translate-x-[1px] active:translate-y-[1px] ${focusRing}`;
+const btnSecondary = `${btn} border-2 border-ink-700 bg-ink-900 text-mist-100 shadow-[2px_2px_0_#000] hover:border-teal-400 hover:text-teal-300 active:shadow-none`;
 
 // The profile's action row: a square icon button on small screens, icon plus
 // label from the lg breakpoint (so five of them never overflow the hero card).
-const btnAction = `inline-flex size-9 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg bg-ink-800/80 text-sm font-medium text-mist-100 ring-1 ring-line transition-colors hover:bg-ink-700 hover:ring-line-strong active:scale-[0.97] lg:w-auto lg:px-3.5 ${focusRing}`;
+const btnAction = `inline-flex size-9 shrink-0 cursor-pointer items-center justify-center gap-2 border-2 border-ink-700 bg-ink-950 font-pixel text-[9px] uppercase tracking-wider text-mist-100 shadow-[2px_2px_0_#000] transition-transform hover:border-teal-400 hover:text-teal-300 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none lg:w-auto lg:px-3 ${focusRing}`;
 
 const HOT_STREAK_THRESHOLD = 12;
 const HEATMAP_WEEKS = 10;
 
 const rankColor = (rank: number | null) =>
-  rank === 1
-    ? "text-amber-300"
-    : rank === 2
-      ? "text-slate-300"
-      : rank === 3
-        ? "text-orange-300"
-        : "text-strong";
+  rank === 1 ? "text-amber-300" : rank === 2 ? "text-slate-300" : rank === 3 ? "text-orange-300" : "text-strong";
 
 const shortDate = (iso: string) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString([], { month: "short", day: "numeric" });
@@ -122,14 +127,16 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section aria-label={title} className={`card-aurora h-full overflow-hidden p-5 ${className}`}>
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <section aria-label={title} className={`pixel-card h-full overflow-hidden p-5 ${className}`}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b-2 border-ink-700/80 pb-3">
         <div className="min-w-0">
-          <h2 className="font-mono text-[11px] font-semibold uppercase tracking-widest text-mist-500">
-            <span aria-hidden="true" className="text-aurora-a">{"// "}</span>
+          <h2 className="font-pixel text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+            <span aria-hidden="true" className="text-teal-400">
+              {"// "}
+            </span>
             {title}
           </h2>
-          {subtitle && <p className="mt-1.5 text-sm text-mist-400">{subtitle}</p>}
+          {subtitle && <p className="mt-1 font-mono text-xs text-mist-400">{subtitle}</p>}
         </div>
         {right}
       </div>
@@ -150,17 +157,21 @@ function SegmentedToggle<T extends string | number>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-xl bg-ink-950/80 p-1 ring-1 ring-line">
+    <div
+      role="group"
+      aria-label={label}
+      className="inline-flex border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]"
+    >
       {options.map((opt) => (
         <button
           key={String(opt.value)}
           type="button"
           aria-pressed={value === opt.value}
           onClick={() => onChange(opt.value)}
-          className={`h-7 cursor-pointer rounded-lg px-3 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors ${focusRing} ${
+          className={`h-7 cursor-pointer px-3 font-pixel text-[9px] uppercase tracking-wider transition-colors ${focusRing} ${
             value === opt.value
-              ? "bg-gradient-to-b from-ink-700 to-ink-800 text-strong ring-1 ring-line-strong"
-              : "text-mist-400 hover:text-strong"
+              ? "bg-teal-400 font-bold text-ink-950 shadow-[1px_1px_0_#000]"
+              : "text-mist-400 hover:bg-ink-900 hover:text-strong"
           }`}
         >
           {opt.label}
@@ -190,7 +201,7 @@ function ProfileLinks({ user }: { user: User }) {
             target="_blank"
             rel="noopener noreferrer nofollow ugc"
             title={e.href}
-            className={`inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 font-mono text-mist-400 ring-1 ring-line transition-colors hover:text-teal-300 hover:ring-line-strong ${focusRing}`}
+            className={`inline-flex items-center gap-1.5 border border-ink-700 bg-ink-900 px-2.5 py-1 font-mono text-xs text-mist-300 shadow-[1px_1px_0_#000] transition-colors hover:border-teal-400 hover:text-teal-300 ${focusRing}`}
           >
             {e.icon}
             {e.label}
@@ -224,6 +235,22 @@ function Hero({
   );
   const overall = stats.ranks[0];
   const hot = user.weeklyProgress >= HOT_STREAK_THRESHOLD;
+  const tier = tierOf(user);
+  const isPodium = Boolean(user.leetcodeLinked && overall.rank != null && overall.rank <= 3);
+  const podiumGlow = isPodium
+    ? overall.rank === 1
+      ? "bg-amber-400/25"
+      : overall.rank === 2
+        ? "bg-slate-300/20"
+        : "bg-orange-300/20"
+    : "";
+  const podiumText = isPodium
+    ? overall.rank === 1
+      ? "text-amber-300"
+      : overall.rank === 2
+        ? "text-slate-200"
+        : "text-orange-300"
+    : "text-mist-200";
 
   const copyLink = async () => {
     try {
@@ -241,34 +268,65 @@ function Hero({
     <section
       id="profile-hero"
       aria-label={`${user.displayName} profile`}
-      className="card-aurora animate-rise overflow-hidden"
+      className="pixel-card animate-rise overflow-hidden"
     >
-      <div aria-hidden="true" className="relative h-24 overflow-hidden md:h-32">
-        <div className="absolute inset-0 bg-linear-to-r from-teal-400/30 via-sky-400/10 to-violet-400/25" />
-        <div
-          className="absolute inset-0 opacity-60"
-          style={{
-            backgroundImage: "radial-gradient(var(--color-line-strong) 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-            maskImage: "linear-gradient(to bottom, #000, transparent)",
-            WebkitMaskImage: "linear-gradient(to bottom, #000, transparent)"
-          }}
-        />
-        <span className="absolute left-5 top-3 font-mono text-[11px] uppercase tracking-widest text-mist-500 md:left-8">
-          {"// profile"}
+      <div aria-hidden="true" className="relative h-24 overflow-hidden border-b-2 border-ink-700 md:h-28 pixel-grid-bg">
+        <div className="absolute inset-0 bg-gradient-to-r from-teal-500/20 via-emerald-500/10 to-purple-500/20" />
+        <span className="absolute left-5 top-3 font-pixel text-[9px] uppercase tracking-widest text-emerald-400 md:left-8">
+          {"// PLAYER.PROFILE"}
         </span>
       </div>
       <div className="relative px-5 pb-6 md:px-8">
         {/* Row 1: avatar (overlapping the banner) on the left, actions on the right. */}
         <div className="-mt-12 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 md:-mt-14">
+          {/* Avatar & Rank Cadre (podium style) */}
           <div className="relative shrink-0">
-            <TierAvatar user={user} className="size-24 rounded-full ring-4 ring-ink-900 md:size-28" showGem />
-            {user.leetcodeLinked && overall.rank != null && overall.rank <= 3 && (
+            {/* Top crown / trophy for podium places */}
+            {isPodium && overall.rank === 1 && (
+              <div
+                aria-hidden="true"
+                className="animate-float pointer-events-none absolute -top-6 left-1/2 z-10 -translate-x-1/2 md:-top-7"
+              >
+                <PixelCrown size={26} />
+              </div>
+            )}
+            {isPodium && overall.rank === 2 && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-5 left-1/2 z-10 -translate-x-1/2 md:-top-6"
+              >
+                <PixelTrophy variant="silver" size={22} />
+              </div>
+            )}
+            {isPodium && overall.rank === 3 && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-5 left-1/2 z-10 -translate-x-1/2 md:-top-6"
+              >
+                <PixelTrophy variant="bronze" size={22} />
+              </div>
+            )}
+
+            {/* Ambient atmospheric glow halo behind the avatar */}
+            <span
+              aria-hidden="true"
+              className={`animate-glow pointer-events-none absolute inset-0 -z-0 scale-125 rounded-full blur-xl ${podiumGlow}`}
+              style={
+                !podiumGlow ? { backgroundColor: tier?.color ?? "rgba(45, 212, 191, 0.2)", opacity: 0.25 } : undefined
+              }
+            />
+
+            {/* Circular Framed Avatar */}
+            <TierAvatar user={user} className="size-24 rounded-full md:size-28" showGem />
+
+            {/* Bottom-right rank badge for podium places */}
+            {isPodium && (
               <span
-                className={`absolute -bottom-1 -right-1 grid size-8 place-items-center rounded-full bg-ink-900 ring-2 ring-line-strong ${rankColor(overall.rank)}`}
+                aria-hidden="true"
+                className={`absolute -bottom-1 -right-1 grid size-7 place-items-center border-2 border-ink-950 bg-ink-900 font-pixel text-[11px] font-bold tabular-nums shadow-[2px_2px_0_#000] md:size-8 md:text-xs ${podiumText}`}
                 title={`Rank ${overall.rank} on the board`}
               >
-                <Crown className="size-4" aria-hidden="true" />
+                #{overall.rank}
               </span>
             )}
           </div>
@@ -333,8 +391,8 @@ function Hero({
 
         {/* Row 2: identity. Sits fully below the banner so nothing overlaps it. */}
         <div className="mt-4 min-w-0">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h1 className="min-w-0 truncate text-2xl font-bold tracking-tight text-strong md:text-3xl">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="min-w-0 truncate font-pixel text-xl tracking-tight text-strong md:text-2xl uppercase">
               {user.displayName}
             </h1>
             {hot && (
@@ -343,8 +401,9 @@ function Hero({
               </span>
             )}
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-sm text-mist-400">
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-sm text-mist-400">
             <span>@{user.loginUsername}</span>
+            {user.school?.trim() && <SchoolTag school={user.school} />}
             {user.leetcodeLinked && (
               <a
                 href={`https://leetcode.com/${encodeURIComponent(user.leetcodeUsername)}`}
@@ -359,34 +418,34 @@ function Hero({
           </div>
 
           {user.bio && (
-            <p className="mt-3 max-w-2xl whitespace-pre-line break-words text-sm leading-relaxed text-mist-400">
+            <p className="mt-3 max-w-2xl whitespace-pre-line break-words font-mono text-sm leading-relaxed text-mist-300 border-l-2 border-teal-500/50 pl-3">
               {user.bio}
             </p>
           )}
 
           {/* Row 3: standing badges and links, one tidy line each. */}
-          <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4 md:flex-row md:flex-wrap md:items-center md:gap-x-6">
+          <div className="mt-4 flex flex-col gap-3 border-t-2 border-ink-700/80 pt-4 md:flex-row md:flex-wrap md:items-center md:gap-x-6">
             <ul className="flex flex-wrap items-center gap-2 text-xs font-medium" aria-label="Standing">
               {user.leetcodeLinked && overall.rank != null && (
-                <li className="inline-flex items-center gap-1.5 rounded-full bg-tint px-2.5 py-1 font-mono ring-1 ring-line">
+                <li className="inline-flex items-center gap-1.5 border-2 border-ink-700 bg-ink-950 px-2.5 py-1 font-pixel text-[9px] uppercase shadow-[2px_2px_0_#000]">
                   <Trophy className={`size-3 ${rankColor(overall.rank)}`} aria-hidden="true" />
                   <span className={`tabular-nums ${rankColor(overall.rank)}`}>#{overall.rank}</span>
-                  <span className="text-mist-400">of {usersCount} all time</span>
+                  <span className="text-mist-400">of {usersCount}</span>
                 </li>
               )}
               {user.leetcodeLinked && overall.topPercent != null && usersCount > 1 && (
-                <li className="rounded-full bg-teal-400/10 px-2.5 py-1 font-mono text-teal-300 ring-1 ring-teal-400/30">
+                <li className="border-2 border-teal-500/50 bg-teal-950/40 px-2.5 py-1 font-pixel text-[9px] uppercase text-teal-300 shadow-[2px_2px_0_#000]">
                   Top {overall.topPercent}%
                 </li>
               )}
               {user.leetcodeLinked && tierOf(user) && (
                 <li
                   title={tierSummary(user)}
-                  className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono"
+                  className="inline-flex items-center gap-1.5 border-2 px-2.5 py-1 font-pixel text-[9px] uppercase shadow-[2px_2px_0_#000]"
                   style={{
+                    borderColor: tierOf(user)!.color,
                     color: tierOf(user)!.color,
-                    backgroundColor: `color-mix(in srgb, ${tierOf(user)!.color} 12%, transparent)`,
-                    boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${tierOf(user)!.color} 35%, transparent)`
+                    backgroundColor: `color-mix(in srgb, ${tierOf(user)!.color} 12%, transparent)`
                   }}
                 >
                   <Gem className="size-3" aria-hidden="true" />
@@ -394,13 +453,13 @@ function Hero({
                 </li>
               )}
               {stats.wins.length > 0 && (
-                <li className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 font-mono text-amber-300 ring-1 ring-amber-300/30">
+                <li className="inline-flex items-center gap-1.5 border-2 border-amber-400/50 bg-amber-950/30 px-2.5 py-1 font-pixel text-[9px] uppercase text-amber-300 shadow-[2px_2px_0_#000]">
                   <Crown className="size-3" aria-hidden="true" />
-                  {stats.wins.length} weekly {stats.wins.length === 1 ? "win" : "wins"}
+                  {stats.wins.length} {stats.wins.length === 1 ? "win" : "wins"}
                 </li>
               )}
               {stats.joinedOrder != null && (
-                <li className="rounded-full bg-tint px-2.5 py-1 font-mono text-mist-400 ring-1 ring-line">
+                <li className="border-2 border-ink-700 bg-ink-950 px-2.5 py-1 font-pixel text-[9px] uppercase text-mist-400 shadow-[2px_2px_0_#000]">
                   Member #{stats.joinedOrder}
                 </li>
               )}
@@ -538,27 +597,30 @@ function KpiGrid({ user, stats }: { user: User; stats: ProfileStats }) {
         return (
           <div
             key={k.label}
-            className="card-aurora group relative min-w-0 animate-rise overflow-hidden p-5 transition-transform duration-300 hover:-translate-y-0.5"
+            className="pixel-card group relative min-w-0 p-4 transition-transform duration-200 hover:-translate-y-0.5"
             style={{ animationDelay: `${i * 60}ms` }}
           >
             <div className="flex items-start justify-between gap-2">
-              <div className="truncate font-mono text-[11px] uppercase tracking-widest text-mist-500">{k.label}</div>
+              <div className="truncate font-pixel text-[8px] uppercase tracking-wider text-mist-400">{k.label}</div>
               <span
-                className={`grid size-8 shrink-0 place-items-center rounded-lg bg-tint ring-1 ring-line ${tone.text}`}
+                className={`grid size-7 shrink-0 place-items-center border border-ink-700 bg-ink-950 ${tone.text}`}
                 aria-hidden="true"
               >
                 {k.icon}
               </span>
             </div>
             <div
-              className={`mt-3 truncate font-mono text-3xl font-bold tracking-tight tabular-nums ${
-                k.accent ? "text-aurora" : "text-strong"
+              className={`mt-2.5 truncate font-pixel text-xl tracking-tight tabular-nums ${
+                k.accent ? "text-teal-300" : "text-strong"
               }`}
             >
               {typeof k.value === "string" ? <AnimatedNumber value={k.value} /> : k.value}
             </div>
-            <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
-            <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
+            <div className="mt-1 truncate font-mono text-xs text-mist-400">{k.hint}</div>
+            <div
+              aria-hidden="true"
+              className={`absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r ${tone.bar} to-transparent`}
+            />
           </div>
         );
       })}
@@ -671,12 +733,16 @@ function ProgressChart({
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke={c.grid} vertical={false} />
-                <XAxis dataKey="date" tickFormatter={shortDate} tick={axisTick} tickLine={false} axisLine={false} minTickGap={32} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={shortDate}
+                  tick={axisTick}
+                  tickLine={false}
+                  axisLine={false}
+                  minTickGap={32}
+                />
                 <YAxis
-                  domain={[
-                    (min: number) => Math.max(0, Math.floor(min - 2)),
-                    (max: number) => Math.ceil(max + 2)
-                  ]}
+                  domain={[(min: number) => Math.max(0, Math.floor(min - 2)), (max: number) => Math.ceil(max + 2)]}
                   allowDecimals={false}
                   tickFormatter={(v: number) => v.toLocaleString()}
                   tick={axisTick}
@@ -697,7 +763,14 @@ function ProgressChart({
             ) : (
               <BarChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke={c.grid} vertical={false} />
-                <XAxis dataKey="date" tickFormatter={shortDate} tick={axisTick} tickLine={false} axisLine={false} minTickGap={32} />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={shortDate}
+                  tick={axisTick}
+                  tickLine={false}
+                  axisLine={false}
+                  minTickGap={32}
+                />
                 <YAxis allowDecimals={false} tick={axisTick} tickLine={false} axisLine={false} width={32} />
                 <Tooltip {...tooltipProps} formatter={(v) => [Number(v).toLocaleString(), "Solved"]} />
                 <Bar dataKey="value" fill={c.accent} radius={[3, 3, 0, 0]} isAnimationActive={false} />
@@ -748,7 +821,10 @@ function MilestoneAndRecords({ user, stats }: { user: User; stats: ProfileStats 
   ];
 
   return (
-    <Panel title="Next milestone" subtitle={m ? `Heading for ${m.target.toLocaleString()} solved` : "Every milestone reached"}>
+    <Panel
+      title="Next milestone"
+      subtitle={m ? `Heading for ${m.target.toLocaleString()} solved` : "Every milestone reached"}
+    >
       {m ? (
         <div className="mb-5">
           <div className="mb-2 flex items-baseline justify-between text-sm">
@@ -763,7 +839,10 @@ function MilestoneAndRecords({ user, stats }: { user: User; stats: ProfileStats 
             aria-valuenow={pct}
             aria-label={`${pct}% of the way to ${m.target} solved`}
           >
-            <div className="h-full rounded-full bg-linear-to-r from-teal-400 to-teal-300 transition-[width] duration-700" style={{ width: `${pct}%` }} />
+            <div
+              className="h-full rounded-full bg-linear-to-r from-teal-400 to-teal-300 transition-[width] duration-700"
+              style={{ width: `${pct}%` }}
+            />
           </div>
           <p className="mt-2 text-sm text-mist-400">
             <span className="font-semibold tabular-nums text-strong">{m.remaining}</span> to go
@@ -807,7 +886,12 @@ function Donut({ easy, medium, hard }: { easy: number; medium: number; hard: num
 
   return (
     <div className="relative size-40 shrink-0">
-      <svg viewBox="0 0 140 140" className="size-full -rotate-90" role="img" aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}>
+      <svg
+        viewBox="0 0 140 140"
+        className="size-full -rotate-90"
+        role="img"
+        aria-label={`${easy} easy, ${medium} medium, ${hard} hard`}
+      >
         <circle cx="70" cy="70" r={R} fill="none" strokeWidth="14" className="stroke-ink-800" />
         {total > 0 &&
           DIFFS.map((d) => {
@@ -915,8 +999,14 @@ function DifficultyPanel({ user, stats }: { user: User; stats: ProfileStats }) {
 
 /* ---------- Heatmap ---------- */
 
-const LEVEL_CLASS = ["bg-ink-800", "bg-teal-400/25", "bg-teal-400/50", "bg-teal-400/75", "bg-teal-300"];
-const NO_DATA_CLASS = "bg-transparent ring-1 ring-inset ring-line";
+const LEVEL_CLASS = [
+  "bg-ink-900 border border-ink-800",
+  "bg-teal-950 border border-teal-800",
+  "bg-teal-800 border border-teal-600",
+  "bg-teal-500 border border-teal-400",
+  "bg-teal-300 border border-white shadow-[0_0_8px_rgba(45,212,191,0.8)]"
+];
+const NO_DATA_CLASS = "bg-transparent border border-dashed border-ink-700";
 const WEEKDAY_LABELS = ["Mon", "", "Wed", "", "Fri", "", ""];
 
 function levelFor(solved: number, max: number): number {
@@ -956,15 +1046,15 @@ function Heatmap({ stats }: { stats: ProfileStats }) {
       subtitle="Problems solved per day, in UTC days"
       right={
         stats.hasHistory ? (
-          <div className="text-sm text-mist-400">
-            <span className="font-semibold tabular-nums text-strong">{total.toLocaleString()}</span> in the last{" "}
+          <div className="font-mono text-xs text-mist-400">
+            <span className="font-bold tabular-nums text-strong">{total.toLocaleString()}</span> in the last{" "}
             {HEATMAP_WEEKS} weeks
           </div>
         ) : undefined
       }
     >
       {!stats.hasHistory ? (
-        <p className="py-10 text-center text-sm text-mist-500">
+        <p className="py-10 text-center font-mono text-sm text-mist-500">
           The heatmap fills in once this member has more than one day of history.
         </p>
       ) : (
@@ -977,23 +1067,27 @@ function Heatmap({ stats }: { stats: ProfileStats }) {
             >
               <div aria-hidden="true" className="flex flex-col gap-1 pr-1">
                 {WEEKDAY_LABELS.map((label, i) => (
-                  <div key={i} className="h-5 text-xs leading-5 text-mist-500">
+                  <div key={i} className="h-5 font-mono text-[10px] uppercase leading-5 text-mist-500">
                     {label}
                   </div>
                 ))}
               </div>
-              <div className="flex gap-1">
+              <div className="flex gap-1.5">
                 {columns.map((col, ci) => (
-                  <div key={ci} className="flex flex-col gap-1">
+                  <div key={ci} className="flex flex-col gap-1.5">
                     {col.map((day, ri) =>
                       day ? (
                         <div
                           key={day.date}
-                          title={day.tracked ? `${longDate(day.date)}: ${day.solved} solved` : `${longDate(day.date)}: not tracked yet`}
-                          className={`size-5 rounded-[4px] ${day.tracked ? LEVEL_CLASS[levelFor(day.solved, max)] : NO_DATA_CLASS}`}
+                          title={
+                            day.tracked
+                              ? `${longDate(day.date)}: ${day.solved} solved`
+                              : `${longDate(day.date)}: not tracked yet`
+                          }
+                          className={`size-4 sm:size-5 transition-transform duration-100 hover:scale-125 ${day.tracked ? LEVEL_CLASS[levelFor(day.solved, max)] : NO_DATA_CLASS}`}
                         />
                       ) : (
-                        <div key={`future-${ri}`} className="size-5" />
+                        <div key={`future-${ri}`} className="size-4 sm:size-5" />
                       )
                     )}
                   </div>
@@ -1001,15 +1095,15 @@ function Heatmap({ stats }: { stats: ProfileStats }) {
               </div>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4 text-xs text-mist-500">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t-2 border-ink-700/60 pt-4 font-mono text-xs uppercase tracking-wider text-mist-500">
             <div className="flex items-center gap-1.5">
-              <span className={`size-3.5 rounded-[3px] ${NO_DATA_CLASS}`} />
+              <span className={`size-3.5 ${NO_DATA_CLASS}`} />
               Not tracked
             </div>
             <div className="flex items-center gap-1.5">
               Less
               {LEVEL_CLASS.map((cls, i) => (
-                <span key={i} className={`size-3.5 rounded-[3px] ${cls}`} />
+                <span key={i} className={`size-3.5 ${cls}`} />
               ))}
               More
             </div>
@@ -1050,13 +1144,17 @@ function WeeklySprints({ stats }: { stats: ProfileStats }) {
                   <div className="flex w-full flex-1 items-end">
                     {w.tracked ? (
                       <div
-                        className={`w-full rounded-t-md ${
-                          w.current ? "bg-teal-300" : w.partial ? "bg-teal-400/40" : "bg-teal-400/70"
+                        className={`w-full border-t-2 ${
+                          w.current
+                            ? "bg-teal-300 border-teal-200"
+                            : w.partial
+                              ? "bg-teal-400/40 border-teal-300/50"
+                              : "bg-teal-500/70 border-teal-400"
                         }`}
                         style={{ height: `${h}%` }}
                       />
                     ) : (
-                      <div className="h-1 w-full rounded bg-tint" />
+                      <div className="h-1 w-full bg-ink-800" />
                     )}
                   </div>
                   <span className="text-[11px] text-mist-500">{shortDate(w.weekStart)}</span>
@@ -1082,7 +1180,9 @@ function WeekdayPattern({ stats }: { stats: ProfileStats }) {
     <Panel
       title="Weekday rhythm"
       subtitle={
-        stats.bestWeekday != null ? `Strongest on ${WEEKDAYS[stats.bestWeekday]}s` : "Average problems solved per weekday"
+        stats.bestWeekday != null
+          ? `Strongest on ${WEEKDAYS[stats.bestWeekday]}s`
+          : "Average problems solved per weekday"
       }
     >
       {!any ? (
@@ -1093,13 +1193,17 @@ function WeekdayPattern({ stats }: { stats: ProfileStats }) {
             const v = vals[i];
             const best = i === stats.bestWeekday;
             return (
-              <li key={name} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5" title={`${name}: ${v == null ? "no data" : `${fmt1(v)} per day on average`}`}>
+              <li
+                key={name}
+                className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5"
+                title={`${name}: ${v == null ? "no data" : `${fmt1(v)} per day on average`}`}
+              >
                 <span className={`text-xs font-medium tabular-nums ${best ? "text-teal-300" : "text-mist-400"}`}>
                   {v == null ? "" : fmt1(v)}
                 </span>
                 <div className="flex w-full flex-1 items-end">
                   <div
-                    className={`w-full rounded-t-md ${best ? "bg-teal-300" : "bg-teal-400/45"}`}
+                    className={`w-full border-t-2 ${best ? "bg-teal-300 border-teal-200" : "bg-teal-500/45 border-teal-400/60"}`}
                     style={{ height: `${v == null ? 0 : Math.max(4, (v / max) * 100)}%` }}
                   />
                 </div>
@@ -1134,7 +1238,10 @@ function rankRow(r: RankInfo) {
         </span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-tint" aria-hidden="true">
-        <div className="h-full rounded-full bg-teal-400/80 transition-[width] duration-700" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full rounded-full bg-teal-400/80 transition-[width] duration-700"
+          style={{ width: `${pct}%` }}
+        />
       </div>
     </li>
   );
@@ -1155,13 +1262,17 @@ function NeighbourCard({
     >
       <TierAvatar user={user} className="size-10" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-strong transition-colors group-hover:text-teal-300">{user.displayName}</div>
+        <div className="truncate text-sm font-medium text-strong transition-colors group-hover:text-teal-300">
+          {user.displayName}
+        </div>
         <div className="truncate text-xs text-mist-500">
           {direction === "above" ? "Next up" : "Right behind"} · {user.allTimeSolved.toLocaleString()} solved
         </div>
       </div>
       <div className="shrink-0 text-right">
-        <div className={`text-sm font-semibold tabular-nums ${direction === "above" ? "text-amber-300" : "text-teal-300"}`}>
+        <div
+          className={`text-sm font-semibold tabular-nums ${direction === "above" ? "text-amber-300" : "text-teal-300"}`}
+        >
           {gap === 0 ? "Level" : direction === "above" ? `${gap} ahead` : `${gap} behind`}
         </div>
       </div>
@@ -1173,9 +1284,7 @@ function Standing({ user, stats }: { user: User; stats: ProfileStats }) {
   const { above, below } = stats.neighbours;
   return (
     <Panel title="Standing on the board" subtitle="Where this member ranks in every category">
-      <ul className="divide-y divide-line">
-        {stats.ranks.map(rankRow)}
-      </ul>
+      <ul className="divide-y divide-line">{stats.ranks.map(rankRow)}</ul>
       {(above || below) && (
         <div className="mt-4 space-y-2 border-t border-line pt-4">
           {above && <NeighbourCard neighbour={above} direction="above" />}
@@ -1204,7 +1313,9 @@ function WeeklyWins({ stats }: { stats: ProfileStats }) {
       }
     >
       {wins.length === 0 ? (
-        <p className="py-6 text-center text-sm text-mist-500">No weekly wins yet. Top the board for a week to earn one.</p>
+        <p className="py-6 text-center text-sm text-mist-500">
+          No weekly wins yet. Top the board for a week to earn one.
+        </p>
       ) : (
         <ul className="divide-y divide-line text-sm">
           {wins.slice(0, 6).map((w) => (
@@ -1249,33 +1360,39 @@ function BadgesPanel({ user, users, nowMs }: { user: User; users: User[]; nowMs:
           return (
             <li
               key={b.id}
-              className={`rounded-lg p-3.5 ring-1 ${
-                b.earned ? "bg-teal-400/[0.07] ring-teal-400/30" : "bg-ink-950 ring-line"
+              className={`border-2 p-3 shadow-[2px_2px_0_#000] ${
+                b.earned
+                  ? "border-teal-500/60 bg-teal-950/20 shadow-[2px_2px_0_rgba(45,212,191,0.3)]"
+                  : "border-ink-800 bg-ink-950 opacity-80"
               }`}
             >
               <div className="flex items-start gap-3">
                 <span
-                  className={`grid size-9 shrink-0 place-items-center rounded-lg ${
-                    b.earned ? "bg-teal-400/15 text-teal-300" : "bg-tint text-mist-500"
+                  className={`grid size-9 shrink-0 place-items-center border-2 ${
+                    b.earned
+                      ? "border-teal-400 bg-teal-950/80 text-teal-300 shadow-[1px_1px_0_#000]"
+                      : "border-ink-700 bg-ink-900 text-mist-500"
                   }`}
                   aria-hidden="true"
                 >
                   {b.earned ? <Trophy className="size-4" /> : <Clock className="size-4" />}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className={`text-sm font-medium ${b.earned ? "text-strong" : "text-mist-400"}`}>
+                  <div
+                    className={`font-pixel text-[10px] uppercase tracking-wide ${b.earned ? "text-strong" : "text-mist-400"}`}
+                  >
                     {b.label}
                     <span className="sr-only"> {b.earned ? "(earned)" : "(locked)"}</span>
                   </div>
-                  <div className="mt-0.5 text-xs leading-snug text-mist-500">{b.description}</div>
+                  <div className="mt-1 font-mono text-xs leading-snug text-mist-400">{b.description}</div>
                 </div>
               </div>
               {!b.earned && pct != null && (
                 <div className="mt-3 flex items-center gap-2">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-tint" aria-hidden="true">
-                    <div className="h-full rounded-full bg-teal-400/60" style={{ width: `${pct}%` }} />
+                  <div className="h-2 flex-1 border border-ink-700 bg-ink-900 p-[1px]" aria-hidden="true">
+                    <div className="h-full bg-teal-400" style={{ width: `${pct}%` }} />
                   </div>
-                  <span className="text-xs tabular-nums text-mist-500">{b.progress}</span>
+                  <span className="font-mono text-xs tabular-nums text-mist-400">{b.progress}</span>
                 </div>
               )}
             </li>
@@ -1400,7 +1517,8 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
           className="flex items-center gap-2 rounded-xl bg-ink-900/70 px-4 py-3 font-mono text-xs text-mist-400 ring-1 ring-line"
         >
           <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
-          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still count on the leaderboard.
+          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still count
+          on the leaderboard.
         </p>
       )}
       <section
@@ -1433,7 +1551,10 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
                 {typeof k.value === "string" ? <AnimatedNumber value={k.value} /> : k.value}
               </div>
               <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
-              <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
+              <div
+                aria-hidden="true"
+                className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`}
+              />
             </div>
           );
         })}
@@ -1505,12 +1626,7 @@ function CodeforcesView({ user, account, users }: { user: User; account: Platfor
                 </li>
               ))}
             </ul>
-            <a
-              href={profileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`${btnSecondary} mt-4 w-full`}
-            >
+            <a href={profileUrl} target="_blank" rel="noopener noreferrer" className={`${btnSecondary} mt-4 w-full`}>
               @{account.handle} on Codeforces
               <ArrowUpRight className="size-4" aria-hidden="true" />
             </a>
@@ -1613,14 +1729,11 @@ function CodinGameView({ user, account, users }: { user: User; account: Platform
           className="flex items-center gap-2 rounded-xl bg-ink-900/70 px-4 py-3 font-mono text-xs text-mist-400 ring-1 ring-line"
         >
           <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
-          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still count on the leaderboard.
+          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still count
+          on the leaderboard.
         </p>
       )}
-      <section
-        id="profile-cg-stats"
-        aria-label="CodinGame key stats"
-        className="grid grid-cols-2 gap-3 lg:grid-cols-4"
-      >
+      <section id="profile-cg-stats" aria-label="CodinGame key stats" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {kpis.map((k, i) => {
           const tone = KPI_TONES[i % KPI_TONES.length];
           return (
@@ -1646,7 +1759,10 @@ function CodinGameView({ user, account, users }: { user: User; account: Platform
                 {typeof k.value === "string" ? <AnimatedNumber value={k.value} /> : k.value}
               </div>
               <div className="mt-1 truncate text-sm text-mist-500">{k.hint}</div>
-              <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`} />
+              <div
+                aria-hidden="true"
+                className={`absolute inset-x-0 bottom-0 h-0.5 bg-gradient-to-r ${tone.bar} to-transparent`}
+              />
             </div>
           );
         })}
@@ -1700,12 +1816,7 @@ function CodinGameView({ user, account, users }: { user: User; account: Platform
                 </li>
               ))}
             </ul>
-            <a
-              href={profileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`${btnSecondary} mt-4 w-full`}
-            >
+            <a href={profileUrl} target="_blank" rel="noopener noreferrer" className={`${btnSecondary} mt-4 w-full`}>
               Profile on CodinGame
               <ArrowUpRight className="size-4" aria-hidden="true" />
             </a>
@@ -1727,9 +1838,7 @@ export default function ProfilePage({
   username: string | null;
   lastSyncAll: string;
 }) {
-  const user = username
-    ? users.find((u) => u.loginUsername.toLowerCase() === username.toLowerCase())
-    : undefined;
+  const user = username ? users.find((u) => u.loginUsername.toLowerCase() === username.toLowerCase()) : undefined;
   const nowMs = Date.now();
 
   // LeetCode is always there; Codeforces and CodinGame appear when the member linked them.
@@ -1757,7 +1866,11 @@ export default function ProfilePage({
             ? `Nobody on the board is called @${username}. They may have left or changed their username.`
             : "No member selected."
         }
-        action={{ label: "Back to the leaderboard", href: "#/", icon: <ArrowLeft className="size-4" aria-hidden="true" /> }}
+        action={{
+          label: "Back to the leaderboard",
+          href: "#/",
+          icon: <ArrowLeft className="size-4" aria-hidden="true" />
+        }}
       />
     );
   }
@@ -1782,11 +1895,8 @@ export default function ProfilePage({
   if (leetcodeVisible) available.push({ value: "leetcode", label: "LeetCode" });
   if (cfAccount) available.push({ value: "codeforces", label: "Codeforces" });
   if (cgAccount) available.push({ value: "codingame", label: "CodinGame" });
-  const activeView: ProfileView | null = available.some((a) => a.value === view)
-    ? view
-    : (available[0]?.value ?? null);
-  const activeAccount =
-    activeView === "codeforces" ? cfAccount : activeView === "codingame" ? cgAccount : undefined;
+  const activeView: ProfileView | null = available.some((a) => a.value === view) ? view : (available[0]?.value ?? null);
+  const activeAccount = activeView === "codeforces" ? cfAccount : activeView === "codingame" ? cgAccount : undefined;
   const synced = activeAccount ? activeAccount.lastUpdated : user.lastUpdated || lastSyncAll;
 
   return (
@@ -1823,7 +1933,11 @@ export default function ProfilePage({
             }
             action={
               viewer?.id === user.id
-                ? { label: "Link accounts", href: "#/account", icon: <Settings className="size-4" aria-hidden="true" /> }
+                ? {
+                    label: "Link accounts",
+                    href: "#/account",
+                    icon: <Settings className="size-4" aria-hidden="true" />
+                  }
                 : undefined
             }
           />
@@ -1847,66 +1961,66 @@ export default function ProfilePage({
         </Reveal>
       ) : (
         <div key="leetcode" className="space-y-4">
-      {user.hideLeetcodeStats && (
-        <p
-          id="profile-lc-hidden"
-          className="flex items-center gap-2 rounded-xl bg-ink-900/70 px-4 py-3 font-mono text-xs text-mist-400 ring-1 ring-line"
-        >
-          <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
-          Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still
-          count on the leaderboard.
-        </p>
-      )}
-      <Reveal delay={0.05}>
-        <KpiGrid user={user} stats={stats} />
-      </Reveal>
+          {user.hideLeetcodeStats && (
+            <p
+              id="profile-lc-hidden"
+              className="flex items-center gap-2 rounded-xl bg-ink-900/70 px-4 py-3 font-mono text-xs text-mist-400 ring-1 ring-line"
+            >
+              <EyeOff className="size-4 shrink-0 text-mist-500" aria-hidden="true" />
+              Hidden on the profile for other members. Only this member and admins can see this tab; the numbers still
+              count on the leaderboard.
+            </p>
+          )}
+          <Reveal delay={0.05}>
+            <KpiGrid user={user} stats={stats} />
+          </Reveal>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Reveal delay={0.1} className="lg:col-span-2">
-          <ProgressChart
-            name={user.displayName}
-            today={stats.today}
-            totalsAll={[...(user.history ?? [])]
-              .sort((a, b) => a.date.localeCompare(b.date))
-              .map((h) => ({ date: h.date, value: h.solvedCount }))}
-            perDayAll={stats.daily.filter((d) => d.tracked).map((d) => ({ date: d.date, value: d.solved }))}
-          />
-        </Reveal>
-        <Reveal delay={0.12}>
-          <MilestoneAndRecords user={user} stats={stats} />
-        </Reveal>
-      </div>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Reveal delay={0.1} className="lg:col-span-2">
+              <ProgressChart
+                name={user.displayName}
+                today={stats.today}
+                totalsAll={[...(user.history ?? [])]
+                  .sort((a, b) => a.date.localeCompare(b.date))
+                  .map((h) => ({ date: h.date, value: h.solvedCount }))}
+                perDayAll={stats.daily.filter((d) => d.tracked).map((d) => ({ date: d.date, value: d.solved }))}
+              />
+            </Reveal>
+            <Reveal delay={0.12}>
+              <MilestoneAndRecords user={user} stats={stats} />
+            </Reveal>
+          </div>
 
-      <div className="grid gap-4 lg:grid-cols-5">
-        <Reveal delay={0.14} className="lg:col-span-3">
-          <DifficultyPanel user={user} stats={stats} />
-        </Reveal>
-        <Reveal delay={0.16} className="lg:col-span-2">
-          <Standing user={user} stats={stats} />
-        </Reveal>
-      </div>
+          <div className="grid gap-4 lg:grid-cols-5">
+            <Reveal delay={0.14} className="lg:col-span-3">
+              <DifficultyPanel user={user} stats={stats} />
+            </Reveal>
+            <Reveal delay={0.16} className="lg:col-span-2">
+              <Standing user={user} stats={stats} />
+            </Reveal>
+          </div>
 
-      <Reveal delay={0.18}>
-        <Heatmap stats={stats} />
-      </Reveal>
+          <Reveal delay={0.18}>
+            <Heatmap stats={stats} />
+          </Reveal>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Reveal delay={0.2} className="lg:col-span-2">
-          <WeeklySprints stats={stats} />
-        </Reveal>
-        <Reveal delay={0.22}>
-          <WeekdayPattern stats={stats} />
-        </Reveal>
-      </div>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Reveal delay={0.2} className="lg:col-span-2">
+              <WeeklySprints stats={stats} />
+            </Reveal>
+            <Reveal delay={0.22}>
+              <WeekdayPattern stats={stats} />
+            </Reveal>
+          </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Reveal delay={0.24} className="lg:col-span-2">
-          <BadgesPanel user={user} users={leetcodeUsers} nowMs={nowMs} />
-        </Reveal>
-        <Reveal delay={0.26}>
-          <WeeklyWins stats={stats} />
-        </Reveal>
-      </div>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <Reveal delay={0.24} className="lg:col-span-2">
+              <BadgesPanel user={user} users={leetcodeUsers} nowMs={nowMs} />
+            </Reveal>
+            <Reveal delay={0.26}>
+              <WeeklyWins stats={stats} />
+            </Reveal>
+          </div>
         </div>
       )}
 
