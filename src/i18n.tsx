@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useEffect } from "react";
 
 export type Locale = "en" | "fr" | "ar";
 
@@ -107,41 +107,26 @@ const I18nContext = createContext<I18nContextType>({
 });
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(() => {
-    if (typeof window === "undefined") return "en";
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY) as Locale | null;
-      if (saved && (saved === "en" || saved === "fr" || saved === "ar")) return saved;
-      const navLang = navigator.language?.toLowerCase() || "";
-      if (navLang.startsWith("ar")) return "ar";
-      if (navLang.startsWith("fr")) return "fr";
-    } catch {
-      // Storage unavailable
-    }
-    return "en";
-  });
-
-  const setLocale = (next: Locale) => {
-    setLocaleState(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      // Storage unavailable
-    }
-  };
-
-  const isRTL = locale === "ar";
-
   useEffect(() => {
     if (typeof document === "undefined") return;
-    document.documentElement.lang = locale;
-    document.documentElement.dir = isRTL ? "rtl" : "ltr";
-  }, [locale, isRTL]);
-
-  const t = TRANSLATIONS[locale] || TRANSLATIONS.en;
+    document.documentElement.lang = "en";
+    document.documentElement.dir = "ltr";
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Storage unavailable
+    }
+  }, []);
 
   return (
-    <I18nContext.Provider value={{ locale, setLocale, t, isRTL }}>
+    <I18nContext.Provider
+      value={{
+        locale: "en",
+        setLocale: () => {},
+        t: TRANSLATIONS.en,
+        isRTL: false
+      }}
+    >
       {children}
     </I18nContext.Provider>
   );

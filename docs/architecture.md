@@ -132,7 +132,6 @@ leeterboard/
 │   │   ├── navigation/             # Navigation controls
 │   │   │   ├── NavLinks.tsx        # Top navigation tabs
 │   │   │   ├── ThemeToggle.tsx     # Theme toggle button
-│   │   │   ├── LanguageSelector.tsx# Locale selector dropdown
 │   │   │   └── SiteFooter.tsx      # Shared site footer
 │   │   └── feedback/               # User feedback components
 │   │       ├── FeedbackWidget.tsx  # Floating feedback button & dialog
