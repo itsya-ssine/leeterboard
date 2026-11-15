@@ -8,8 +8,7 @@ import { FramedAvatar } from "../../../components/ui/TierAvatar.js";
 import { codingameTier } from "../../../tiers.js";
 import { PixelRankBadge } from "../../../pixelArt.js";
 
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 // For CodinGame the stored fields mean: solved = total XP, rating = level,
 // weeklySolved = XP earned this week (see platforms/codingame.ts).
@@ -59,13 +58,7 @@ export function codingameMembers(users: User[]): CodingameMember[] {
 export { LevelBadge };
 
 const rankColor = (rank: number) =>
-  rank === 1
-    ? "text-amber-300"
-    : rank === 2
-      ? "text-slate-300"
-      : rank === 3
-        ? "text-orange-300"
-        : "text-mist-500";
+  rank === 1 ? "text-amber-300" : rank === 2 ? "text-slate-300" : rank === 3 ? "text-orange-300" : "text-mist-500";
 
 // What the podium shows for a member under the ranking currently selected.
 function podiumMetric(account: PlatformAccount, sortBy: Sort): { value: string; label: string } {
@@ -98,9 +91,7 @@ function XpBar({ value, max }: { value: number; max: number }) {
         <span
           key={i}
           className={`h-full flex-1 transition-colors duration-300 ${
-            i < filled
-              ? "bg-lime-400 shadow-[0_0_4px_rgba(163,230,53,0.6)]"
-              : "bg-ink-800"
+            i < filled ? "bg-lime-400 shadow-[0_0_4px_rgba(163,230,53,0.6)]" : "bg-ink-800"
           }`}
           style={{ transitionDelay: `${i * 14}ms` }}
         />
@@ -173,7 +164,7 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
           <div
             role="group"
             aria-label="Sort CodinGame leaderboard"
-            className="inline-flex shrink-0 border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]"
+            className="inline-flex shrink-0 border-2 border-ink-700 bg-ink-950 p-1 shadow-[2px_2px_0_#000]"
           >
             {TABS.map((opt) => (
               <button
@@ -182,10 +173,10 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
                 onClick={() => setSortBy(opt.key)}
                 aria-pressed={sortBy === opt.key}
                 id={opt.id}
-                className={`h-8 flex-1 cursor-pointer px-4 font-pixel text-[9px] uppercase tracking-wider transition-colors sm:flex-none ${focusRing} ${
+                className={`h-8 flex-1 cursor-pointer px-3.5 font-pixel text-[10px] uppercase transition-colors sm:flex-none ${focusRing} ${
                   sortBy === opt.key
-                    ? "bg-lime-400 font-bold text-ink-950 shadow-[1px_1px_0_#000]"
-                    : "text-mist-400 hover:bg-ink-900 hover:text-strong"
+                    ? "border border-teal-400 bg-ink-800 text-teal-300 shadow-[1px_1px_0_#000]"
+                    : "border border-transparent text-mist-400 hover:text-mist-100"
                 }`}
               >
                 {opt.label}
@@ -291,7 +282,9 @@ export default function CodinGamePage({ users, loading = false }: { users: User[
                   </div>
 
                   <div className="order-last col-span-3 flex items-center gap-2 md:order-none md:col-span-2">
-                    <span className="font-pixel text-[8px] uppercase tracking-wider text-mist-500 md:hidden">Level</span>
+                    <span className="font-pixel text-[8px] uppercase tracking-wider text-mist-500 md:hidden">
+                      Level
+                    </span>
                     {account.rating != null ? (
                       <>
                         <LevelBadge level={account.rating} />

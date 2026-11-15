@@ -8,8 +8,7 @@ import { FramedAvatar } from "../../../components/ui/TierAvatar.js";
 import { codeforcesTier } from "../../../tiers.js";
 import { PixelRankBadge } from "../../../pixelArt.js";
 
-const focusRing =
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300";
 
 /* ---------- Rank titles ---------- */
 
@@ -95,13 +94,7 @@ export function compareCodeforces(sortBy: CodeforcesSort) {
 /* ---------- Small pieces ---------- */
 
 const rankColor = (rank: number) =>
-  rank === 1
-    ? "text-amber-300"
-    : rank === 2
-      ? "text-slate-300"
-      : rank === 3
-        ? "text-orange-300"
-        : "text-mist-500";
+  rank === 1 ? "text-amber-300" : rank === 2 ? "text-slate-300" : rank === 3 ? "text-orange-300" : "text-mist-500";
 
 // Easy / Medium / Hard (by problem rating) bar, with a balloon per bucket.
 export function CodeforcesBucketBar({ buckets }: { buckets: CodeforcesBuckets }) {
@@ -188,9 +181,7 @@ const PIN_BASE_REM = 2.4;
 // the next colour at a glance. Everyone sits on one line; a pin only moves up
 // to a higher row when it would land on top of the pin before it.
 function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
-  const rated = members
-    .filter((m) => m.account.rating != null)
-    .sort((a, b) => a.account.rating! - b.account.rating!);
+  const rated = members.filter((m) => m.account.rating != null).sort((a, b) => a.account.rating! - b.account.rating!);
   const hasRated = rated.length > 0;
 
   // Pixel width of the track, to tell when two pins would overlap.
@@ -227,10 +218,16 @@ function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
   return (
     <section aria-label="Rating spectrum" className="pixel-card animate-rise p-5">
       <div className="font-pixel text-[9px] uppercase tracking-widest text-emerald-400">// RATING.SPECTRUM</div>
-      <h2 className="mt-1 font-pixel text-base font-bold tracking-wide text-strong">Who is closing in on the next colour</h2>
+      <h2 className="mt-1 font-pixel text-base font-bold tracking-wide text-strong">
+        Who is closing in on the next colour
+      </h2>
 
       <div className="mt-4 overflow-x-auto px-4 pb-1">
-        <div ref={trackRef} className="relative min-w-[34rem]" style={{ height: `${PIN_BASE_REM + rows * PIN_ROW_REM + 0.4}rem` }}>
+        <div
+          ref={trackRef}
+          className="relative min-w-[34rem]"
+          style={{ height: `${PIN_BASE_REM + rows * PIN_ROW_REM + 0.4}rem` }}
+        >
           {rated.map(({ user, account }, i) => (
             <a
               key={user.id}
@@ -238,7 +235,10 @@ function RatingSpectrum({ members }: { members: CodeforcesMember[] }) {
               title={`${user.displayName} · ${account.rating!.toLocaleString()} · ${formatRankTitle(account.rankTitle)}`}
               aria-label={`${user.displayName}, rating ${account.rating}`}
               className={`group/pin absolute flex -translate-x-1/2 flex-col items-center ${focusRing}`}
-              style={{ left: `${spectrumPct(account.rating!)}%`, bottom: `${PIN_BASE_REM + rowOf[i] * PIN_ROW_REM}rem` }}
+              style={{
+                left: `${spectrumPct(account.rating!)}%`,
+                bottom: `${PIN_BASE_REM + rowOf[i] * PIN_ROW_REM}rem`
+              }}
             >
               <FramedAvatar
                 src={user.avatarUrl}
@@ -364,7 +364,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
           <div
             role="group"
             aria-label="Sort Codeforces leaderboard"
-            className="inline-flex shrink-0 border-2 border-ink-700 bg-ink-950 p-0.5 shadow-[2px_2px_0_#000]"
+            className="inline-flex shrink-0 border-2 border-ink-700 bg-ink-950 p-1 shadow-[2px_2px_0_#000]"
           >
             {TABS.map((opt) => (
               <button
@@ -373,10 +373,10 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
                 onClick={() => setSortBy(opt.key)}
                 aria-pressed={sortBy === opt.key}
                 id={opt.id}
-                className={`h-8 flex-1 cursor-pointer px-3 font-pixel text-[9px] uppercase tracking-wider transition-colors sm:flex-none ${focusRing} ${
+                className={`h-8 flex-1 cursor-pointer px-3.5 font-pixel text-[10px] uppercase transition-colors sm:flex-none ${focusRing} ${
                   sortBy === opt.key
-                    ? "bg-teal-400 font-bold text-ink-950 shadow-[1px_1px_0_#000]"
-                    : "text-mist-400 hover:bg-ink-900 hover:text-strong"
+                    ? "border border-teal-400 bg-ink-800 text-teal-300 shadow-[1px_1px_0_#000]"
+                    : "border border-transparent text-mist-400 hover:text-mist-100"
                 }`}
               >
                 {opt.label}
@@ -495,9 +495,7 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
                             <span
                               key={i}
                               className={`h-full flex-1 transition-colors duration-300 ${
-                                i < filled
-                                  ? "bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.6)]"
-                                  : "bg-ink-800"
+                                i < filled ? "bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.6)]" : "bg-ink-800"
                               }`}
                             />
                           ))}
@@ -522,7 +520,9 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
 
                   {/* Rating + rank title */}
                   <div className="order-last col-span-3 flex items-baseline gap-2 md:order-none md:col-span-3 md:block">
-                    <span className="font-pixel text-[8px] uppercase tracking-wider text-mist-500 md:hidden">Rating</span>
+                    <span className="font-pixel text-[8px] uppercase tracking-wider text-mist-500 md:hidden">
+                      Rating
+                    </span>
                     {rated ? (
                       <>
                         <span
@@ -535,7 +535,10 @@ export default function CodeforcesPage({ users, loading = false }: { users: User
                         >
                           {formatRankTitle(account.rankTitle)}
                           {account.maxRating != null && account.maxRating !== account.rating && (
-                            <span className="font-mono text-mist-500 font-normal"> · max {account.maxRating.toLocaleString()}</span>
+                            <span className="font-mono text-mist-500 font-normal">
+                              {" "}
+                              · max {account.maxRating.toLocaleString()}
+                            </span>
                           )}
                         </span>
                       </>
